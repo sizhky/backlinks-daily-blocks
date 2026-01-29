@@ -1,4 +1,4 @@
-const { Plugin, MarkdownRenderer, TFile, parseYaml, moment, ItemView, BasesView } = require('obsidian');
+const { Plugin, MarkdownRenderer, TFile, parseYaml, moment, ItemView, BasesView, setIcon } = require('obsidian');
 
 const VIEW_TYPE = 'backlinks-daily-view';
 const BASES_VIEW_TYPE = 'content-feed-bases-view';
@@ -417,7 +417,6 @@ class PropertiesAggregationView extends BasesView {
         // Get all properties from the file's frontmatter
         const cache = app.metadataCache.getFileCache(file);
         if (cache?.frontmatter) {
-          console.log(`File ${file.basename} frontmatter keys:`, Object.keys(cache.frontmatter));
           for (const key of Object.keys(cache.frontmatter)) {
             if (key !== 'position' && !excludeProperties.includes(key)) {
               allPropertyKeys.add(key);
@@ -426,7 +425,6 @@ class PropertiesAggregationView extends BasesView {
         }
       }
     }
-    console.log('All discovered property keys:', Array.from(allPropertyKeys));
 
     if (allPropertyKeys.size === 0) {
       this.containerEl.createDiv({ text: 'No properties found', cls: 'bdb-properties-empty' });
@@ -438,6 +436,28 @@ class PropertiesAggregationView extends BasesView {
 
     for (const propertyKey of allPropertyKeys) {
       const propertyMap = new Map();
+      const propertyInfo = app.metadataTypeManager?.getPropertyInfo(propertyKey);
+      let isCheckbox = propertyInfo?.type === 'checkbox';
+      
+      // If not registered, check if all values are booleans
+      if (!isCheckbox) {
+        let allBoolean = true;
+        for (const group of data.groupedData) {
+          for (const entry of group.entries) {
+            const file = entry.file;
+            if (!(file instanceof TFile)) continue;
+            const cache = app.metadataCache.getFileCache(file);
+            if (!cache?.frontmatter) continue;
+            const rawValue = cache.frontmatter[propertyKey];
+            if (rawValue !== undefined && rawValue !== null && typeof rawValue !== 'boolean') {
+              allBoolean = false;
+              break;
+            }
+          }
+          if (!allBoolean) break;
+        }
+        isCheckbox = allBoolean;
+      }
       
       for (const group of data.groupedData) {
         for (const entry of group.entries) {
@@ -447,7 +467,34 @@ class PropertiesAggregationView extends BasesView {
           const cache = app.metadataCache.getFileCache(file);
           if (!cache?.frontmatter) continue;
           
+          // Check if property exists in frontmatter
+          const hasProperty = propertyKey in cache.frontmatter;
+          if (!hasProperty) continue;
+          
           const rawValue = cache.frontmatter[propertyKey];
+
+          // Special handling for checkbox properties - just presence matters
+          if (isCheckbox) {
+            // Extract timestamp from filename (e.g., 20260128-0745 -> 0745)
+            const timeMatch = file.basename.match(/\d{8}-(\d{4})/);
+            const timestamp = timeMatch ? timeMatch[1] : file.basename;
+            const key = `${file.path}`;  // Use full path as unique key
+            const displayName = timestamp;
+            const linkPath = file.path;
+            
+            if (!propertyMap.has(key)) {
+              propertyMap.set(key, { displayName, linkPath, sources: [] });
+            }
+            
+            propertyMap.get(key).sources.push({
+              file: file,
+              basename: file.basename
+            });
+            
+            continue; // Skip to next file
+          }
+
+          // For non-checkbox properties, skip if value is null/undefined
           if (rawValue === undefined || rawValue === null) continue;
 
           const values = Array.isArray(rawValue) ? rawValue : [rawValue];
@@ -506,22 +553,59 @@ class PropertiesAggregationView extends BasesView {
       
       const headerEl = propertySection.createEl('div', { cls: 'bdb-property-header' });
       
-      // Add icon based on property type
-      let icon = 'lucide-text';
-      const firstValue = Array.from(valueMap.values())[0];
-      if (firstValue?.linkPath) {
-        icon = 'lucide-link';
-      } else if (propertyKey === 'tags') {
-        icon = 'lucide-tags';
-      } else if (propertyKey.includes('date') || propertyKey.includes('time')) {
-        icon = 'lucide-calendar';
-      } else if (propertyKey.toLowerCase() === 'people' || propertyKey.toLowerCase() === 'person') {
-        icon = 'lucide-users';
-      } else if (typeof firstValue?.displayName === 'string' && (firstValue.displayName === 'true' || firstValue.displayName === 'false')) {
-        icon = 'lucide-check-square';
+      // Get property info from Obsidian's metadata
+      const propertyInfo = app.metadataTypeManager?.getPropertyInfo(propertyKey);
+      let iconName = 'text';
+      
+      if (propertyInfo?.type) {
+        // Use Obsidian's known property type
+        switch (propertyInfo.type) {
+          case 'checkbox':
+            iconName = 'check-square';
+            break;
+          case 'date':
+          case 'datetime':
+            iconName = 'calendar';
+            break;
+          case 'multitext':
+          case 'tags':
+            iconName = 'tags';
+            break;
+          case 'number':
+            iconName = 'hash';
+            break;
+          case 'aliases':
+            iconName = 'forward';
+            break;
+          default:
+            iconName = 'text';
+        }
+      } else {
+        // Fallback: guess from property name, value count, or first value
+        const valueCount = valueMap.size;
+        const firstValue = Array.from(valueMap.values())[0];
+        
+        // Multi-value properties should use list icon
+        if (valueCount > 1 || propertyKey.toLowerCase().includes('categor') || 
+            propertyKey.toLowerCase().includes('people') || propertyKey.toLowerCase().includes('topic') ||
+            propertyKey.toLowerCase().includes('project') || propertyKey.toLowerCase().includes('org')) {
+          iconName = 'list';
+        } else if (firstValue && (firstValue.displayName === 'true' || firstValue.displayName === 'false')) {
+          iconName = 'check-square';
+        } else if (propertyKey === 'tags' || propertyKey.toLowerCase().includes('tag')) {
+          iconName = 'tags';
+        } else if (propertyKey.includes('date') || propertyKey.includes('time')) {
+          iconName = 'calendar';
+        } else if (firstValue?.linkPath) {
+          iconName = 'link';
+        } else {
+          iconName = 'text';
+        }
       }
       
-      headerEl.createEl('span', { cls: `bdb-property-icon ${icon}` });
+      const iconEl = headerEl.createEl('span', { cls: 'bdb-property-icon' });
+      setIcon(iconEl, iconName);
+      
       headerEl.createEl('span', { 
         text: propertyKey.charAt(0).toUpperCase() + propertyKey.slice(1).replace(/-/g, ' '),
         cls: 'bdb-property-name'
@@ -530,7 +614,6 @@ class PropertiesAggregationView extends BasesView {
       const listEl = propertySection.createEl('div', { cls: 'bdb-property-list' });
 
       for (const [key, info] of valueMap) {
-        console.log(`  Value key: ${key}, info:`, info);
         const itemEl = listEl.createEl('div', { cls: 'bdb-property-item' });
         
         const valueEl = itemEl.createEl('span', { cls: 'bdb-property-value-wrapper' });
@@ -538,9 +621,7 @@ class PropertiesAggregationView extends BasesView {
         if (info.linkPath) {
           // Render as markdown to get proper link formatting
           const markdown = `[[${info.linkPath}|${info.displayName}]]`;
-          console.log('Rendering markdown:', markdown);
           await MarkdownRenderer.renderMarkdown(markdown, valueEl, '', this.plugin);
-          console.log('Rendered HTML:', valueEl.innerHTML);
         } else if (propertyKey === 'tags' || key.startsWith('#')) {
           // Display tags with # prefix
           const tagText = key.startsWith('#') ? key : `#${key}`;

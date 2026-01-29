@@ -77,9 +77,18 @@
 }
 
 .bdb-property-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.6;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bdb-property-icon svg {
   width: 14px;
   height: 14px;
-  opacity: 0.6;
 }
 
 .bdb-property-name {
