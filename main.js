@@ -1,4 +1,7 @@
-const { Plugin, MarkdownRenderer, TFile, parseYaml, moment } = require('obsidian');
+const { Plugin, MarkdownRenderer, TFile, parseYaml, moment, ItemView, BasesView } = require('obsidian');
+
+const VIEW_TYPE = 'backlinks-daily-view';
+const BASES_VIEW_TYPE = 'backlinks-daily-bases-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
@@ -9,6 +12,58 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor('daily', (src, el, ctx) => {
       return this.renderDailyBlock(src, el, ctx);
     });
+
+    this.viewInstances = new Set();
+
+    this.registerView(VIEW_TYPE, (leaf) => new BacklinksDailyView(leaf, this));
+
+    this.addCommand({
+      id: 'open-backlinks-daily-view',
+      name: 'Open Backlinks & Daily view',
+      callback: () => this.activateView()
+    });
+
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', () => {
+        this.refreshOpenViews();
+      })
+    );
+
+    this.registerBasesView(BASES_VIEW_TYPE, {
+      name: 'Content Feed',
+      icon: 'lucide-scroll-text',
+      factory: (controller, containerEl) => {
+        console.log('Creating BacklinksDailyBasesView', { controller, containerEl });
+        return new BacklinksDailyBasesView(this, controller, containerEl);
+      },
+      options: () => ([
+        {
+          type: 'toggle',
+          displayName: 'Strip frontmatter',
+          key: 'stripFrontmatter',
+          default: true,
+        },
+        {
+          type: 'number',
+          displayName: 'Truncate length',
+          key: 'truncateLength',
+          default: 800,
+        },
+      ]),
+    });
+  }
+
+  async activateView() {
+    const leaf = this.app.workspace.getRightLeaf(false) || this.app.workspace.getRightLeaf(true);
+    if (!leaf) return;
+    await leaf.setViewState({ type: VIEW_TYPE, active: true });
+    this.app.workspace.revealLeaf(leaf);
+  }
+
+  refreshOpenViews() {
+    for (const view of this.viewInstances) {
+      view.render();
+    }
   }
 
   parseOptions(source, defaults) {
@@ -183,6 +238,99 @@ class BacklinksDailyBlocksPlugin extends Plugin {
 
       const markdown = `${content}\n\n---`;
       await MarkdownRenderer.renderMarkdown(markdown, section, ctx.sourcePath, this);
+    }
+  }
+}
+
+class BacklinksDailyBasesView extends BasesView {
+  constructor(plugin, controller, parentEl) {
+    console.log('BacklinksDailyBasesView constructor', { plugin, controller, parentEl });
+    super(controller);
+    this.type = BASES_VIEW_TYPE;
+    this.plugin = plugin;
+    this.containerEl = parentEl.createDiv('bases-content-feed-container');
+    console.log('BacklinksDailyBasesView constructed', this);
+  }
+
+  load() {
+    // Required lifecycle method
+  }
+
+  unload() {
+    // Required lifecycle method
+  }
+
+  async onDataUpdated() {
+    const { app } = this;
+    const config = this.config;
+    
+    console.log('onDataUpdated called', this.data);
+    
+    this.containerEl.empty();
+
+    if (!this.data) {
+      this.containerEl.createDiv({ text: 'Loading...' });
+      return;
+    }
+
+    const stripFrontmatter = config.get('stripFrontmatter') !== false;
+    const truncateLength = Number(config.get('truncateLength')) || 800;
+
+    // Collect all entries from grouped data
+    const allEntries = [];
+    if (this.data.groupedData) {
+      for (const group of this.data.groupedData) {
+        allEntries.push(...group.entries);
+      }
+    }
+
+    console.log('Processing entries', allEntries.length);
+
+    if (allEntries.length === 0) {
+      this.containerEl.createDiv({ text: 'No entries found.' });
+      return;
+    }
+
+    // Use all entries for a simple linear feed
+    for (const entry of allEntries) {
+      const file = entry.file;
+      
+      if (!(file instanceof TFile)) continue;
+
+      const section = this.containerEl.createDiv('bdb-bases-entry');
+      const displayName = file.basename.endsWith('.excalidraw') 
+        ? file.basename.replace('.excalidraw', '') 
+        : file.basename;
+      
+      const titleEl = section.createEl('h4');
+      const linkEl = titleEl.createEl('a', { text: displayName, cls: 'bdb-bases-title-link' });
+      linkEl.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        const modEvent = evt.ctrlKey || evt.metaKey;
+        app.workspace.openLinkText(file.path, '', modEvent);
+      });
+
+      if (file.basename.endsWith('.excalidraw')) {
+        const embed = `![[${file.path}|100%]]`;
+        await MarkdownRenderer.renderMarkdown(embed, section, file.path, this.plugin);
+        continue;
+      }
+
+      let content = '';
+      try {
+        content = await app.vault.cachedRead(file);
+      } catch (err) {
+        console.warn('backlinks-daily-blocks: read failed', file.path, err);
+      }
+
+      if (stripFrontmatter) {
+        content = this.plugin.stripFrontmatter(content || '');
+      }
+      content = this.plugin.truncateContent(content, truncateLength);
+      if (!content.trim()) content = '(empty note)';
+
+      const markdown = `${content}\n\n---`;
+      await MarkdownRenderer.renderMarkdown(markdown, section, file.path, this.plugin);
     }
   }
 }

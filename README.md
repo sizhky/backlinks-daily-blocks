@@ -51,3 +51,14 @@ Notes:
 - YAML bodies are parsed; a plain string sets the date (for `daily`) or target (for `backlinks`).
 - Content is trimmed of frontmatter and `%% more %%` markers and truncated per `truncate`.
 - Excalidraw files ending with `.excalidraw.md` are embedded with the configured size.
+
+## Side pane view
+- Command: **Open Backlinks & Daily view** (also available via Command Palette).
+- Opens a right-hand pane that follows the active note, showing backlinks and daily embeds with `includeCurrent: true`.
+
+
+## Bases view
+- **Content Feed** view available in any Base (change view type from the toolbar).
+- Renders full content of all filtered files (strips frontmatter, truncates at `%% more %%`).
+- Configure via view settings: toggle frontmatter stripping and set truncate length.
+- Perfect for reading multiple notes as a vertical feed (like aggregated daily notes or filtered project notes).

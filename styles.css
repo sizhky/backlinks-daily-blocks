@@ -9,3 +9,31 @@
   margin-top: 0;
   margin-bottom: 6px;
 }
+
+.bdb-bases-entry {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.bdb-bases-entry h4 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: var(--text-accent);
+}
+
+.bdb-bases-title-link {
+  color: var(--text-accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.bdb-bases-title-link:hover {
+  color: var(--text-accent-hover);
+  text-decoration: underline;
+}
+
+.bases-content-feed-container {
+  padding: 8px;
+}
