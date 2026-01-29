@@ -2,6 +2,7 @@ const { Plugin, MarkdownRenderer, TFile, parseYaml, moment, ItemView, BasesView 
 
 const VIEW_TYPE = 'backlinks-daily-view';
 const BASES_VIEW_TYPE = 'content-feed-bases-view';
+const BASES_PROPERTIES_VIEW_TYPE = 'properties-aggregation-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
@@ -53,6 +54,22 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           displayName: 'Show property beside title',
           key: 'titleProperty',
           default: 'note.categories',
+        },
+      ]),
+    });
+
+    this.registerBasesView(BASES_PROPERTIES_VIEW_TYPE, {
+      name: 'Properties Aggregation',
+      icon: 'lucide-list-tree',
+      factory: (controller, containerEl) => {
+        return new PropertiesAggregationView(this, controller, containerEl);
+      },
+      options: () => ([
+        {
+          type: 'text',
+          displayName: 'Exclude properties (comma-separated)',
+          key: 'excludeProperties',
+          default: 'file,journal,journal-date',
         },
       ]),
     });
@@ -353,6 +370,185 @@ class BacklinksDailyBasesView extends BasesView {
 
       const markdown = `${content}\n\n---`;
       await MarkdownRenderer.renderMarkdown(markdown, section, file.path, this.plugin);
+    }
+  }
+}
+
+class PropertiesAggregationView extends BasesView {
+  constructor(plugin, controller, container) {
+    super(controller);
+    this.type = BASES_PROPERTIES_VIEW_TYPE;
+    this.plugin = plugin;
+    this.containerEl = container.createDiv('bdb-properties-aggregation');
+  }
+
+  load() {
+    // Required lifecycle method
+  }
+
+  unload() {
+    // Required lifecycle method
+  }
+
+  async onDataUpdated() {
+    const { app } = this;
+    const data = this.data;
+    
+    this.containerEl.empty();
+    
+    if (!data || !data.groupedData) {
+      this.containerEl.createDiv({ text: 'No data available', cls: 'bdb-properties-empty' });
+      return;
+    }
+
+    const config = this.config || {};
+    const excludeProperties = (config.excludeProperties || 'file,journal,journal-date')
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean);
+
+    // First pass: discover all unique property keys
+    const allPropertyKeys = new Set();
+    for (const group of data.groupedData) {
+      for (const entry of group.entries) {
+        const file = entry.file;
+        if (!(file instanceof TFile)) continue;
+        
+        // Get all properties from the file's frontmatter
+        const cache = app.metadataCache.getFileCache(file);
+        if (cache?.frontmatter) {
+          console.log(`File ${file.basename} frontmatter keys:`, Object.keys(cache.frontmatter));
+          for (const key of Object.keys(cache.frontmatter)) {
+            if (key !== 'position' && !excludeProperties.includes(key)) {
+              allPropertyKeys.add(key);
+            }
+          }
+        }
+      }
+    }
+    console.log('All discovered property keys:', Array.from(allPropertyKeys));
+
+    if (allPropertyKeys.size === 0) {
+      this.containerEl.createDiv({ text: 'No properties found', cls: 'bdb-properties-empty' });
+      return;
+    }
+
+    // Second pass: aggregate values for each property
+    const aggregatedData = new Map();
+
+    for (const propertyKey of allPropertyKeys) {
+      const propertyMap = new Map();
+      
+      for (const group of data.groupedData) {
+        for (const entry of group.entries) {
+          const file = entry.file;
+          if (!(file instanceof TFile)) continue;
+
+          const cache = app.metadataCache.getFileCache(file);
+          if (!cache?.frontmatter) continue;
+          
+          const rawValue = cache.frontmatter[propertyKey];
+          if (rawValue === undefined || rawValue === null) continue;
+
+          const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+          
+          for (const val of values) {
+            let key, displayName, linkPath;
+            
+            if (val && typeof val === 'object' && val.path) {
+              key = val.path;
+              linkPath = val.path;
+              displayName = val.display || val.path.split('/').pop().replace('.md', '');
+            } else {
+              key = String(val);
+              displayName = key;
+              linkPath = null;
+            }
+            
+            if (!propertyMap.has(key)) {
+              propertyMap.set(key, { displayName, linkPath, sources: [] });
+            }
+            
+            propertyMap.get(key).sources.push({
+              file: file,
+              basename: file.basename
+            });
+          }
+        }
+      }
+      
+      if (propertyMap.size > 0) {
+        aggregatedData.set(propertyKey, propertyMap);
+      }
+    }
+
+    // Display aggregated properties
+    if (aggregatedData.size === 0) {
+      this.containerEl.createDiv({ text: 'No properties found', cls: 'bdb-properties-empty' });
+      return;
+    }
+
+    for (const [propertyKey, valueMap] of aggregatedData) {
+      const propertySection = this.containerEl.createDiv({ cls: 'bdb-property-section' });
+      
+      const headerEl = propertySection.createEl('h3', { 
+        text: propertyKey.charAt(0).toUpperCase() + propertyKey.slice(1).replace(/-/g, ' '),
+        cls: 'bdb-property-header'
+      });
+
+      const listEl = propertySection.createEl('div', { cls: 'bdb-property-list' });
+
+      for (const [key, info] of valueMap) {
+        const itemEl = listEl.createEl('div', { cls: 'bdb-property-item' });
+        
+        const valueEl = itemEl.createEl('span', { cls: 'bdb-property-value-wrapper' });
+        
+        if (info.linkPath) {
+          const linkEl = valueEl.createEl('a', { 
+            text: info.displayName,
+            cls: 'internal-link'
+          });
+          linkEl.addEventListener('click', (evt) => {
+            evt.preventDefault();
+            const modEvent = evt.ctrlKey || evt.metaKey;
+            app.workspace.openLinkText(info.linkPath, '', modEvent);
+          });
+        } else if (propertyKey === 'tags' || key.startsWith('#')) {
+          // Display tags with # prefix
+          const tagText = key.startsWith('#') ? key : `#${key}`;
+          valueEl.createSpan({ text: tagText, cls: 'tag' });
+        } else {
+          valueEl.createSpan({ text: info.displayName });
+        }
+        
+        const countEl = itemEl.createSpan({ 
+          text: ` (${info.sources.length})`,
+          cls: 'bdb-property-count'
+        });
+
+        // Add expandable list of source notes
+        const sourcesEl = itemEl.createEl('div', { cls: 'bdb-property-sources' });
+        sourcesEl.style.display = 'none';
+        
+        countEl.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          sourcesEl.style.display = sourcesEl.style.display === 'none' ? 'block' : 'none';
+        });
+        countEl.style.cursor = 'pointer';
+
+        for (const source of info.sources) {
+          const sourceItem = sourcesEl.createEl('div', { cls: 'bdb-property-source-item' });
+          const sourceLink = sourceItem.createEl('a', {
+            text: source.basename,
+            cls: 'internal-link'
+          });
+          sourceLink.addEventListener('click', (evt) => {
+            evt.preventDefault();
+            const modEvent = evt.ctrlKey || evt.metaKey;
+            app.workspace.openLinkText(source.file.path, '', modEvent);
+          });
+        }
+      }
     }
   }
 }
