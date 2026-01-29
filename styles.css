@@ -55,29 +55,31 @@
 }
 
 .bdb-property-section {
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.bdb-property-section:last-child {
-  border-bottom: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 4px 0;
 }
 
 .bdb-property-header {
   font-size: 0.85em;
   color: var(--text-muted);
-  margin-bottom: 8px;
+  margin: 0;
+  padding-top: 2px;
   font-weight: 500;
   text-transform: none;
+  min-width: 100px;
+  flex-shrink: 0;
 }
 
 .bdb-property-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 3px;
   margin: 0;
   padding: 0;
+  flex: 1;
 }
 
 .bdb-property-item {
@@ -93,6 +95,11 @@
 .bdb-property-value-wrapper {
   display: inline-flex;
   align-items: center;
+}
+
+.bdb-property-value-wrapper p {
+  display: inline;
+  margin: 0;
 }
 
 .bdb-property-item .tag {

@@ -456,13 +456,26 @@ class PropertiesAggregationView extends BasesView {
             let key, displayName, linkPath;
             
             if (val && typeof val === 'object' && val.path) {
+              // It's already a link object from Obsidian
               key = val.path;
               linkPath = val.path;
               displayName = val.display || val.path.split('/').pop().replace('.md', '');
             } else {
-              key = String(val);
-              displayName = key;
-              linkPath = null;
+              // It's a string, check if it contains wiki link syntax
+              const strVal = String(val);
+              const wikiLinkMatch = strVal.match(/^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/);
+              
+              if (wikiLinkMatch) {
+                // It's a wiki link like [[Page]] or [[Page|Display]]
+                linkPath = wikiLinkMatch[1];
+                displayName = wikiLinkMatch[2] || wikiLinkMatch[1].split('/').pop();
+                key = linkPath;
+              } else {
+                // Plain string value
+                key = strVal;
+                displayName = strVal;
+                linkPath = null;
+              }
             }
             
             if (!propertyMap.has(key)) {
@@ -489,6 +502,7 @@ class PropertiesAggregationView extends BasesView {
     }
 
     for (const [propertyKey, valueMap] of aggregatedData) {
+      console.log(`Rendering property: ${propertyKey}, values:`, Array.from(valueMap.keys()));
       const propertySection = this.containerEl.createDiv({ cls: 'bdb-property-section' });
       
       const headerEl = propertySection.createEl('h3', { 
@@ -499,20 +513,17 @@ class PropertiesAggregationView extends BasesView {
       const listEl = propertySection.createEl('div', { cls: 'bdb-property-list' });
 
       for (const [key, info] of valueMap) {
+        console.log(`  Value key: ${key}, info:`, info);
         const itemEl = listEl.createEl('div', { cls: 'bdb-property-item' });
         
         const valueEl = itemEl.createEl('span', { cls: 'bdb-property-value-wrapper' });
         
         if (info.linkPath) {
-          const linkEl = valueEl.createEl('a', { 
-            text: info.displayName,
-            cls: 'internal-link'
-          });
-          linkEl.addEventListener('click', (evt) => {
-            evt.preventDefault();
-            const modEvent = evt.ctrlKey || evt.metaKey;
-            app.workspace.openLinkText(info.linkPath, '', modEvent);
-          });
+          // Render as markdown to get proper link formatting
+          const markdown = `[[${info.linkPath}|${info.displayName}]]`;
+          console.log('Rendering markdown:', markdown);
+          await MarkdownRenderer.renderMarkdown(markdown, valueEl, '', this.plugin);
+          console.log('Rendered HTML:', valueEl.innerHTML);
         } else if (propertyKey === 'tags' || key.startsWith('#')) {
           // Display tags with # prefix
           const tagText = key.startsWith('#') ? key : `#${key}`;
