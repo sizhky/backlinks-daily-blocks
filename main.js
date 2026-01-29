@@ -502,12 +502,29 @@ class PropertiesAggregationView extends BasesView {
     }
 
     for (const [propertyKey, valueMap] of aggregatedData) {
-      console.log(`Rendering property: ${propertyKey}, values:`, Array.from(valueMap.keys()));
       const propertySection = this.containerEl.createDiv({ cls: 'bdb-property-section' });
       
-      const headerEl = propertySection.createEl('h3', { 
+      const headerEl = propertySection.createEl('div', { cls: 'bdb-property-header' });
+      
+      // Add icon based on property type
+      let icon = 'lucide-text';
+      const firstValue = Array.from(valueMap.values())[0];
+      if (firstValue?.linkPath) {
+        icon = 'lucide-link';
+      } else if (propertyKey === 'tags') {
+        icon = 'lucide-tags';
+      } else if (propertyKey.includes('date') || propertyKey.includes('time')) {
+        icon = 'lucide-calendar';
+      } else if (propertyKey.toLowerCase() === 'people' || propertyKey.toLowerCase() === 'person') {
+        icon = 'lucide-users';
+      } else if (typeof firstValue?.displayName === 'string' && (firstValue.displayName === 'true' || firstValue.displayName === 'false')) {
+        icon = 'lucide-check-square';
+      }
+      
+      headerEl.createEl('span', { cls: `bdb-property-icon ${icon}` });
+      headerEl.createEl('span', { 
         text: propertyKey.charAt(0).toUpperCase() + propertyKey.slice(1).replace(/-/g, ' '),
-        cls: 'bdb-property-header'
+        cls: 'bdb-property-name'
       });
 
       const listEl = propertySection.createEl('div', { cls: 'bdb-property-list' });

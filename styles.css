@@ -57,12 +57,15 @@
 .bdb-property-section {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 8px;
-  padding: 4px 0;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 2px 0;
 }
 
 .bdb-property-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 0.85em;
   color: var(--text-muted);
   margin: 0;
@@ -73,13 +76,24 @@
   flex-shrink: 0;
 }
 
+.bdb-property-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.6;
+}
+
+.bdb-property-name {
+  flex: 1;
+}
+
 .bdb-property-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: 0;
   margin: 0;
   padding: 0;
   flex: 1;
+  line-height: 1.5;
 }
 
 .bdb-property-item {
@@ -88,8 +102,10 @@
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 0px 4px;
   font-size: 0.9em;
+  margin-right: 2px;
+  margin-bottom: 2px;
 }
 
 .bdb-property-value-wrapper {
