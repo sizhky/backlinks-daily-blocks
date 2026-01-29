@@ -34,6 +34,17 @@
   text-decoration: underline;
 }
 
+.bdb-bases-categories {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.bdb-bases-categories p {
+  display: inline;
+  margin: 0;
+}
+
 .bases-content-feed-container {
   padding: 8px;
 }

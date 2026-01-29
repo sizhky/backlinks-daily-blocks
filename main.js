@@ -48,6 +48,12 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           key: 'truncateLength',
           default: 800,
         },
+        {
+          type: 'text',
+          displayName: 'Show property beside title',
+          key: 'titleProperty',
+          default: 'note.categories',
+        },
       ]),
     });
   }
@@ -270,6 +276,7 @@ class BacklinksDailyBasesView extends BasesView {
 
     const stripFrontmatter = config.get('stripFrontmatter') !== false;
     const truncateLength = Number(config.get('truncateLength')) || 800;
+    const titleProperty = String(config.get('titleProperty') || 'note.categories');
 
     // Collect all entries from grouped data
     const allEntries = [];
@@ -302,6 +309,28 @@ class BacklinksDailyBasesView extends BasesView {
         const modEvent = evt.ctrlKey || evt.metaKey;
         app.workspace.openLinkText(file.path, '', modEvent);
       });
+
+      // Get property value from entry metadata if configured
+      if (titleProperty) {
+        const propertyValue = entry.getValue(titleProperty);
+        if (propertyValue && propertyValue.data && Array.isArray(propertyValue.data)) {
+          const valueLinks = propertyValue.data
+            .filter(val => val)
+            .map(val => {
+              if (val && val.path) {
+                const displayName = val.display || val.path.split('/').pop().replace('.md', '');
+                return `[[${val.path}|${displayName}]]`;
+              }
+              return String(val);
+            });
+          
+          if (valueLinks.length > 0) {
+            const valueStr = ` (${valueLinks.join(', ')})`;
+            const propertySpan = titleEl.createSpan({ cls: 'bdb-bases-categories' });
+            await MarkdownRenderer.renderMarkdown(valueStr, propertySpan, file.path, this.plugin);
+          }
+        }
+      }
 
       if (file.basename.endsWith('.excalidraw')) {
         const embed = `![[${file.path}|100%]]`;
