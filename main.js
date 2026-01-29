@@ -1,7 +1,7 @@
 const { Plugin, MarkdownRenderer, TFile, parseYaml, moment, ItemView, BasesView } = require('obsidian');
 
 const VIEW_TYPE = 'backlinks-daily-view';
-const BASES_VIEW_TYPE = 'backlinks-daily-bases-view';
+const BASES_VIEW_TYPE = 'content-feed-bases-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
