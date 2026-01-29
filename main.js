@@ -33,7 +33,6 @@ class BacklinksDailyBlocksPlugin extends Plugin {
       name: 'Content Feed',
       icon: 'lucide-scroll-text',
       factory: (controller, containerEl) => {
-        console.log('Creating BacklinksDailyBasesView', { controller, containerEl });
         return new BacklinksDailyBasesView(this, controller, containerEl);
       },
       options: () => ([
@@ -244,12 +243,10 @@ class BacklinksDailyBlocksPlugin extends Plugin {
 
 class BacklinksDailyBasesView extends BasesView {
   constructor(plugin, controller, parentEl) {
-    console.log('BacklinksDailyBasesView constructor', { plugin, controller, parentEl });
     super(controller);
     this.type = BASES_VIEW_TYPE;
     this.plugin = plugin;
     this.containerEl = parentEl.createDiv('bases-content-feed-container');
-    console.log('BacklinksDailyBasesView constructed', this);
   }
 
   load() {
@@ -263,8 +260,6 @@ class BacklinksDailyBasesView extends BasesView {
   async onDataUpdated() {
     const { app } = this;
     const config = this.config;
-    
-    console.log('onDataUpdated called', this.data);
     
     this.containerEl.empty();
 
@@ -283,8 +278,6 @@ class BacklinksDailyBasesView extends BasesView {
         allEntries.push(...group.entries);
       }
     }
-
-    console.log('Processing entries', allEntries.length);
 
     if (allEntries.length === 0) {
       this.containerEl.createDiv({ text: 'No entries found.' });
