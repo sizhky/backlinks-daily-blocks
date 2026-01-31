@@ -258,7 +258,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
       content = this.truncateContent(this.stripFrontmatter(content || ''), options.truncate);
       if (!content.trim()) content = '(empty note)';
 
-      const markdown = `${content}\n\n---`;
+      const markdown = `${content}\n`;
       await MarkdownRenderer.renderMarkdown(markdown, section, ctx.sourcePath, this);
     }
   }
@@ -314,10 +314,30 @@ class BacklinksDailyBasesView extends BasesView {
       
       if (!(file instanceof TFile)) continue;
 
-      const section = this.containerEl.createDiv('bdb-bases-entry');
       const displayName = file.basename.endsWith('.excalidraw') 
         ? file.basename.replace('.excalidraw', '') 
         : file.basename;
+      
+      // For non-excalidraw files, check content first
+      if (!file.basename.endsWith('.excalidraw')) {
+        let content = '';
+        try {
+          content = await app.vault.cachedRead(file);
+        } catch (err) {
+          console.warn('backlinks-daily-blocks: read failed', file.path, err);
+        }
+
+        if (stripFrontmatter) {
+          content = this.plugin.stripFrontmatter(content || '');
+        }
+        content = this.plugin.truncateContent(content, truncateLength);
+        
+        // Skip empty notes
+        if (!content.trim()) continue;
+      }
+
+      // Now create the section since we know it has content
+      const section = this.containerEl.createDiv('bdb-bases-entry');
       
       const titleEl = section.createEl('h4');
       const linkEl = titleEl.createEl('a', { text: displayName, cls: 'bdb-bases-title-link' });
@@ -355,6 +375,7 @@ class BacklinksDailyBasesView extends BasesView {
         continue;
       }
 
+      // Re-read content for rendering (we already validated it's not empty)
       let content = '';
       try {
         content = await app.vault.cachedRead(file);
@@ -366,9 +387,8 @@ class BacklinksDailyBasesView extends BasesView {
         content = this.plugin.stripFrontmatter(content || '');
       }
       content = this.plugin.truncateContent(content, truncateLength);
-      if (!content.trim()) content = '(empty note)';
 
-      const markdown = `${content}\n\n---`;
+      const markdown = `${content}\n`;
       await MarkdownRenderer.renderMarkdown(markdown, section, file.path, this.plugin);
     }
   }

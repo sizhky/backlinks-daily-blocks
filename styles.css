@@ -1,5 +1,5 @@
 .bdb-backlink, .bdb-daily {
-  border: 1px solid var(--background-modifier-border);
+  border: 0px solid var(--background-modifier-border);
   border-radius: 8px;
   padding: 12px;
   margin: 12px 0;
@@ -11,7 +11,7 @@
 }
 
 .bdb-bases-entry {
-  border: 1px solid var(--background-modifier-border);
+  border: 0px solid var(--background-modifier-border);
   border-radius: 8px;
   padding: 16px;
   margin: 16px 0;
@@ -108,9 +108,9 @@
 .bdb-property-item {
   display: inline-flex;
   align-items: center;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  background: none;
+  border: none;
+  border-radius: 0;
   padding: 0px 4px;
   font-size: 0.9em;
   margin-right: 2px;
@@ -144,7 +144,7 @@
 .bdb-property-sources {
   position: absolute;
   background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
+  border: 0px solid var(--background-modifier-border);
   border-radius: 4px;
   padding: 8px;
   margin-top: 4px;
