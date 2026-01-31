@@ -86,7 +86,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           type: 'toggle',
           displayName: 'Include completed tasks',
           key: 'includeCompleted',
-          default: false,
+          default: true,
         },
         {
           type: 'text',
@@ -763,7 +763,7 @@ class TasksAggregationView extends BasesView {
     }
 
     const config = this.config || {};
-    const includeCompleted = config.get ? config.get('includeCompleted') === true : Boolean(config.includeCompleted);
+    const includeCompleted = config.get ? config.get('includeCompleted') !== false : config.includeCompleted !== false;
     const containsRaw = config.get ? config.get('contains') : config.contains;
     const contains = (containsRaw || '').toString().trim().toLowerCase();
 
@@ -827,37 +827,52 @@ class TasksAggregationView extends BasesView {
       return a.line - b.line;
     });
 
-    const listEl = this.containerEl.createDiv({ cls: 'bdb-tasks-list' });
+    const incomplete = tasks.filter(t => !t.completed);
+    const complete = tasks.filter(t => t.completed);
 
-    for (const task of tasks) {
-      const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
+    const renderGroup = async (title, items, collapsedByDefault) => {
+      const details = this.containerEl.createEl('details', { cls: 'bdb-task-group' });
+      if (!collapsedByDefault) details.setAttr('open', 'open');
+      const summary = details.createEl('summary', { text: `${title} (${items.length})`, cls: 'bdb-task-group-title' });
+      const listEl = details.createDiv({ cls: 'bdb-tasks-list' });
 
-      const checkbox = itemEl.createEl('input', {
-        type: 'checkbox',
-        cls: 'bdb-task-checkbox',
-      });
-      checkbox.checked = task.completed;
-      checkbox.addEventListener('change', async () => {
-        checkbox.disabled = true;
-        await this.toggleTask(task, checkbox.checked);
-        checkbox.disabled = false;
-      });
+      for (const task of items) {
+        const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
 
-      const textEl = itemEl.createSpan({
-        text: task.text,
-        cls: 'bdb-task-link',
-      });
+        const checkbox = itemEl.createEl('input', {
+          type: 'checkbox',
+          cls: 'bdb-task-checkbox',
+        });
+        checkbox.checked = task.completed;
+        checkbox.addEventListener('change', async () => {
+          checkbox.disabled = true;
+          await this.toggleTask(task, checkbox.checked);
+          checkbox.disabled = false;
+        });
 
-      const metaEl = itemEl.createEl('a', {
-        text: ` · ${task.file.basename}:${task.line + 1}`,
-        cls: 'bdb-task-meta',
-        href: '#',
-      });
-      metaEl.addEventListener('click', (evt) => {
-        evt.preventDefault();
-        const modEvent = evt.ctrlKey || evt.metaKey;
-        this.app.workspace.openLinkText(task.file.path, '', modEvent);
-      });
+        itemEl.createSpan({
+          text: task.text,
+          cls: 'bdb-task-link',
+        });
+
+        const metaEl = itemEl.createEl('a', {
+          text: ` · ${task.file.basename}:${task.line + 1}`,
+          cls: 'bdb-task-meta',
+          href: '#',
+        });
+        metaEl.addEventListener('click', (evt) => {
+          evt.preventDefault();
+          const modEvent = evt.ctrlKey || evt.metaKey;
+          this.app.workspace.openLinkText(task.file.path, '', modEvent);
+        });
+      }
+
+      return details;
+    };
+
+    await renderGroup('Incomplete', incomplete, false);
+    if (complete.length) {
+      await renderGroup('Complete', complete, true);
     }
   }
 }
