@@ -838,6 +838,11 @@ class TasksAggregationView extends BasesView {
 
       for (const task of items) {
         const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
+        itemEl.style.display = 'flex';
+        itemEl.style.alignItems = 'center';
+        itemEl.style.columnGap = '0.5em';
+        itemEl.style.rowGap = '0.15em';
+        itemEl.style.flexWrap = 'wrap';
 
         const checkbox = itemEl.createEl('input', {
           type: 'checkbox',
@@ -850,16 +855,29 @@ class TasksAggregationView extends BasesView {
           checkbox.disabled = false;
         });
 
-        itemEl.createSpan({
-          text: task.text,
-          cls: 'bdb-task-link',
-        });
+        const textEl = itemEl.createSpan({ cls: 'bdb-task-link' });
+        textEl.style.display = 'inline';
+        textEl.style.margin = '0';
+        await MarkdownRenderer.renderMarkdown(task.text, textEl, task.file.path, this.plugin);
+
+        // Flatten paragraphs inserted by MarkdownRenderer to keep text inline.
+        const paras = Array.from(textEl.querySelectorAll('p'));
+        for (const p of paras) {
+          const parent = p.parentElement;
+          if (!parent) continue;
+          while (p.firstChild) {
+            parent.insertBefore(p.firstChild, p);
+          }
+          p.remove();
+        }
 
         const metaEl = itemEl.createEl('a', {
           text: ` · ${task.file.basename}:${task.line + 1}`,
           cls: 'bdb-task-meta',
           href: '#',
         });
+        metaEl.style.marginLeft = '0.35em';
+        metaEl.style.whiteSpace = 'nowrap';
         metaEl.addEventListener('click', (evt) => {
           evt.preventDefault();
           const modEvent = evt.ctrlKey || evt.metaKey;
