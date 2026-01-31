@@ -3,6 +3,7 @@ const { Plugin, MarkdownRenderer, TFile, parseYaml, moment, ItemView, BasesView,
 const VIEW_TYPE = 'backlinks-daily-view';
 const BASES_VIEW_TYPE = 'content-feed-bases-view';
 const BASES_PROPERTIES_VIEW_TYPE = 'properties-aggregation-view';
+const BASES_TASKS_VIEW_TYPE = 'tasks-aggregation-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
@@ -70,6 +71,28 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           displayName: 'Exclude properties (comma-separated)',
           key: 'excludeProperties',
           default: 'file,journal,journal-date',
+        },
+      ]),
+    });
+
+    this.registerBasesView(BASES_TASKS_VIEW_TYPE, {
+      name: 'Tasks',
+      icon: 'lucide-check-square',
+      factory: (controller, containerEl) => {
+        return new TasksAggregationView(this, controller, containerEl);
+      },
+      options: () => ([
+        {
+          type: 'toggle',
+          displayName: 'Include completed tasks',
+          key: 'includeCompleted',
+          default: false,
+        },
+        {
+          type: 'text',
+          displayName: 'Contains (case-insensitive)',
+          key: 'contains',
+          default: '',
         },
       ]),
     });
@@ -678,6 +701,163 @@ class PropertiesAggregationView extends BasesView {
           });
         }
       }
+    }
+  }
+}
+
+class TasksAggregationView extends BasesView {
+  constructor(plugin, controller, container) {
+    super(controller);
+    this.type = BASES_TASKS_VIEW_TYPE;
+    this.plugin = plugin;
+    this.containerEl = container.createDiv('bdb-tasks-aggregation');
+  }
+
+  load() {
+    // Required lifecycle method
+  }
+
+  unload() {
+    // Required lifecycle method
+  }
+
+  buildTaskLink(filePath, lineNumber) {
+    // Use Obsidian URI with line param to jump to the exact task line
+    const vaultName = encodeURIComponent(this.app?.vault?.getName() || '');
+    const encodedPath = encodeURIComponent(filePath);
+    const line = Math.max(1, (lineNumber || 0) + 1); // Convert to 1-based
+    return `obsidian://open?vault=${vaultName}&file=${encodedPath}&line=${line}`;
+  }
+
+  async toggleTask(task, newCompleted) {
+    const { app } = this;
+    try {
+      const content = await app.vault.read(task.file);
+      const lines = content.split(/\r?\n/);
+      const lineIdx = task.line;
+      if (lineIdx < 0 || lineIdx >= lines.length) return;
+
+      const original = lines[lineIdx];
+      const updated = original.replace(/^(\s*[-*]\s*\[)( |x|X)(\])/, `$1${newCompleted ? 'x' : ' '}$3`);
+
+      if (updated === original) return;
+      lines[lineIdx] = updated;
+      await app.vault.modify(task.file, lines.join('\n'));
+    } catch (err) {
+      console.warn('backlinks-daily-blocks: toggle task failed', task.file?.path, err);
+    } finally {
+      // Refresh to reflect new state
+      this.onDataUpdated();
+    }
+  }
+
+  async onDataUpdated() {
+    const { app } = this;
+    const data = this.data;
+
+    this.containerEl.empty();
+
+    if (!data || !data.groupedData) {
+      this.containerEl.createDiv({ text: 'No data available', cls: 'bdb-tasks-empty' });
+      return;
+    }
+
+    const config = this.config || {};
+    const includeCompleted = config.get ? config.get('includeCompleted') === true : Boolean(config.includeCompleted);
+    const containsRaw = config.get ? config.get('contains') : config.contains;
+    const contains = (containsRaw || '').toString().trim().toLowerCase();
+
+    const tasks = [];
+
+    for (const group of data.groupedData) {
+      for (const entry of group.entries) {
+        const file = entry.file;
+        if (!(file instanceof TFile)) continue;
+
+        const cache = app.metadataCache.getFileCache(file);
+        const listItems = cache?.listItems || [];
+        if (!listItems.length) continue;
+
+        let fileLines = null;
+
+        for (const item of listItems) {
+          if (!item || typeof item.task !== 'string') continue;
+
+          const completed = item.task.toLowerCase() === 'x';
+          if (!includeCompleted && completed) continue;
+
+          // Only keep markdown task list items like - [ ] or - [x]
+          const pos = item.position?.start;
+          if (!pos || pos.line == null) continue;
+
+          if (!fileLines) {
+            try {
+              const content = await app.vault.cachedRead(file);
+              fileLines = content.split(/\r?\n/);
+            } catch (err) {
+              console.warn('backlinks-daily-blocks: task read failed', file.path, err);
+              break;
+            }
+          }
+
+          const rawLine = fileLines[pos.line] || '';
+          if (!/^\s*[-*]\s*\[[ xX]\]/.test(rawLine)) continue;
+
+          const taskText = rawLine.replace(/^\s*[-*]\s*\[[ xX]\]\s*/, '').trim();
+          if (contains && !taskText.toLowerCase().includes(contains)) continue;
+
+          tasks.push({
+            file,
+            line: pos.line,
+            text: taskText || '(empty task)',
+            completed,
+          });
+        }
+      }
+    }
+
+    if (!tasks.length) {
+      this.containerEl.createDiv({ text: 'No tasks found', cls: 'bdb-tasks-empty' });
+      return;
+    }
+
+    tasks.sort((a, b) => {
+      const pathCompare = a.file.path.localeCompare(b.file.path);
+      if (pathCompare !== 0) return pathCompare;
+      return a.line - b.line;
+    });
+
+    const listEl = this.containerEl.createDiv({ cls: 'bdb-tasks-list' });
+
+    for (const task of tasks) {
+      const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
+
+      const checkbox = itemEl.createEl('input', {
+        type: 'checkbox',
+        cls: 'bdb-task-checkbox',
+      });
+      checkbox.checked = task.completed;
+      checkbox.addEventListener('change', async () => {
+        checkbox.disabled = true;
+        await this.toggleTask(task, checkbox.checked);
+        checkbox.disabled = false;
+      });
+
+      const textEl = itemEl.createSpan({
+        text: task.text,
+        cls: 'bdb-task-link',
+      });
+
+      const metaEl = itemEl.createEl('a', {
+        text: ` · ${task.file.basename}:${task.line + 1}`,
+        cls: 'bdb-task-meta',
+        href: '#',
+      });
+      metaEl.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        const modEvent = evt.ctrlKey || evt.metaKey;
+        this.app.workspace.openLinkText(task.file.path, '', modEvent);
+      });
     }
   }
 }
