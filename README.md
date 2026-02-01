@@ -5,6 +5,15 @@ Lightweight Obsidian plugin that renders two custom code blocks without Dataview
 - ```backlinks``` shows notes that link to the target note.
 - ```daily``` shows all YYYYMMDD-HHmm notes for a given date (current note by default).
 
+## Quick install (manual)
+- Drop this folder into `.obsidian/plugins/backlinks-daily-blocks`.
+- Ensure `manifest.json` and `main.js` sit at the root of that folder.
+- Restart/Reload Obsidian and enable **Backlinks & Daily Blocks** in Settings → Community Plugins.
+
+## Package metadata
+- `package.json` declares `main: "main.js"`; version/name match the manifest.
+- Dev dependency on `obsidian@^1.5.0`; Node >= 16.
+
 ## Installation
 Copy this folder into `.obsidian/plugins/backlinks-daily-blocks`, then enable it in Obsidian.
 
@@ -59,6 +68,18 @@ Notes:
 
 ## Bases view
 - **Content Feed** view available in any Base (change view type from the toolbar).
-- Renders full content of all filtered files (strips frontmatter, truncates at `%% more %%`).
-- Configure via view settings: toggle frontmatter stripping and set truncate length.
-- Perfect for reading multiple notes as a vertical feed (like aggregated daily notes or filtered project notes).
+- Renders full content of all filtered files (strips frontmatter, truncates at `%% more %%` unless `truncateLength` is 0).
+- View settings: strip frontmatter, truncate length, show property beside title.
+- Tasks inside rendered markdown are clickable; checkboxes sync back to the source file; internal links open via Obsidian navigation.
+- Perfect for reading multiple notes as a vertical feed (daily rollups, project filters, etc.).
+
+## Tasks aggregation view (Bases)
+- View: **Tasks** (change view type in the Base toolbar).
+- Groups tasks into Incomplete/Complete; defaults to include completed.
+- Clicking a task’s checkbox writes back to the source line; link jumps to the exact line in the note.
+- Internal links inside task text are rendered and clickable.
+
+## Properties aggregation view (Bases)
+- View: **Properties Aggregation**.
+- Aggregates frontmatter properties across the filtered files, with icons per type.
+- Click counts to expand source notes; link values render as internal links.
