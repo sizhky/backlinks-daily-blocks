@@ -842,7 +842,7 @@ class TasksAggregationView extends BasesView {
         itemEl.style.alignItems = 'center';
         itemEl.style.columnGap = '0.5em';
         itemEl.style.rowGap = '0.15em';
-        itemEl.style.flexWrap = 'wrap';
+        itemEl.style.flexWrap = 'nowrap';
 
         const checkbox = itemEl.createEl('input', {
           type: 'checkbox',
@@ -856,8 +856,11 @@ class TasksAggregationView extends BasesView {
         });
 
         const textEl = itemEl.createSpan({ cls: 'bdb-task-link' });
-        textEl.style.display = 'inline';
+        textEl.style.display = 'inline-block';
         textEl.style.margin = '0';
+        textEl.style.flex = '1';
+        textEl.style.minWidth = '0';
+        textEl.style.whiteSpace = 'normal';
         await MarkdownRenderer.renderMarkdown(task.text, textEl, task.file.path, this.plugin);
 
         // Flatten paragraphs inserted by MarkdownRenderer to keep text inline.
