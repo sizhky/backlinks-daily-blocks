@@ -344,8 +344,10 @@ class BacklinksDailyBasesView extends BasesView {
       // For non-excalidraw files, check content first
       if (!file.basename.endsWith('.excalidraw')) {
         let content = '';
+        let rawLines = [];
         try {
           content = await app.vault.cachedRead(file);
+          rawLines = content.split(/\r?\n/);
         } catch (err) {
           console.warn('backlinks-daily-blocks: read failed', file.path, err);
         }
@@ -400,8 +402,10 @@ class BacklinksDailyBasesView extends BasesView {
 
       // Re-read content for rendering (we already validated it's not empty)
       let content = '';
+      let rawLines = [];
       try {
         content = await app.vault.cachedRead(file);
+        rawLines = content.split(/\r?\n/);
       } catch (err) {
         console.warn('backlinks-daily-blocks: read failed', file.path, err);
       }
@@ -413,6 +417,45 @@ class BacklinksDailyBasesView extends BasesView {
 
       const markdown = `${content}\n`;
       await MarkdownRenderer.renderMarkdown(markdown, section, file.path, this.plugin);
+
+      // Make task checkboxes interactive for rendered markdown (best-effort text match)
+      this.attachTaskCheckboxHandlers(section, file, rawLines);
+    }
+  }
+
+  attachTaskCheckboxHandlers(container, file, rawLines) {
+    if (!rawLines || !rawLines.length) return;
+    const checkboxes = container.querySelectorAll('input.task-list-item-checkbox');
+    if (!checkboxes?.length) return;
+
+    const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    for (const box of checkboxes) {
+      // Avoid double-binding
+      if (box.__bdbBound) continue;
+      box.__bdbBound = true;
+
+      box.addEventListener('change', async () => {
+        const li = box.closest('li');
+        const text = li ? li.textContent.trim() : '';
+        if (!text) return;
+
+        // Find the first matching task line in the source file
+        const pattern = new RegExp(`^\\s*[-*]\\s*\\[[ xX\\]]\\]\\s*${escapeRegex(text)}\\s*$`);
+        const idx = rawLines.findIndex((line) => pattern.test(line.trimEnd()));
+        if (idx === -1) return;
+
+        const original = rawLines[idx];
+        const updated = original.replace(/^(\s*[-*]\s*\[)( |x|X)(\])/, `$1${box.checked ? 'x' : ' '}$3`);
+        if (updated === original) return;
+
+        rawLines[idx] = updated;
+        try {
+          await this.app.vault.modify(file, rawLines.join('\n'));
+        } catch (err) {
+          console.warn('backlinks-daily-blocks: toggle task (rendered) failed', file.path, err);
+        }
+      });
     }
   }
 }
@@ -729,6 +772,27 @@ class TasksAggregationView extends BasesView {
     return `obsidian://open?vault=${vaultName}&file=${encodedPath}&line=${line}`;
   }
 
+  openFileAtLine(file, lineNumber, modEvent) {
+    const { app } = this;
+    const targetLine = Math.max(0, lineNumber || 0);
+    app.workspace.openLinkText(file.path, '', modEvent);
+    // Let the workspace open the leaf, then move the cursor/scroll.
+    window.setTimeout(() => {
+      const leaf = app.workspace.getMostRecentLeaf?.() || app.workspace.activeLeaf;
+      const view = leaf?.view;
+      const editor = view?.editor;
+      if (editor?.setCursor) {
+        editor.setCursor({ line: targetLine, ch: 0 });
+        if (editor.scrollIntoView) {
+          editor.scrollIntoView({
+            from: { line: targetLine, ch: 0 },
+            to: { line: targetLine + 1, ch: 0 },
+          }, true);
+        }
+      }
+    }, 60);
+  }
+
   async toggleTask(task, newCompleted) {
     const { app } = this;
     try {
@@ -749,6 +813,19 @@ class TasksAggregationView extends BasesView {
       // Refresh to reflect new state
       this.onDataUpdated();
     }
+  }
+
+  createTaskSeparator(parentEl) {
+    const sep = parentEl.createDiv({ cls: 'bdb-task-item-sep' });
+    sep.textContent = '';
+    sep.style.height = '1px';
+    sep.style.width = '100%';
+    sep.style.backgroundColor = 'var(--text-muted, #666)';
+    sep.style.opacity = '0.25';
+    sep.style.margin = '0.25em 0 0.25em 0';
+    sep.style.border = 'none';
+    sep.style.padding = '0';
+    return sep;
   }
 
   async onDataUpdated() {
@@ -836,63 +913,66 @@ class TasksAggregationView extends BasesView {
       const summary = details.createEl('summary', { text: `${title} (${items.length})`, cls: 'bdb-task-group-title' });
       const listEl = details.createDiv({ cls: 'bdb-tasks-list' });
 
-      for (const task of items) {
-        const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
-        itemEl.style.display = 'flex';
-        itemEl.style.alignItems = 'center';
-        itemEl.style.columnGap = '0.5em';
-        itemEl.style.rowGap = '0.15em';
-        itemEl.style.flexWrap = 'nowrap';
+        for (const task of items) {
+          this.createTaskSeparator(listEl);
 
-        const checkbox = itemEl.createEl('input', {
-          type: 'checkbox',
-          cls: 'bdb-task-checkbox',
-        });
-        checkbox.checked = task.completed;
-        checkbox.addEventListener('change', async () => {
-          checkbox.disabled = true;
-          await this.toggleTask(task, checkbox.checked);
-          checkbox.disabled = false;
-        });
+          const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
+          itemEl.style.display = 'flex';
+          itemEl.style.alignItems = 'center';
+          itemEl.style.columnGap = '0.5em';
+          itemEl.style.rowGap = '0.15em';
+          itemEl.style.flexWrap = 'nowrap';
 
-        const textEl = itemEl.createSpan({ cls: 'bdb-task-link' });
-        textEl.style.display = 'inline-block';
-        textEl.style.margin = '0';
-        textEl.style.flex = '1';
-        textEl.style.minWidth = '0';
-        textEl.style.whiteSpace = 'normal';
-        await MarkdownRenderer.renderMarkdown(task.text, textEl, task.file.path, this.plugin);
+          const checkbox = itemEl.createEl('input', {
+            type: 'checkbox',
+            cls: 'bdb-task-checkbox',
+          });
+          checkbox.checked = task.completed;
+          checkbox.addEventListener('change', async () => {
+            checkbox.disabled = true;
+            await this.toggleTask(task, checkbox.checked);
+            checkbox.disabled = false;
+          });
 
-        // Flatten paragraphs inserted by MarkdownRenderer to keep text inline.
-        const paras = Array.from(textEl.querySelectorAll('p'));
-        for (const p of paras) {
-          const parent = p.parentElement;
-          if (!parent) continue;
-          while (p.firstChild) {
-            parent.insertBefore(p.firstChild, p);
+          const textEl = itemEl.createSpan({ cls: 'bdb-task-link' });
+          textEl.style.display = 'inline-block';
+          textEl.style.margin = '0';
+          textEl.style.flex = '1';
+          textEl.style.minWidth = '0';
+          textEl.style.whiteSpace = 'normal';
+          await MarkdownRenderer.renderMarkdown(task.text, textEl, task.file.path, this.plugin);
+
+          // Flatten paragraphs inserted by MarkdownRenderer to keep text inline.
+          const paras = Array.from(textEl.querySelectorAll('p'));
+          for (const p of paras) {
+            const parent = p.parentElement;
+            if (!parent) continue;
+            while (p.firstChild) {
+              parent.insertBefore(p.firstChild, p);
+            }
+            p.remove();
           }
-          p.remove();
+
+          const metaEl = itemEl.createEl('a', {
+            text: ` · ${task.file.basename}:${task.line + 1}`,
+            cls: 'bdb-task-meta',
+            href: '#',
+          });
+          metaEl.style.marginLeft = '0.35em';
+          metaEl.style.whiteSpace = 'nowrap';
+          metaEl.addEventListener('click', (evt) => {
+            evt.preventDefault();
+            const modEvent = evt.ctrlKey || evt.metaKey;
+              this.openFileAtLine(task.file, task.line, modEvent);
+          });
         }
-
-        const metaEl = itemEl.createEl('a', {
-          text: ` · ${task.file.basename}:${task.line + 1}`,
-          cls: 'bdb-task-meta',
-          href: '#',
-        });
-        metaEl.style.marginLeft = '0.35em';
-        metaEl.style.whiteSpace = 'nowrap';
-        metaEl.addEventListener('click', (evt) => {
-          evt.preventDefault();
-          const modEvent = evt.ctrlKey || evt.metaKey;
-          this.app.workspace.openLinkText(task.file.path, '', modEvent);
-        });
-      }
-
+        this.createTaskSeparator(listEl);
       return details;
     };
 
     await renderGroup('Incomplete', incomplete, false);
     if (complete.length) {
+      const sep = this.containerEl.createDiv({ cls: 'bdb-task-separator' });
       await renderGroup('Complete', complete, true);
     }
   }
