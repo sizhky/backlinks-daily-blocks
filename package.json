@@ -1,0 +1,25 @@
+{
+  "name": "backlinks-daily-blocks",
+  "version": "0.1.3",
+  "description": "Obsidian plugin: Backlinks & Daily Blocks (render backlinks/daily blocks without Dataview).",
+  "main": "main.js",
+  "scripts": {
+    "build": "echo \"No build step: main.js is already bundled.\"",
+    "test": "echo \"No tests defined.\""
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "backlinks",
+    "daily-notes",
+    "tasks"
+  ],
+  "author": "Yeshwanth",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "obsidian": "^1.5.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
