@@ -447,28 +447,30 @@ class BacklinksDailyBasesView extends BasesView {
     const checkboxes = container.querySelectorAll('input.task-list-item-checkbox');
     if (!checkboxes?.length) return;
 
-    const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const listItems = this.app.metadataCache.getFileCache(file)?.listItems || [];
+    const taskItems = listItems.filter((item) => {
+      const line = item?.position?.start?.line;
+      if (line == null) return false;
+      const raw = rawLines[line] || '';
+      return /^\s*[-*]\s*\[[ xX]\]/.test(raw);
+    });
 
-    for (const box of checkboxes) {
-      // Avoid double-binding
+    const count = Math.min(taskItems.length, checkboxes.length);
+
+    for (let i = 0; i < count; i++) {
+      const box = checkboxes[i];
       if (box.__bdbBound) continue;
       box.__bdbBound = true;
 
+      const line = taskItems[i]?.position?.start?.line;
+      if (line == null || line < 0 || line >= rawLines.length) continue;
+
       box.addEventListener('change', async () => {
-        const li = box.closest('li');
-        const text = li ? li.textContent.trim() : '';
-        if (!text) return;
-
-        // Find the first matching task line in the source file
-        const pattern = new RegExp(`^\\s*[-*]\\s*\\[[ xX\\]]\\]\\s*${escapeRegex(text)}\\s*$`);
-        const idx = rawLines.findIndex((line) => pattern.test(line.trimEnd()));
-        if (idx === -1) return;
-
-        const original = rawLines[idx];
+        const original = rawLines[line];
         const updated = original.replace(/^(\s*[-*]\s*\[)( |x|X)(\])/, `$1${box.checked ? 'x' : ' '}$3`);
         if (updated === original) return;
 
-        rawLines[idx] = updated;
+        rawLines[line] = updated;
         try {
           await this.app.vault.modify(file, rawLines.join('\n'));
         } catch (err) {
