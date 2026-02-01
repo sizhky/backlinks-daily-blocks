@@ -898,11 +898,15 @@ class TasksAggregationView extends BasesView {
       return;
     }
 
-    tasks.sort((a, b) => {
-      const pathCompare = a.file.path.localeCompare(b.file.path);
-      if (pathCompare !== 0) return pathCompare;
-      return a.line - b.line;
-    });
+    // Respect Base-defined sorters if present; otherwise fall back to path+line.
+    const hasBaseSorters = Array.isArray(this.data?.sorters) && this.data.sorters.length > 0;
+    if (!hasBaseSorters) {
+      tasks.sort((a, b) => {
+        const pathCompare = a.file.path.localeCompare(b.file.path);
+        if (pathCompare !== 0) return pathCompare;
+        return a.line - b.line;
+      });
+    }
 
     const incomplete = tasks.filter(t => !t.completed);
     const complete = tasks.filter(t => t.completed);
