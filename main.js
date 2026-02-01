@@ -7,6 +7,8 @@ const BASES_TASKS_VIEW_TYPE = 'tasks-aggregation-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
+    this.injectStyles();
+
     this.registerMarkdownCodeBlockProcessor('backlinks', (src, el, ctx) => {
       return this.renderBacklinksBlock(src, el, ctx);
     });
@@ -48,7 +50,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           type: 'number',
           displayName: 'Truncate length',
           key: 'truncateLength',
-          default: 800,
+          default: 0,
         },
         {
           type: 'text',
@@ -96,6 +98,18 @@ class BacklinksDailyBlocksPlugin extends Plugin {
         },
       ]),
     });
+  }
+
+  injectStyles() {
+    const css = `
+      .bdb-bases-entry ul { margin: 0.15em 0 0.15em 1.25em; padding-left: 1.25em; }
+      .bdb-bases-entry li { margin: 0.05em 0; }
+      .bdb-bases-entry p { margin: 0.15em 0; }
+    `;
+    const styleEl = document.createElement('style');
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+    this.register(() => styleEl.remove());
   }
 
   async activateView() {
@@ -315,7 +329,12 @@ class BacklinksDailyBasesView extends BasesView {
     }
 
     const stripFrontmatter = config.get('stripFrontmatter') !== false;
-    const truncateLength = Number(config.get('truncateLength')) || 800;
+
+    // Preserve zero to disable truncation; fall back only if the value is invalid
+    let truncateLength = Number(config.get('truncateLength'));
+    if (!Number.isFinite(truncateLength) || truncateLength < 0) {
+      truncateLength = 0;
+    }
     const titleProperty = String(config.get('titleProperty') || 'note.categories');
 
     // Collect all entries from grouped data
