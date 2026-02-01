@@ -151,6 +151,21 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     return text.replace(/^---\n[\s\S]*?\n---\n/, '');
   }
 
+  bindInternalLinks(container, sourcePath) {
+    const anchors = container.querySelectorAll('a.internal-link');
+    for (const anchor of anchors) {
+      if (anchor.__bdbBound) continue;
+      anchor.__bdbBound = true;
+      anchor.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        const link = anchor.getAttribute('href') || anchor.dataset?.href;
+        if (!link) return;
+        const modEvent = evt.ctrlKey || evt.metaKey;
+        this.app.workspace.openLinkText(link, sourcePath || '', modEvent);
+      });
+    }
+  }
+
   truncateContent(text, limit) {
     let output = text;
     const moreIndex = output.indexOf('%% more %%');
@@ -436,6 +451,9 @@ class BacklinksDailyBasesView extends BasesView {
 
       const markdown = `${content}\n`;
       await MarkdownRenderer.renderMarkdown(markdown, section, file.path, this.plugin);
+
+      // Ensure internal links open via Obsidian's navigation
+      this.plugin.bindInternalLinks(section, file.path);
 
       // Make task checkboxes interactive for rendered markdown (best-effort text match)
       this.attachTaskCheckboxHandlers(section, file, rawLines);
@@ -966,6 +984,9 @@ class TasksAggregationView extends BasesView {
           textEl.style.minWidth = '0';
           textEl.style.whiteSpace = 'normal';
           await MarkdownRenderer.renderMarkdown(task.text, textEl, task.file.path, this.plugin);
+
+          // Ensure internal links inside task text are clickable
+          this.plugin.bindInternalLinks(textEl, task.file.path);
 
           // Flatten paragraphs inserted by MarkdownRenderer to keep text inline.
           const paras = Array.from(textEl.querySelectorAll('p'));
