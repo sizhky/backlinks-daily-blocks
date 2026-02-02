@@ -4,6 +4,7 @@ const VIEW_TYPE = 'backlinks-daily-view';
 const BASES_VIEW_TYPE = 'content-feed-bases-view';
 const BASES_PROPERTIES_VIEW_TYPE = 'properties-aggregation-view';
 const BASES_TASKS_VIEW_TYPE = 'tasks-aggregation-view';
+const BASES_WINS_VIEW_TYPE = 'wins-aggregation-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
@@ -97,6 +98,15 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           default: '',
         },
       ]),
+    });
+
+    this.registerBasesView(BASES_WINS_VIEW_TYPE, {
+      name: 'Wins',
+      icon: 'lucide-trophy',
+      factory: (controller, containerEl) => {
+        return new WinsAggregationView(this, controller, containerEl);
+      },
+      options: () => ([]),
     });
   }
 
@@ -1172,6 +1182,113 @@ class TasksAggregationView extends BasesView {
     if (complete.length) {
       const sep = this.containerEl.createDiv({ cls: 'bdb-task-separator' });
       await renderGroup('Complete', complete, true);
+    }
+  }
+}
+
+class WinsAggregationView extends BasesView {
+  constructor(plugin, controller, container) {
+    super(controller);
+    this.type = BASES_WINS_VIEW_TYPE;
+    this.plugin = plugin;
+    this.containerEl = container.createDiv('bdb-wins-aggregation');
+  }
+
+  load() {
+    // Required lifecycle method
+  }
+
+  unload() {
+    // Required lifecycle method
+  }
+
+  openFileAtLine(file, lineNumber, modEvent) {
+    const { app } = this;
+    const targetLine = Math.max(0, lineNumber || 0);
+    app.workspace.openLinkText(file.path, '', modEvent);
+    window.setTimeout(() => {
+      const leaf = app.workspace.getMostRecentLeaf?.() || app.workspace.activeLeaf;
+      const view = leaf?.view;
+      const editor = view?.editor;
+      if (editor?.setCursor) {
+        editor.setCursor({ line: targetLine, ch: 0 });
+        if (editor.scrollIntoView) {
+          editor.scrollIntoView({
+            from: { line: targetLine, ch: 0 },
+            to: { line: targetLine + 1, ch: 0 },
+          }, true);
+        }
+      }
+    }, 60);
+  }
+
+  async onDataUpdated() {
+    const { app } = this;
+    const data = this.data;
+
+    this.containerEl.empty();
+
+    const heading = this.containerEl.createEl('h3', { text: 'Wins', cls: 'bdb-wins-heading' });
+    heading.style.marginTop = '0';
+    heading.style.marginBottom = '0.4em';
+
+    if (!data || !data.groupedData) {
+      this.containerEl.createDiv({ text: 'No data available', cls: 'bdb-wins-empty' });
+      return;
+    }
+
+    const wins = [];
+
+    for (const group of data.groupedData) {
+      for (const entry of group.entries) {
+        const file = entry.file;
+        if (!(file instanceof TFile)) continue;
+
+        let content = '';
+        let lines = [];
+        try {
+          content = await app.vault.cachedRead(file);
+          lines = content.split(/\r?\n/);
+        } catch (err) {
+          console.warn('backlinks-daily-blocks: read failed', file.path, err);
+          continue;
+        }
+
+        lines.forEach((line, idx) => {
+          if (/#win\b/i.test(line)) {
+            const text = line.trim();
+            wins.push({ file, line: idx, text: text || '(win)' });
+          }
+        });
+      }
+    }
+
+    if (!wins.length) {
+      this.containerEl.createDiv({ text: 'No wins found', cls: 'bdb-wins-empty' });
+      return;
+    }
+
+    const list = this.containerEl.createEl('ul', { cls: 'bdb-wins-list' });
+
+    for (const win of wins) {
+      const li = list.createEl('li', { cls: 'bdb-wins-item' });
+      const textEl = li.createSpan({ text: win.text, cls: 'bdb-wins-text' });
+      textEl.style.cursor = 'pointer';
+      textEl.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        const modEvent = evt.ctrlKey || evt.metaKey;
+        this.openFileAtLine(win.file, win.line, modEvent);
+      });
+
+      const meta = li.createSpan({ text: ` · ${win.file.basename}:${win.line + 1}`, cls: 'bdb-wins-meta' });
+      meta.style.color = 'var(--text-muted)';
+      meta.style.marginLeft = '0.35em';
+      meta.style.cursor = 'pointer';
+      meta.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        const modEvent = evt.ctrlKey || evt.metaKey;
+        this.openFileAtLine(win.file, win.line, modEvent);
+      });
     }
   }
 }
