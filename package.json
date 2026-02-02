@@ -1,6 +1,6 @@
 {
   "name": "backlinks-daily-blocks",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Obsidian plugin: Backlinks & Daily Blocks (render backlinks/daily blocks without Dataview).",
   "main": "main.js",
   "scripts": {
