@@ -97,6 +97,12 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           key: 'contains',
           default: '',
         },
+        {
+          type: 'text',
+          displayName: 'Group by property (optional)',
+          key: 'groupBy',
+          default: '',
+        },
       ]),
     });
 
@@ -1054,8 +1060,42 @@ class TasksAggregationView extends BasesView {
     const includeCompleted = config.get ? config.get('includeCompleted') !== false : config.includeCompleted !== false;
     const containsRaw = config.get ? config.get('contains') : config.contains;
     const contains = (containsRaw || '').toString().trim().toLowerCase();
+    const groupByRaw = config.get ? config.get('groupBy') : config.groupBy;
+    const groupBy = (groupByRaw || '').toString().trim();
 
     const tasks = [];
+
+    const extractGroupValues = (cache) => {
+      if (!groupBy) return [];
+      const rawVal = cache?.frontmatter ? cache.frontmatter[groupBy] : undefined;
+      const values = Array.isArray(rawVal) ? rawVal : (rawVal !== undefined && rawVal !== null ? [rawVal] : []);
+
+      return values
+        .map(val => {
+          if (val && typeof val === 'object') {
+            if (val.path) {
+              const key = val.path;
+              const label = (val.display || val.path.split('/').pop() || '').replace(/\.md$/, '');
+              return { key, label: label || key };
+            }
+            return null;
+          }
+
+          const strVal = String(val).trim();
+          if (!strVal) return null;
+
+          const wikiLinkMatch = strVal.match(/^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/);
+          if (wikiLinkMatch) {
+            const key = wikiLinkMatch[1];
+            const label = (wikiLinkMatch[2] || wikiLinkMatch[1]).replace(/\.md$/, '').split('/').pop();
+            return { key, label: label || key };
+          }
+
+          const trimmed = strVal.replace(/\.md$/, '');
+          return { key: strVal, label: trimmed.split('/').pop() || trimmed };
+        })
+        .filter(Boolean);
+    };
 
     for (const group of data.groupedData) {
       for (const entry of group.entries) {
@@ -1095,6 +1135,8 @@ class TasksAggregationView extends BasesView {
           const taskText = rawLine.replace(/^\s*[-*]\s*\[[^\]]\]\s*/, '').trim();
           if (contains && !taskText.toLowerCase().includes(contains)) continue;
 
+          const groupValues = extractGroupValues(cache);
+
           tasks.push({
             file,
             line: pos.line,
@@ -1102,6 +1144,7 @@ class TasksAggregationView extends BasesView {
             completed,
             status,
             rawLine,
+            groupValues,
           });
         }
       }
@@ -1125,67 +1168,95 @@ class TasksAggregationView extends BasesView {
     const incomplete = tasks.filter(t => !t.completed);
     const complete = tasks.filter(t => t.completed);
 
+    const renderTaskList = async (listEl, items) => {
+      for (const task of items) {
+        this.createTaskSeparator(listEl);
+
+        const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
+        itemEl.style.display = 'flex';
+        itemEl.style.alignItems = 'center';
+        itemEl.style.columnGap = '0.5em';
+        itemEl.style.rowGap = '0.15em';
+        itemEl.style.flexWrap = 'nowrap';
+
+        const status = (task.status || '').trim();
+        const isToggleable = status === '' || status === ' ' || status.toLowerCase() === 'x';
+
+        const textEl = itemEl.createSpan({ cls: 'bdb-task-link' });
+        textEl.style.display = 'inline-block';
+        textEl.style.margin = '0';
+        textEl.style.flex = '1';
+        textEl.style.minWidth = '0';
+        textEl.style.whiteSpace = 'normal';
+
+        // Render the original line so checkbox/status styling matches core/Tasks
+        await MarkdownRenderer.renderMarkdown(task.rawLine || task.text, textEl, task.file.path, this.plugin);
+
+        // Ensure internal links inside task text are clickable
+        this.plugin.bindInternalLinks(textEl, task.file.path);
+
+        // Attach checkbox handler if toggleable
+        const renderedBox = textEl.querySelector('input.task-list-item-checkbox');
+        if (renderedBox) {
+          if (isToggleable) {
+            renderedBox.checked = task.completed;
+            renderedBox.addEventListener('change', async () => {
+              renderedBox.disabled = true;
+              await this.toggleTask(task, renderedBox.checked);
+              renderedBox.disabled = false;
+            });
+          } else {
+            renderedBox.disabled = true;
+          }
+        }
+
+        const metaEl = itemEl.createEl('a', {
+          text: ` · ${task.file.basename}:${task.line + 1}`,
+          cls: 'bdb-task-meta',
+          href: '#',
+        });
+        metaEl.style.marginLeft = '0.35em';
+        metaEl.style.whiteSpace = 'nowrap';
+        metaEl.addEventListener('click', (evt) => {
+          evt.preventDefault();
+          const modEvent = evt.ctrlKey || evt.metaKey;
+            this.openFileAtLine(task.file, task.line, modEvent);
+        });
+      }
+      this.createTaskSeparator(listEl);
+    };
+
     const renderGroup = async (title, items, collapsedByDefault) => {
       const details = this.containerEl.createEl('details', { cls: 'bdb-task-group' });
       if (!collapsedByDefault) details.setAttr('open', 'open');
       const summary = details.createEl('summary', { text: `${title} (${items.length})`, cls: 'bdb-task-group-title' });
       const listEl = details.createDiv({ cls: 'bdb-tasks-list' });
 
-        for (const task of items) {
-          this.createTaskSeparator(listEl);
+      if (!groupBy) {
+        await renderTaskList(listEl, items);
+        return details;
+      }
 
-          const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
-          itemEl.style.display = 'flex';
-          itemEl.style.alignItems = 'center';
-          itemEl.style.columnGap = '0.5em';
-          itemEl.style.rowGap = '0.15em';
-          itemEl.style.flexWrap = 'nowrap';
-
-          const status = (task.status || '').trim();
-          const isToggleable = status === '' || status === ' ' || status.toLowerCase() === 'x';
-
-          const textEl = itemEl.createSpan({ cls: 'bdb-task-link' });
-          textEl.style.display = 'inline-block';
-          textEl.style.margin = '0';
-          textEl.style.flex = '1';
-          textEl.style.minWidth = '0';
-          textEl.style.whiteSpace = 'normal';
-
-          // Render the original line so checkbox/status styling matches core/Tasks
-          await MarkdownRenderer.renderMarkdown(task.rawLine || task.text, textEl, task.file.path, this.plugin);
-
-          // Ensure internal links inside task text are clickable
-          this.plugin.bindInternalLinks(textEl, task.file.path);
-
-          // Attach checkbox handler if toggleable
-          const renderedBox = textEl.querySelector('input.task-list-item-checkbox');
-          if (renderedBox) {
-            if (isToggleable) {
-              renderedBox.checked = task.completed;
-              renderedBox.addEventListener('change', async () => {
-                renderedBox.disabled = true;
-                await this.toggleTask(task, renderedBox.checked);
-                renderedBox.disabled = false;
-              });
-            } else {
-              renderedBox.disabled = true;
-            }
+      const groupMap = new Map();
+      for (const task of items) {
+        const values = (task.groupValues && task.groupValues.length) ? task.groupValues : [{ key: '__ungrouped__', label: 'Not set' }];
+        for (const val of values) {
+          if (!groupMap.has(val.key)) {
+            groupMap.set(val.key, { label: val.label || val.key || 'Not set', items: [] });
           }
-
-          const metaEl = itemEl.createEl('a', {
-            text: ` · ${task.file.basename}:${task.line + 1}`,
-            cls: 'bdb-task-meta',
-            href: '#',
-          });
-          metaEl.style.marginLeft = '0.35em';
-          metaEl.style.whiteSpace = 'nowrap';
-          metaEl.addEventListener('click', (evt) => {
-            evt.preventDefault();
-            const modEvent = evt.ctrlKey || evt.metaKey;
-              this.openFileAtLine(task.file, task.line, modEvent);
-          });
+          groupMap.get(val.key).items.push(task);
         }
-        this.createTaskSeparator(listEl);
+      }
+
+      const orderedGroups = Array.from(groupMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+
+      for (const subgroup of orderedGroups) {
+        const heading = listEl.createEl('h4', { text: `${subgroup.label} (${subgroup.items.length})`, cls: 'bdb-task-subgroup-title' });
+        heading.style.margin = '0.25em 0 0.1em 0';
+        heading.style.fontSize = '0.95em';
+        await renderTaskList(listEl, subgroup.items);
+      }
+
       return details;
     };
 
