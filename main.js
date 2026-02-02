@@ -1253,7 +1253,7 @@ class WinsAggregationView extends BasesView {
 
     // Build regex to match any configured hashtag (word-boundary after tag)
     const escapedTags = tagList.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const winRegex = new RegExp(`(?:${escapedTags.join('|')})\\b`, 'i');
+    const winRegex = new RegExp(`(${escapedTags.join('|')})\\b`, 'gi');
 
     for (const group of data.groupedData) {
       for (const entry of group.entries) {
@@ -1271,6 +1271,7 @@ class WinsAggregationView extends BasesView {
         }
 
         lines.forEach((line, idx) => {
+          winRegex.lastIndex = 0;
           if (winRegex.test(line)) {
             const text = line.trim();
             wins.push({ file, line: idx, text: text || '(win)', raw: line });
@@ -1280,43 +1281,74 @@ class WinsAggregationView extends BasesView {
     }
 
     if (!wins.length) {
-      this.containerEl.createDiv({ text: 'No wins found', cls: 'bdb-wins-empty' });
+      this.containerEl.createDiv({ text: 'No records found', cls: 'bdb-wins-empty' });
       return;
     }
 
-    const list = this.containerEl.createEl('ul', { cls: 'bdb-wins-list' });
+    const list = this.containerEl.createDiv({ cls: 'bdb-wins-list' });
 
     for (const win of wins) {
       this.createWaveSeparator(list, 'rgba(46, 160, 67, 0.85)');
-      const li = list.createEl('li', { cls: 'bdb-wins-item' });
+      const li = list.createDiv({ cls: 'bdb-wins-item' });
 
-      // Render win text with highlighted hashtags
-      const textEl = li.createSpan({ cls: 'bdb-wins-text' });
+      // Lay out text and meta similar to tasks view
+      const row = li.createDiv({ cls: 'bdb-wins-row' });
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.columnGap = '0.5em';
+      row.style.rowGap = '0.15em';
+      row.style.flexWrap = 'nowrap';
+
+      // Render win text as markdown so links and tasks are preserved
+      const textEl = row.createDiv({ cls: 'bdb-wins-text' });
       textEl.style.cursor = 'pointer';
-      const tokens = (win.raw || win.text).split(/(\s+)/);
-      const tagSet = new Set(tagList.map(t => t.toLowerCase()));
-      for (const tok of tokens) {
-        if (!tok) continue;
-        const m = tok.match(/^(#[^\s]+)/);
-        if (m && tagSet.has(m[1].toLowerCase())) {
-          const span = textEl.createSpan({ text: tok, cls: 'bdb-wins-tag' });
-          span.style.color = 'var(--text-accent, #2ea043)';
-          span.style.fontWeight = '700';
-        } else {
-          textEl.appendText(tok);
-        }
-      }
+      textEl.style.flex = '1';
+      textEl.style.minWidth = '0';
+      await MarkdownRenderer.renderMarkdown(win.raw || win.text, textEl, win.file.path, this.plugin);
+      this.plugin.bindInternalLinks(textEl, win.file.path);
+
+      // Make rendered checkboxes toggle the underlying line
+      const checkboxes = textEl.querySelectorAll('input.task-list-item-checkbox');
+      checkboxes.forEach((box) => {
+        if (box.__bdbBound) return;
+        box.__bdbBound = true;
+        box.addEventListener('change', async () => {
+          box.disabled = true;
+          try {
+            const content = await app.vault.read(win.file);
+            const fileLines = content.split(/\r?\n/);
+            if (win.line < 0 || win.line >= fileLines.length) return;
+            const original = fileLines[win.line];
+            const updated = original.replace(/^(\s*[-*]\s*\[)( |x|X)(\])/, `$1${box.checked ? 'x' : ' '}$3`);
+            if (updated !== original) {
+              fileLines[win.line] = updated;
+              await app.vault.modify(win.file, fileLines.join('\n'));
+            }
+          } catch (err) {
+            console.warn('backlinks-daily-blocks: toggle task (wins) failed', win.file.path, err);
+          } finally {
+            box.disabled = false;
+          }
+        });
+      });
+
+      // Highlight configured hashtags after markdown rendering
+      this.highlightHashtags(textEl, winRegex);
+
       textEl.addEventListener('click', (evt) => {
+        const targetEl = evt.target;
+        if (targetEl?.closest && targetEl.closest('a, input, button, textarea, select')) return;
         evt.preventDefault();
         const modEvent = evt.ctrlKey || evt.metaKey;
         this.openFileAtLine(win.file, win.line, modEvent);
       });
 
       // Render meta as an internal link and highlight
-      const meta = li.createSpan({ cls: 'bdb-wins-meta' });
+      const meta = row.createSpan({ cls: 'bdb-wins-meta' });
       meta.style.marginLeft = '0.35em';
       meta.style.cursor = 'pointer';
       meta.style.color = 'var(--text-accent, #2ea043)';
+      meta.style.whiteSpace = 'nowrap';
       const markdown = `[[${win.file.path}|${win.file.basename}:${win.line + 1}]]`;
       await MarkdownRenderer.renderMarkdown(markdown, meta, win.file.path, this.plugin);
       this.plugin.bindInternalLinks(meta, win.file.path);
@@ -1342,6 +1374,41 @@ class WinsAggregationView extends BasesView {
     sep.style.borderRadius = '999px';
     sep.style.filter = 'drop-shadow(0 0 2px rgba(0,0,0,0.08))';
     return sep;
+  }
+
+  highlightHashtags(container, tagRegex) {
+    if (!tagRegex) return;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    for (const node of nodes) {
+      const text = node.nodeValue || '';
+      tagRegex.lastIndex = 0;
+      if (!tagRegex.test(text)) continue;
+      tagRegex.lastIndex = 0;
+
+      const frag = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match;
+      while ((match = tagRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        const span = document.createElement('span');
+        span.textContent = match[1];
+        span.className = 'bdb-wins-tag';
+        span.style.color = 'var(--text-accent, #2ea043)';
+        span.style.fontWeight = '700';
+        frag.appendChild(span);
+        lastIndex = tagRegex.lastIndex;
+      }
+      if (lastIndex < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      const parent = node.parentNode;
+      if (parent) parent.replaceChild(frag, node);
+    }
   }
 }
 
