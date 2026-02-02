@@ -593,7 +593,7 @@ class PropertiesAggregationView extends BasesView {
     const looksLikeTemplate = /\/Templates\//i.test(filePath) || /template/i.test(targetFile.basename);
     if (optOut || looksLikeTemplate) return;
 
-    console.log('[bdb] frontmatter sync target', targetFile.path);
+    // Debug logging removed
 
     const updates = {};
 
@@ -620,10 +620,7 @@ class PropertiesAggregationView extends BasesView {
 
       updates[propertyKey] = deduped.length === 1 ? deduped[0] : deduped;
 
-      console.log('[bdb] aggregated property', {
-        key: propertyKey,
-        values: updates[propertyKey],
-      });
+      // Debug logging removed
     }
 
     if (!Object.keys(updates).length) return;
@@ -641,7 +638,7 @@ class PropertiesAggregationView extends BasesView {
 
           if (current === val || sameArray) continue;
 
-          console.log('[bdb] writing property', { key, val, current });
+          // Debug logging removed
           frontmatter[key] = val;
         }
       });
@@ -689,7 +686,7 @@ class PropertiesAggregationView extends BasesView {
         if (!(file instanceof TFile)) continue;
         if (!file.basename.startsWith(targetDatePrefix)) continue;
         
-        console.log('[bdb] scanning file for properties', file.path);
+        // Debug logging removed
 
         // Get all properties from the file's frontmatter
         const cache = app.metadataCache.getFileCache(file);
