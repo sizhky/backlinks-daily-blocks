@@ -4,7 +4,7 @@ const VIEW_TYPE = 'backlinks-daily-view';
 const BASES_VIEW_TYPE = 'content-feed-bases-view';
 const BASES_PROPERTIES_VIEW_TYPE = 'properties-aggregation-view';
 const BASES_TASKS_VIEW_TYPE = 'tasks-aggregation-view';
-const BASES_WINS_VIEW_TYPE = 'wins-aggregation-view';
+const BASES_WINS_VIEW_TYPE = 'hashtags-aggregation-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
@@ -101,12 +101,19 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     });
 
     this.registerBasesView(BASES_WINS_VIEW_TYPE, {
-      name: 'Wins',
-      icon: 'lucide-trophy',
+      name: 'Hashtag Feed',
+      icon: 'lucide-flag',
       factory: (controller, containerEl) => {
         return new WinsAggregationView(this, controller, containerEl);
       },
-      options: () => ([]),
+      options: () => ([
+        {
+          type: 'text',
+          displayName: 'Hashtags (comma-separated)',
+          key: 'tags',
+          default: '#win',
+        },
+      ]),
     });
   }
 
@@ -1228,7 +1235,15 @@ class WinsAggregationView extends BasesView {
 
     this.containerEl.empty();
 
-    const heading = this.containerEl.createEl('h3', { text: 'Wins', cls: 'bdb-wins-heading' });
+    const config = this.config || {};
+    const rawTags = config.get ? config.get('tags') : config.tags;
+    const tagList = (rawTags || '#win')
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean)
+      .map(t => (t.startsWith('#') ? t : `#${t}`));
+
+    const heading = this.containerEl.createEl('h3', { text: tagList.join(', '), cls: 'bdb-wins-heading' });
     heading.style.marginTop = '0';
     heading.style.marginBottom = '0.4em';
 
@@ -1238,6 +1253,10 @@ class WinsAggregationView extends BasesView {
     }
 
     const wins = [];
+
+    // Build regex to match any configured hashtag (word-boundary after tag)
+    const escapedTags = tagList.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const winRegex = new RegExp(`(?:${escapedTags.join('|')})\\b`, 'i');
 
     for (const group of data.groupedData) {
       for (const entry of group.entries) {
@@ -1255,9 +1274,9 @@ class WinsAggregationView extends BasesView {
         }
 
         lines.forEach((line, idx) => {
-          if (/#win\b/i.test(line)) {
+          if (winRegex.test(line)) {
             const text = line.trim();
-            wins.push({ file, line: idx, text: text || '(win)' });
+            wins.push({ file, line: idx, text: text || '(win)', raw: line });
           }
         });
       }
@@ -1271,25 +1290,61 @@ class WinsAggregationView extends BasesView {
     const list = this.containerEl.createEl('ul', { cls: 'bdb-wins-list' });
 
     for (const win of wins) {
+      this.createWaveSeparator(list, 'rgba(46, 160, 67, 0.85)');
       const li = list.createEl('li', { cls: 'bdb-wins-item' });
-      const textEl = li.createSpan({ text: win.text, cls: 'bdb-wins-text' });
+
+      // Render win text with highlighted hashtags
+      const textEl = li.createSpan({ cls: 'bdb-wins-text' });
       textEl.style.cursor = 'pointer';
+      const tokens = (win.raw || win.text).split(/(\s+)/);
+      const tagSet = new Set(tagList.map(t => t.toLowerCase()));
+      for (const tok of tokens) {
+        if (!tok) continue;
+        const m = tok.match(/^(#[^\s]+)/);
+        if (m && tagSet.has(m[1].toLowerCase())) {
+          const span = textEl.createSpan({ text: tok, cls: 'bdb-wins-tag' });
+          span.style.color = 'var(--text-accent, #2ea043)';
+          span.style.fontWeight = '700';
+        } else {
+          textEl.appendText(tok);
+        }
+      }
       textEl.addEventListener('click', (evt) => {
         evt.preventDefault();
         const modEvent = evt.ctrlKey || evt.metaKey;
         this.openFileAtLine(win.file, win.line, modEvent);
       });
 
-      const meta = li.createSpan({ text: ` · ${win.file.basename}:${win.line + 1}`, cls: 'bdb-wins-meta' });
-      meta.style.color = 'var(--text-muted)';
+      // Render meta as an internal link and highlight
+      const meta = li.createSpan({ cls: 'bdb-wins-meta' });
       meta.style.marginLeft = '0.35em';
       meta.style.cursor = 'pointer';
-      meta.addEventListener('click', (evt) => {
-        evt.preventDefault();
-        const modEvent = evt.ctrlKey || evt.metaKey;
-        this.openFileAtLine(win.file, win.line, modEvent);
-      });
+      meta.style.color = 'var(--text-accent, #2ea043)';
+      const markdown = `[[${win.file.path}|${win.file.basename}:${win.line + 1}]]`;
+      await MarkdownRenderer.renderMarkdown(markdown, meta, win.file.path, this.plugin);
+      this.plugin.bindInternalLinks(meta, win.file.path);
     }
+  }
+
+  createWaveSeparator(parentEl, strokeColor = 'rgba(46, 160, 67, 0.85)') {
+    const sep = parentEl.createDiv({ cls: 'bdb-wins-separator' });
+    sep.textContent = '';
+    sep.style.height = '8px';
+    sep.style.width = '100%';
+    const svg = encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="8" viewBox="0 0 80 8" preserveAspectRatio="none"><path d="M0 4 Q10 0 20 4 T40 4 T60 4 T80 4" fill="none" stroke="${strokeColor}" stroke-width="1.5" stroke-linecap="round"/></svg>`
+    );
+    sep.style.backgroundImage = `url("data:image/svg+xml,${svg}")`;
+    sep.style.backgroundRepeat = 'repeat-x';
+    sep.style.backgroundSize = '80px 8px';
+    sep.style.backgroundPosition = 'center';
+    sep.style.opacity = '0.9';
+    sep.style.margin = '0.4em 0 0.4em 0';
+    sep.style.border = 'none';
+    sep.style.padding = '0';
+    sep.style.borderRadius = '999px';
+    sep.style.filter = 'drop-shadow(0 0 2px rgba(0,0,0,0.08))';
+    return sep;
   }
 }
 
