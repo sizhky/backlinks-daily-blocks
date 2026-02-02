@@ -7,8 +7,43 @@ const BASES_TASKS_VIEW_TYPE = 'tasks-aggregation-view';
 const BASES_WINS_VIEW_TYPE = 'hashtags-aggregation-view';
 
 class BacklinksDailyBlocksPlugin extends Plugin {
+  async normalizeBaseGroupBy(targetFile) {
+    const files = targetFile ? [targetFile] : this.app.vault.getFiles().filter(f => f.extension === 'base');
+
+    for (const file of files) {
+      if (file.extension !== 'base') continue;
+
+      let content;
+      try {
+        content = await this.app.vault.read(file);
+      } catch (err) {
+        console.warn('backlinks-daily-blocks: read base failed', file.path, err);
+        continue;
+      }
+
+      // Match single-line groupBy scalars (not already objects/arrays), conservative to avoid mangling existing objects
+      const updated = content.replace(/(^[ \t]*)groupBy:\s*([A-Za-z0-9_.\/:-]+)\s*$/gm, (match, indent, prop) => {
+        const property = (prop || '').trim();
+        if (!property) return match;
+        return `${indent}groupBy:\n${indent}  property: ${property}\n${indent}  direction: ASC`;
+      });
+
+      if (updated !== content) {
+        try {
+          await this.app.vault.modify(file, updated);
+        } catch (err) {
+          console.warn('backlinks-daily-blocks: write base failed', file.path, err);
+        }
+      }
+    }
+  }
+
   async onload() {
     this.injectStyles();
+
+    // Normalize any tasks-aggregation groupBy entries stored as strings into object form
+    // to avoid Bases parse errors. This runs once on load and rewrites affected .base files.
+    this.normalizeBaseGroupBy().catch(err => console.warn('backlinks-daily-blocks: normalize groupBy failed', err));
 
     this.registerMarkdownCodeBlockProcessor('backlinks', (src, el, ctx) => {
       return this.renderBacklinksBlock(src, el, ctx);
@@ -100,8 +135,14 @@ class BacklinksDailyBlocksPlugin extends Plugin {
         {
           type: 'text',
           displayName: 'Group by property (optional)',
-          key: 'groupBy',
+          key: 'taskGroupBy',
           default: '',
+        },
+        {
+          type: 'toggle',
+          displayName: 'Fold subgroups by default when grouped',
+          key: 'foldSubgroups',
+          default: true,
         },
       ]),
     });
@@ -128,6 +169,10 @@ class BacklinksDailyBlocksPlugin extends Plugin {
       .bdb-bases-entry ul { margin: 0.15em 0 0.15em 1.25em; padding-left: 1.25em; }
       .bdb-bases-entry li { margin: 0.05em 0; }
       .bdb-bases-entry p { margin: 0.15em 0; }
+      .bdb-task-group > summary { color: #2d7ff9; font-weight: 700; letter-spacing: 0.01em; }
+      .bdb-task-subgroup { border-left: 2px solid #c7d2e3; padding-left: 0.55em; margin: 0.15em 0 0.35em; }
+      .bdb-task-subgroup > summary { color: #d17b0f; font-weight: 600; letter-spacing: 0.01em; }
+      .bdb-task-subgroup-list { margin-top: 0.05em; }
     `;
     const styleEl = document.createElement('style');
     styleEl.textContent = css;
@@ -961,6 +1006,7 @@ class TasksAggregationView extends BasesView {
     super(controller);
     this.type = BASES_TASKS_VIEW_TYPE;
     this.plugin = plugin;
+    this.controllerRef = controller;
     this.containerEl = container.createDiv('bdb-tasks-aggregation');
   }
 
@@ -1060,8 +1106,40 @@ class TasksAggregationView extends BasesView {
     const includeCompleted = config.get ? config.get('includeCompleted') !== false : config.includeCompleted !== false;
     const containsRaw = config.get ? config.get('contains') : config.contains;
     const contains = (containsRaw || '').toString().trim().toLowerCase();
-    const groupByRaw = config.get ? config.get('groupBy') : config.groupBy;
-    const groupBy = (groupByRaw || '').toString().trim();
+    const controllerObj = this.controllerRef || this.controller || {};
+    const controllerView = controllerObj.view || controllerObj.viewDefinition || controllerObj.definition || controllerObj.options;
+
+    const taskGroupByRaw = config.get ? config.get('taskGroupBy') : config.taskGroupBy;
+    const legacyGroupByRaw = config.get ? config.get('groupBy') : config.groupBy;
+    const viewGroupBy = controllerView?.groupBy;
+
+    let groupByRaw = taskGroupByRaw || viewGroupBy?.property || viewGroupBy || legacyGroupByRaw;
+
+    // Migrate legacy stored key to the new taskGroupBy to persist across reloads
+    if (!taskGroupByRaw && legacyGroupByRaw && config.set) {
+      config.set('taskGroupBy', legacyGroupByRaw);
+    }
+    let groupBy = '';
+    if (groupByRaw && typeof groupByRaw === 'object') {
+      groupBy = (groupByRaw.property || '').toString().trim();
+    } else if (groupByRaw) {
+      groupBy = groupByRaw.toString().trim();
+    }
+    const foldSubgroupsRaw = config.get ? config.get('foldSubgroups') : config.foldSubgroups;
+    const foldSubgroups = foldSubgroupsRaw !== false; // default to true
+
+    console.log('bdb-tasks config', {
+      view: controllerView?.name,
+      controllerKeys: Object.keys(controllerObj || {}),
+      rawGroupBy: groupByRaw,
+      taskGroupByRaw,
+      legacyGroupByRaw,
+      viewGroupBy,
+      controllerView,
+      parsedGroupBy: groupBy,
+      includeCompleted,
+      foldSubgroups,
+    });
 
     const tasks = [];
 
@@ -1238,11 +1316,14 @@ class TasksAggregationView extends BasesView {
       }
 
       const groupMap = new Map();
+      const unsetGroup = { key: '__ungrouped__', label: '! Unset' };
+
       for (const task of items) {
-        const values = (task.groupValues && task.groupValues.length) ? task.groupValues : [{ key: '__ungrouped__', label: 'Not set' }];
+        const values = (task.groupValues && task.groupValues.length) ? task.groupValues : [unsetGroup];
         for (const val of values) {
           if (!groupMap.has(val.key)) {
-            groupMap.set(val.key, { label: val.label || val.key || 'Not set', items: [] });
+            const label = (val.label && val.label.trim()) || val.key || unsetGroup.label;
+            groupMap.set(val.key, { label, items: [] });
           }
           groupMap.get(val.key).items.push(task);
         }
@@ -1251,10 +1332,13 @@ class TasksAggregationView extends BasesView {
       const orderedGroups = Array.from(groupMap.values()).sort((a, b) => a.label.localeCompare(b.label));
 
       for (const subgroup of orderedGroups) {
-        const heading = listEl.createEl('h4', { text: `${subgroup.label} (${subgroup.items.length})`, cls: 'bdb-task-subgroup-title' });
+        const subgroupDetails = listEl.createEl('details', { cls: 'bdb-task-subgroup' });
+        if (!foldSubgroups) subgroupDetails.setAttr('open', 'open');
+        const heading = subgroupDetails.createEl('summary', { text: `${subgroup.label} (${subgroup.items.length})`, cls: 'bdb-task-subgroup-title' });
         heading.style.margin = '0.25em 0 0.1em 0';
         heading.style.fontSize = '0.95em';
-        await renderTaskList(listEl, subgroup.items);
+        const subgroupList = subgroupDetails.createDiv({ cls: 'bdb-task-subgroup-list' });
+        await renderTaskList(subgroupList, subgroup.items);
       }
 
       return details;
