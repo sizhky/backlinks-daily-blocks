@@ -73,7 +73,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
           type: 'text',
           displayName: 'Exclude properties (comma-separated)',
           key: 'excludeProperties',
-          default: 'file,journal,journal-date',
+          default: 'file,journal,journal-date,aliases',
         },
       ]),
     });
@@ -604,6 +604,11 @@ class PropertiesAggregationView extends BasesView {
           if (!display) return '';
           // Preserve link targets by emitting wiki-link syntax when available
           if (info?.linkPath) {
+            const targetName = info.linkPath.split('/').pop()?.replace(/\.md$/i, '') || '';
+            const normalizedDisplay = display.replace(/\.md$/i, '');
+            if (targetName && normalizedDisplay === targetName) {
+              return `[[${info.linkPath}]]`;
+            }
             return `[[${info.linkPath}|${display}]]`;
           }
           return display;
@@ -673,10 +678,11 @@ class PropertiesAggregationView extends BasesView {
     }
 
     const config = this.config || {};
-    const excludeProperties = (config.excludeProperties || 'file,journal,journal-date')
+    const excludeProperties = (config.excludeProperties || 'file,journal,journal-date,aliases')
       .split(',')
       .map(p => p.trim())
       .filter(Boolean);
+    if (!excludeProperties.includes('aliases')) excludeProperties.push('aliases');
 
     // First pass: discover all unique property keys
     const allPropertyKeys = new Set();
