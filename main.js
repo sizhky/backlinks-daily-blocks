@@ -505,6 +505,7 @@ class PropertiesAggregationView extends BasesView {
     this.type = BASES_PROPERTIES_VIEW_TYPE;
     this.plugin = plugin;
     this.containerEl = container.createDiv('bdb-properties-aggregation');
+    this.frontmatterUpdating = false;
   }
 
   load() {
@@ -513,6 +514,78 @@ class PropertiesAggregationView extends BasesView {
 
   unload() {
     // Required lifecycle method
+  }
+
+  async updateFrontmatterWithAggregates(aggregatedData) {
+    if (this.frontmatterUpdating) return;
+
+    const targetFile = this.app.workspace.getActiveFile();
+    if (!(targetFile instanceof TFile)) return;
+
+    // Skip templates or notes that explicitly opt out
+    const filePath = targetFile.path || '';
+    const frontmatter = this.app.metadataCache.getFileCache(targetFile)?.frontmatter || {};
+    const optOut = frontmatter['bdb-disable-sync'] === true;
+    const looksLikeTemplate = /\/Templates\//i.test(filePath) || /template/i.test(targetFile.basename);
+    if (optOut || looksLikeTemplate) return;
+
+    console.log('[bdb] frontmatter sync target', targetFile.path);
+
+    const updates = {};
+
+    for (const [propertyKey, valueMap] of aggregatedData) {
+      const values = Array.from(valueMap.values())
+        .map((info) => {
+          const display = (info?.displayName || info?.key || '').toString().trim();
+          if (!display) return '';
+          // Preserve link targets by emitting wiki-link syntax when available
+          if (info?.linkPath) {
+            return `[[${info.linkPath}|${display}]]`;
+          }
+          return display;
+        })
+        .filter(Boolean);
+
+      if (!values.length) continue;
+
+      // Deduplicate while preserving order
+      const deduped = [];
+      for (const val of values) {
+        if (!deduped.includes(val)) deduped.push(val);
+      }
+
+      updates[propertyKey] = deduped.length === 1 ? deduped[0] : deduped;
+
+      console.log('[bdb] aggregated property', {
+        key: propertyKey,
+        values: updates[propertyKey],
+      });
+    }
+
+    if (!Object.keys(updates).length) return;
+
+    this.frontmatterUpdating = true;
+    try {
+      await this.app.fileManager.processFrontMatter(targetFile, (frontmatter) => {
+        for (const [key, val] of Object.entries(updates)) {
+          const current = frontmatter[key];
+          const bothArrays = Array.isArray(current) && Array.isArray(val);
+          const sameArray =
+            bothArrays &&
+            current.length === val.length &&
+            current.every((item, idx) => item === val[idx]);
+
+          if (current === val || sameArray) continue;
+
+          console.log('[bdb] writing property', { key, val, current });
+          frontmatter[key] = val;
+        }
+      });
+    } catch (err) {
+      console.warn('backlinks-daily-blocks: update frontmatter failed', err);
+    } finally {
+      this.frontmatterUpdating = false;
+    }
   }
 
   async onDataUpdated() {
@@ -539,6 +612,8 @@ class PropertiesAggregationView extends BasesView {
         const file = entry.file;
         if (!(file instanceof TFile)) continue;
         
+        console.log('[bdb] scanning file for properties', file.path);
+
         // Get all properties from the file's frontmatter
         const cache = app.metadataCache.getFileCache(file);
         if (cache?.frontmatter) {
@@ -672,6 +747,13 @@ class PropertiesAggregationView extends BasesView {
       this.containerEl.createDiv({ text: 'No properties found', cls: 'bdb-properties-empty' });
       return;
     }
+
+    // Push aggregated values into the current note's frontmatter
+    await this.updateFrontmatterWithAggregates(aggregatedData);
+
+    // Skip visual render to avoid redundancy with frontmatter
+    this.containerEl.createDiv({ text: 'Properties synced to frontmatter.', cls: 'bdb-properties-synced' });
+    return;
 
     for (const [propertyKey, valueMap] of aggregatedData) {
       const propertySection = this.containerEl.createDiv({ cls: 'bdb-property-section' });
