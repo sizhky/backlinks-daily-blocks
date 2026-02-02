@@ -542,10 +542,31 @@ class PropertiesAggregationView extends BasesView {
     // Required lifecycle method
   }
 
+  resolveHostFile() {
+    // Prefer explicit data-path on this container
+    const ownHostPath = this.containerEl?.getAttribute?.('data-path');
+    if (ownHostPath) {
+      const file = this.app.vault.getAbstractFileByPath(ownHostPath);
+      if (file instanceof TFile) return file;
+    }
+
+    // Fallback: closest ancestor data-path
+    const hostEl = this.containerEl?.closest?.('[data-path]');
+    const hostPath = hostEl?.getAttribute?.('data-path');
+    if (hostPath) {
+      const file = this.app.vault.getAbstractFileByPath(hostPath);
+      if (file instanceof TFile) return file;
+    }
+
+    // Last resort: active file
+    const active = this.app.workspace.getActiveFile();
+    return active instanceof TFile ? active : null;
+  }
+
   async updateFrontmatterWithAggregates(aggregatedData) {
     if (this.frontmatterUpdating) return;
 
-    const targetFile = this.app.workspace.getActiveFile();
+    const targetFile = this.resolveHostFile();
     if (!(targetFile instanceof TFile)) return;
 
     // Skip templates or notes that explicitly opt out
@@ -619,6 +640,18 @@ class PropertiesAggregationView extends BasesView {
     const data = this.data;
     
     this.containerEl.empty();
+
+    // Determine target file/date and tag container for downstream resolution
+    const targetFile = this.resolveHostFile();
+    if (targetFile) {
+      this.containerEl.setAttribute('data-path', targetFile.path);
+    }
+    const targetDateMatch = targetFile?.basename?.match(/^(\d{8})/);
+    const targetDatePrefix = targetDateMatch ? targetDateMatch[1] : null;
+    if (!targetFile || !targetDatePrefix) {
+      this.containerEl.createDiv({ text: 'No target note detected for properties sync.', cls: 'bdb-properties-empty' });
+      return;
+    }
     
     if (!data || !data.groupedData) {
       this.containerEl.createDiv({ text: 'No data available', cls: 'bdb-properties-empty' });
@@ -637,6 +670,7 @@ class PropertiesAggregationView extends BasesView {
       for (const entry of group.entries) {
         const file = entry.file;
         if (!(file instanceof TFile)) continue;
+        if (!file.basename.startsWith(targetDatePrefix)) continue;
         
         console.log('[bdb] scanning file for properties', file.path);
 
@@ -689,6 +723,7 @@ class PropertiesAggregationView extends BasesView {
         for (const entry of group.entries) {
           const file = entry.file;
           if (!(file instanceof TFile)) continue;
+          if (!file.basename.startsWith(targetDatePrefix)) continue;
 
           const cache = app.metadataCache.getFileCache(file);
           if (!cache?.frontmatter) continue;
