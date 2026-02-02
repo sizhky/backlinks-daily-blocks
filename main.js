@@ -395,6 +395,8 @@ class BacklinksDailyBasesView extends BasesView {
         if (!content.trim()) continue;
       }
 
+      this.createWaveSeparator(this.containerEl, 'rgba(210, 60, 60, 0.85)');
+
       // Now create the section since we know it has content
       const section = this.containerEl.createDiv('bdb-bases-entry');
       
@@ -458,6 +460,9 @@ class BacklinksDailyBasesView extends BasesView {
       // Make task checkboxes interactive for rendered markdown (best-effort text match)
       this.attachTaskCheckboxHandlers(section, file, rawLines);
     }
+
+    // Trailing separator after the last entry
+    this.createWaveSeparator(this.containerEl, 'rgba(210, 60, 60, 0.85)');
   }
 
   attachTaskCheckboxHandlers(container, file, rawLines) {
@@ -496,6 +501,27 @@ class BacklinksDailyBasesView extends BasesView {
         }
       });
     }
+  }
+
+  createWaveSeparator(parentEl, strokeColor = 'rgba(210, 60, 60, 0.85)') {
+    const sep = parentEl.createDiv({ cls: 'bdb-feed-separator' });
+    sep.textContent = '';
+    sep.style.height = '8px';
+    sep.style.width = '100%';
+    const svg = encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="8" viewBox="0 0 80 8" preserveAspectRatio="none"><path d="M0 4 Q10 0 20 4 T40 4 T60 4 T80 4" fill="none" stroke="${strokeColor}" stroke-width="1.5" stroke-linecap="round"/></svg>`
+    );
+    sep.style.backgroundImage = `url("data:image/svg+xml,${svg}")`;
+    sep.style.backgroundRepeat = 'repeat-x';
+    sep.style.backgroundSize = '80px 8px';
+    sep.style.backgroundPosition = 'center';
+    sep.style.opacity = '0.9';
+    sep.style.margin = '0.55em 0 0.55em 0';
+    sep.style.border = 'none';
+    sep.style.padding = '0';
+    sep.style.borderRadius = '999px';
+    sep.style.filter = 'drop-shadow(0 0 2px rgba(0,0,0,0.08))';
+    return sep;
   }
 }
 
@@ -939,13 +965,22 @@ class TasksAggregationView extends BasesView {
   createTaskSeparator(parentEl) {
     const sep = parentEl.createDiv({ cls: 'bdb-task-item-sep' });
     sep.textContent = '';
-    sep.style.height = '1px';
+    sep.style.height = '8px';
     sep.style.width = '100%';
-    sep.style.backgroundColor = 'var(--text-muted, #666)';
-    sep.style.opacity = '0.25';
-    sep.style.margin = '0.25em 0 0.25em 0';
+    // Sine-like wave via inline SVG; repeats horizontally to fill width
+    const svg = encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="8" viewBox="0 0 80 8" preserveAspectRatio="none"><path d="M0 4 Q10 0 20 4 T40 4 T60 4 T80 4" fill="none" stroke="rgba(46, 160, 67, 0.85)" stroke-width="1.5" stroke-linecap="round"/></svg>`
+    );
+    sep.style.backgroundImage = `url("data:image/svg+xml,${svg}")`;
+    sep.style.backgroundRepeat = 'repeat-x';
+    sep.style.backgroundSize = '80px 8px';
+    sep.style.backgroundPosition = 'center';
+    sep.style.opacity = '0.9';
+    sep.style.margin = '0.45em 0 0.45em 0';
     sep.style.border = 'none';
     sep.style.padding = '0';
+    sep.style.borderRadius = '999px';
+    sep.style.filter = 'drop-shadow(0 0 2px rgba(0,0,0,0.08))';
     return sep;
   }
 
