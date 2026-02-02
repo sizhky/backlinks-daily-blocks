@@ -1065,10 +1065,6 @@ class TasksAggregationView extends BasesView {
         for (const item of listItems) {
           if (!item || typeof item.task !== 'string') continue;
 
-          const completed = item.task.toLowerCase() === 'x';
-          if (!includeCompleted && completed) continue;
-
-          // Only keep markdown task list items like - [ ] or - [x]
           const pos = item.position?.start;
           if (!pos || pos.line == null) continue;
 
@@ -1083,9 +1079,14 @@ class TasksAggregationView extends BasesView {
           }
 
           const rawLine = fileLines[pos.line] || '';
-          if (!/^\s*[-*]\s*\[[ xX]\]/.test(rawLine)) continue;
+          const statusMatch = rawLine.match(/^\s*[-*]\s*\[([^\]])\]/);
+          if (!statusMatch) continue;
 
-          const taskText = rawLine.replace(/^\s*[-*]\s*\[[ xX]\]\s*/, '').trim();
+          const status = statusMatch[1] || ' ';
+          const completed = status.toLowerCase() === 'x' || status === '-';
+          if (!includeCompleted && completed) continue;
+
+          const taskText = rawLine.replace(/^\s*[-*]\s*\[[^\]]\]\s*/, '').trim();
           if (contains && !taskText.toLowerCase().includes(contains)) continue;
 
           tasks.push({
@@ -1093,6 +1094,8 @@ class TasksAggregationView extends BasesView {
             line: pos.line,
             text: taskText || '(empty task)',
             completed,
+            status,
+            rawLine,
           });
         }
       }
@@ -1132,16 +1135,8 @@ class TasksAggregationView extends BasesView {
           itemEl.style.rowGap = '0.15em';
           itemEl.style.flexWrap = 'nowrap';
 
-          const checkbox = itemEl.createEl('input', {
-            type: 'checkbox',
-            cls: 'bdb-task-checkbox',
-          });
-          checkbox.checked = task.completed;
-          checkbox.addEventListener('change', async () => {
-            checkbox.disabled = true;
-            await this.toggleTask(task, checkbox.checked);
-            checkbox.disabled = false;
-          });
+          const status = (task.status || '').trim();
+          const isToggleable = status === '' || status === ' ' || status.toLowerCase() === 'x';
 
           const textEl = itemEl.createSpan({ cls: 'bdb-task-link' });
           textEl.style.display = 'inline-block';
@@ -1149,20 +1144,26 @@ class TasksAggregationView extends BasesView {
           textEl.style.flex = '1';
           textEl.style.minWidth = '0';
           textEl.style.whiteSpace = 'normal';
-          await MarkdownRenderer.renderMarkdown(task.text, textEl, task.file.path, this.plugin);
+
+          // Render the original line so checkbox/status styling matches core/Tasks
+          await MarkdownRenderer.renderMarkdown(task.rawLine || task.text, textEl, task.file.path, this.plugin);
 
           // Ensure internal links inside task text are clickable
           this.plugin.bindInternalLinks(textEl, task.file.path);
 
-          // Flatten paragraphs inserted by MarkdownRenderer to keep text inline.
-          const paras = Array.from(textEl.querySelectorAll('p'));
-          for (const p of paras) {
-            const parent = p.parentElement;
-            if (!parent) continue;
-            while (p.firstChild) {
-              parent.insertBefore(p.firstChild, p);
+          // Attach checkbox handler if toggleable
+          const renderedBox = textEl.querySelector('input.task-list-item-checkbox');
+          if (renderedBox) {
+            if (isToggleable) {
+              renderedBox.checked = task.completed;
+              renderedBox.addEventListener('change', async () => {
+                renderedBox.disabled = true;
+                await this.toggleTask(task, renderedBox.checked);
+                renderedBox.disabled = false;
+              });
+            } else {
+              renderedBox.disabled = true;
             }
-            p.remove();
           }
 
           const metaEl = itemEl.createEl('a', {
