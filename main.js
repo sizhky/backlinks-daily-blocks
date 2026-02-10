@@ -70,7 +70,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     );
 
     this.registerBasesView(BASES_VIEW_TYPE, {
-      name: 'Content Feed',
+      name: 'Chronicle',
       icon: 'lucide-scroll-text',
       factory: (controller, containerEl) => {
         return new BacklinksDailyBasesView(this, controller, containerEl);
@@ -98,7 +98,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     });
 
     this.registerBasesView(BASES_PROPERTIES_VIEW_TYPE, {
-      name: 'Properties Aggregation',
+      name: 'Atlas',
       icon: 'lucide-list-tree',
       factory: (controller, containerEl) => {
         return new PropertiesAggregationView(this, controller, containerEl);
@@ -114,7 +114,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     });
 
     this.registerBasesView(BASES_TASKS_VIEW_TYPE, {
-      name: 'Tasks',
+      name: 'Ledger',
       icon: 'lucide-check-square',
       factory: (controller, containerEl) => {
         return new TasksAggregationView(this, controller, containerEl);
@@ -148,7 +148,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     });
 
     this.registerBasesView(BASES_WINS_VIEW_TYPE, {
-      name: 'Hashtag Feed',
+      name: 'Beacon',
       icon: 'lucide-flag',
       factory: (controller, containerEl) => {
         return new WinsAggregationView(this, controller, containerEl);
@@ -1072,18 +1072,18 @@ class TasksAggregationView extends BasesView {
   createTaskSeparator(parentEl) {
     const sep = parentEl.createDiv({ cls: 'bdb-task-item-sep' });
     sep.textContent = '';
-    sep.style.height = '8px';
+    sep.style.height = '4px';
     sep.style.width = '100%';
     // Sine-like wave via inline SVG; repeats horizontally to fill width
     const svg = encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="8" viewBox="0 0 80 8" preserveAspectRatio="none"><path d="M0 4 Q10 0 20 4 T40 4 T60 4 T80 4" fill="none" stroke="rgba(46, 160, 67, 0.85)" stroke-width="1.5" stroke-linecap="round"/></svg>`
+      `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="4" viewBox="0 0 80 4" preserveAspectRatio="none"><path d="M0 2 Q10 0 20 2 T40 2 T60 2 T80 2" fill="none" stroke="rgba(46, 160, 67, 0.85)" stroke-width="1.15" stroke-linecap="round"/></svg>`
     );
     sep.style.backgroundImage = `url("data:image/svg+xml,${svg}")`;
     sep.style.backgroundRepeat = 'repeat-x';
-    sep.style.backgroundSize = '80px 8px';
+    sep.style.backgroundSize = '80px 4px';
     sep.style.backgroundPosition = 'center';
     sep.style.opacity = '0.9';
-    sep.style.margin = '0.45em 0 0.45em 0';
+    sep.style.margin = '0.06em 0 0.06em 0';
     sep.style.border = 'none';
     sep.style.padding = '0';
     sep.style.borderRadius = '999px';
@@ -1091,9 +1091,20 @@ class TasksAggregationView extends BasesView {
     return sep;
   }
 
+  captureOpenGroupState() {
+    const openGroups = new Set();
+    const detailsEls = this.containerEl.querySelectorAll('details[open][data-bdb-group-id]');
+    detailsEls.forEach((el) => {
+      const id = el.getAttribute('data-bdb-group-id');
+      if (id) openGroups.add(id);
+    });
+    return openGroups;
+  }
+
   async onDataUpdated() {
     const { app } = this;
     const data = this.data;
+    const openGroupState = this.captureOpenGroupState();
 
     this.containerEl.empty();
 
@@ -1248,13 +1259,11 @@ class TasksAggregationView extends BasesView {
 
     const renderTaskList = async (listEl, items) => {
       for (const task of items) {
-        this.createTaskSeparator(listEl);
-
         const itemEl = listEl.createDiv({ cls: 'bdb-task-item' });
         itemEl.style.display = 'flex';
         itemEl.style.alignItems = 'center';
-        itemEl.style.columnGap = '0.5em';
-        itemEl.style.rowGap = '0.15em';
+        itemEl.style.columnGap = '0.4em';
+        itemEl.style.rowGap = '0.05em';
         itemEl.style.flexWrap = 'nowrap';
 
         const status = (task.status || '').trim();
@@ -1300,13 +1309,21 @@ class TasksAggregationView extends BasesView {
           const modEvent = evt.ctrlKey || evt.metaKey;
             this.openFileAtLine(task.file, task.line, modEvent);
         });
+
+        this.createTaskSeparator(listEl);
       }
-      this.createTaskSeparator(listEl);
+    };
+
+    const shouldBeOpen = (groupId, defaultOpen) => {
+      if (!openGroupState.size) return defaultOpen;
+      return openGroupState.has(groupId);
     };
 
     const renderGroup = async (title, items, collapsedByDefault) => {
+      const topGroupId = `top:${title}`;
       const details = this.containerEl.createEl('details', { cls: 'bdb-task-group' });
-      if (!collapsedByDefault) details.setAttr('open', 'open');
+      details.setAttr('data-bdb-group-id', topGroupId);
+      if (shouldBeOpen(topGroupId, !collapsedByDefault)) details.setAttr('open', 'open');
       const summary = details.createEl('summary', { text: `${title} (${items.length})`, cls: 'bdb-task-group-title' });
       const listEl = details.createDiv({ cls: 'bdb-tasks-list' });
 
@@ -1323,7 +1340,7 @@ class TasksAggregationView extends BasesView {
         for (const val of values) {
           if (!groupMap.has(val.key)) {
             const label = (val.label && val.label.trim()) || val.key || unsetGroup.label;
-            groupMap.set(val.key, { label, items: [] });
+            groupMap.set(val.key, { key: val.key, label, items: [] });
           }
           groupMap.get(val.key).items.push(task);
         }
@@ -1332,11 +1349,30 @@ class TasksAggregationView extends BasesView {
       const orderedGroups = Array.from(groupMap.values()).sort((a, b) => a.label.localeCompare(b.label));
 
       for (const subgroup of orderedGroups) {
+        const subgroupId = `sub:${title}:${subgroup.key}`;
         const subgroupDetails = listEl.createEl('details', { cls: 'bdb-task-subgroup' });
-        if (!foldSubgroups) subgroupDetails.setAttr('open', 'open');
-        const heading = subgroupDetails.createEl('summary', { text: `${subgroup.label} (${subgroup.items.length})`, cls: 'bdb-task-subgroup-title' });
+        subgroupDetails.setAttr('data-bdb-group-id', subgroupId);
+        if (shouldBeOpen(subgroupId, !foldSubgroups)) subgroupDetails.setAttr('open', 'open');
+        const heading = subgroupDetails.createEl('summary', { cls: 'bdb-task-subgroup-title' });
         heading.style.margin = '0.25em 0 0.1em 0';
         heading.style.fontSize = '0.95em';
+
+        const labelText = subgroup.label;
+        const countText = ` (${subgroup.items.length})`;
+        const isUnset = subgroup.key === '__ungrouped__';
+
+        if (groupBy && !isUnset) {
+          const linkEl = heading.createEl('a', { text: labelText, cls: 'internal-link', href: '#' });
+          linkEl.addEventListener('click', (evt) => {
+            evt.preventDefault();
+            const modEvent = evt.ctrlKey || evt.metaKey;
+            this.app.workspace.openLinkText(subgroup.key, '', modEvent);
+          });
+          heading.appendText(countText);
+        } else {
+          heading.setText(labelText + countText);
+        }
+
         const subgroupList = subgroupDetails.createDiv({ cls: 'bdb-task-subgroup-list' });
         await renderTaskList(subgroupList, subgroup.items);
       }
@@ -1416,6 +1452,12 @@ class WinsAggregationView extends BasesView {
     // Build regex to match any configured hashtag (word-boundary after tag)
     const escapedTags = tagList.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     const winRegex = new RegExp(`(${escapedTags.join('|')})\\b`, 'gi');
+    const pluralTagList = this.buildPluralTagList(tagList);
+    const escapedPluralTags = pluralTagList.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const pluralTagRegex = escapedPluralTags.length ? new RegExp(`(${escapedPluralTags.join('|')})\\b`, 'gi') : null;
+    const highlightRegex = escapedPluralTags.length
+      ? new RegExp(`(${escapedTags.concat(escapedPluralTags).join('|')})\\b`, 'gi')
+      : winRegex;
 
     for (const group of data.groupedData) {
       for (const entry of group.entries) {
@@ -1432,12 +1474,45 @@ class WinsAggregationView extends BasesView {
           continue;
         }
 
+        let hasPluralTag = false;
+        if (pluralTagRegex) {
+          for (const line of lines) {
+            pluralTagRegex.lastIndex = 0;
+            if (pluralTagRegex.test(line)) {
+              hasPluralTag = true;
+              break;
+            }
+          }
+        }
+
+        let inFrontmatter = lines[0]?.trim() === '---';
         lines.forEach((line, idx) => {
           winRegex.lastIndex = 0;
           if (winRegex.test(line)) {
             const text = line.trim();
             wins.push({ file, line: idx, text: text || '(win)', raw: line });
+            return;
           }
+
+          if (!hasPluralTag) return;
+
+          const trimmed = line.trim();
+          if (!trimmed) return;
+
+          if (inFrontmatter) {
+            if (idx > 0 && trimmed === '---') inFrontmatter = false;
+            return;
+          }
+
+          if (/^#{1,6}\s/.test(trimmed)) return;
+          if (/^>\s*$/.test(trimmed)) return;
+          if (pluralTagRegex) {
+            pluralTagRegex.lastIndex = 0;
+            if (pluralTagRegex.test(trimmed) && !/\s/.test(trimmed)) return;
+          }
+          if (!/^\s*[-*]\s+\[\s\]\s+/.test(line)) return;
+
+          wins.push({ file, line: idx, text: trimmed, raw: line });
         });
       }
     }
@@ -1495,7 +1570,7 @@ class WinsAggregationView extends BasesView {
       });
 
       // Highlight configured hashtags after markdown rendering
-      this.highlightHashtags(textEl, winRegex);
+      this.highlightHashtags(textEl, highlightRegex);
 
       textEl.addEventListener('click', (evt) => {
         const targetEl = evt.target;
@@ -1515,6 +1590,21 @@ class WinsAggregationView extends BasesView {
       await MarkdownRenderer.renderMarkdown(markdown, meta, win.file.path, this.plugin);
       this.plugin.bindInternalLinks(meta, win.file.path);
     }
+  }
+
+  buildPluralTagList(tagList) {
+    const out = new Set();
+    for (const tag of tagList) {
+      const base = (tag || '').replace(/^#/, '').trim().toLowerCase();
+      if (!base) continue;
+      const add = (value) => {
+        if (value && value !== base) out.add(`#${value}`);
+      };
+      if (!base.endsWith('s')) add(`${base}s`);
+      if (base.endsWith('y') && base.length > 1) add(`${base.slice(0, -1)}ies`);
+      if (/(s|x|z|ch|sh)$/.test(base)) add(`${base}es`);
+    }
+    return Array.from(out);
   }
 
   createWaveSeparator(parentEl, strokeColor = 'rgba(46, 160, 67, 0.85)') {
