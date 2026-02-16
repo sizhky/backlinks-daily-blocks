@@ -106,9 +106,9 @@ class BacklinksDailyBlocksPlugin extends Plugin {
       options: () => ([
         {
           type: 'text',
-          displayName: 'Exclude properties (comma-separated)',
-          key: 'excludeProperties',
-          default: 'file,journal,journal-date,aliases',
+          displayName: 'Property blacklist (comma-separated)',
+          key: 'propertyBlacklist',
+          default: 'file,journal,journal-date,aliases,captured-from',
         },
       ]),
     });
@@ -729,7 +729,11 @@ class PropertiesAggregationView extends BasesView {
     }
 
     const config = this.config || {};
-    const excludeProperties = (config.excludeProperties || 'file,journal,journal-date,aliases')
+    const blacklistRaw =
+      config.propertyBlacklist ??
+      config.excludeProperties ??
+      'file,journal,journal-date,aliases,captured-from';
+    const excludeProperties = String(blacklistRaw)
       .split(',')
       .map(p => p.trim())
       .filter(Boolean);
@@ -770,9 +774,11 @@ class PropertiesAggregationView extends BasesView {
       const propertyInfo = app.metadataTypeManager?.getPropertyInfo(propertyKey);
       let isCheckbox = propertyInfo?.type === 'checkbox';
       
-      // If not registered, check if all values are booleans
+      // If not registered, infer "presence-only" properties.
+      // Treat boolean and empty-string values as presence markers so keys like
+      // `wash-dishes: ''` can still be aggregated/synced.
       if (!isCheckbox) {
-        let allBoolean = true;
+        let allPresenceLike = true;
         for (const group of data.groupedData) {
           for (const entry of group.entries) {
             const file = entry.file;
@@ -780,14 +786,19 @@ class PropertiesAggregationView extends BasesView {
             const cache = app.metadataCache.getFileCache(file);
             if (!cache?.frontmatter) continue;
             const rawValue = cache.frontmatter[propertyKey];
-            if (rawValue !== undefined && rawValue !== null && typeof rawValue !== 'boolean') {
-              allBoolean = false;
+            const isPresenceLike =
+              rawValue === undefined ||
+              rawValue === null ||
+              typeof rawValue === 'boolean' ||
+              rawValue === '';
+            if (!isPresenceLike) {
+              allPresenceLike = false;
               break;
             }
           }
-          if (!allBoolean) break;
+          if (!allPresenceLike) break;
         }
-        isCheckbox = allBoolean;
+        isCheckbox = allPresenceLike;
       }
       
       for (const group of data.groupedData) {
