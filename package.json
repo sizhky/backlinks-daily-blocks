@@ -4,7 +4,8 @@
   "description": "Obsidian plugin: Backlinks & Daily Blocks (render backlinks/daily blocks without Dataview).",
   "main": "main.js",
   "scripts": {
-    "build": "echo \"No build step: main.js is already bundled.\"",
+    "build": "esbuild src/main.js --bundle --format=cjs --platform=browser --external:obsidian --outfile=main.js",
+    "dev": "npm run build -- --watch",
     "test": "echo \"No tests defined.\""
   },
   "keywords": [
@@ -17,6 +18,7 @@
   "author": "Yeshwanth",
   "license": "UNLICENSED",
   "devDependencies": {
+    "esbuild": "^0.28.0",
     "obsidian": "^1.5.0"
   },
   "engines": {

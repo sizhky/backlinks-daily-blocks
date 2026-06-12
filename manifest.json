@@ -1,0 +1,10 @@
+{
+  "id": "backlinks-daily-blocks",
+  "name": "Backlinks & Daily Blocks",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Render ```backlinks``` and ```daily``` code blocks into embeds without Dataview.",
+  "author": "Yeshwanth",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}

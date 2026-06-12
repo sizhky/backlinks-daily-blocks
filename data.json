@@ -1,0 +1,23 @@
+{
+  "kanban": {
+    "columns": "Backlog~, Todo, Doing, Parked~, Done=x, Cancelled=-",
+    "colors": "",
+    "paths": "",
+    "maxage": 7,
+    "sweep": "Doing > Parked\nDoing > Done\nParked > Doing\nParked > Cancelled",
+    "logfile": "90-99 Obsidian Meta/Logs/Task Logs.md"
+  },
+  "backlinks": {
+    "heading": "Backlinks",
+    "sort": "ctime",
+    "limit": 20,
+    "truncate": 400
+  },
+  "daily": {
+    "heading": "Daily notes",
+    "order": "desc",
+    "limit": 0,
+    "truncate": 800,
+    "includeCurrent": false
+  }
+}
