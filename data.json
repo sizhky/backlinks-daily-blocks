@@ -1,10 +1,11 @@
 {
   "kanban": {
-    "columns": "Backlog~ @#afd3fe\nTodo~!\nDoing!\nParked!~\nWaiting~ @#9a2302\nDone=x\nCancelled=-",
+    "columns": "Backlog~ @#afd3fe\nTodo~\nDoing!\nParked~\nWaiting~ @#9a2302\nDone=x\nCancelled=-",
     "colors": "",
     "paths": "",
     "maxage": 7,
     "sweep": "Doing > Parked\nDoing > Done\nParked > Doing\nParked > Cancelled",
+    "lanesort": "open-desc",
     "logfile": "90-99 Obsidian Meta/Logs/Task Logs.md"
   },
   "ei": {

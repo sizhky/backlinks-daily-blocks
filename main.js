@@ -321,18 +321,22 @@ var require_kanban = __commonJS({
       return out;
     }
     function parseKanbanConfig(src) {
-      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null };
+      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null };
       let lastKey = null;
       for (const rawLine of (src || "").split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
-        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane)\s*:\s*(.*)$/);
+        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort)\s*:\s*(.*)$/);
         const key = m ? m[1] : lastKey;
         const value = m ? m[2].trim() : line;
         lastKey = key;
         if (!key || !value) continue;
         if (key === "maxage") {
           config.maxage = Number(value) || 0;
+        } else if (key === "hidedonelanes") {
+          config.hidedonelanes = value !== "false";
+        } else if (key === "lanesort") {
+          config.lanesort = colKey(value);
         } else if (key === "filter") {
           config.filters.push(...parseFilters(value));
         } else if (key === "lane") {
@@ -555,6 +559,7 @@ var require_kanban = __commonJS({
       if (!config.sweeps.length && defaults.sweep) {
         config.sweeps = parseSweeps(defaults.sweep);
       }
+      if (config.lanesort == null && defaults.lanesort) config.lanesort = defaults.lanesort;
       return config;
     }
     async function renderKanbanBlock2(plugin, src, el, ctx) {
@@ -594,7 +599,22 @@ var require_kanban = __commonJS({
         }
       }
       const openKeys = config.columns.filter((c) => !c.state).map((c) => c.key);
-      return [...lanes.entries()].map(([name, m]) => ({ name, cards: m, n: [...m.values()].flat().length })).filter((l) => openKeys.some((k) => l.cards.get(k).length)).sort((a, b) => (a.name === "(none)") - (b.name === "(none)") || b.n - a.n || a.name.localeCompare(b.name));
+      const termKeys = config.columns.filter((c) => c.state).map((c) => c.key);
+      return [...lanes.entries()].map(([name, m]) => ({
+        name,
+        cards: m,
+        n: [...m.values()].flat().length,
+        done: termKeys.reduce((s, k) => s + m.get(k).length, 0),
+        // closed = terminal cards
+        open: openKeys.reduce((s, k) => s + m.get(k).length, 0)
+      })).filter((l) => !config.hidedonelanes || openKeys.some((k) => l.cards.get(k).length)).sort((a, b) => {
+        const [skey, dir = "desc"] = (config.lanesort || "total").split("-");
+        const sign = dir === "asc" ? 1 : -1;
+        const noneLast = (a.name === "(none)") - (b.name === "(none)");
+        if (skey === "name") return noneLast || sign * a.name.localeCompare(b.name);
+        const byKey = sign * ((skey === "open" ? a.open : a.n) - (skey === "open" ? b.open : b.n));
+        return byKey || noneLast || a.name.localeCompare(b.name);
+      });
     }
     async function drawBoard(plugin, board, config, state = { dragging: false }) {
       board.empty();
@@ -612,7 +632,7 @@ var require_kanban = __commonJS({
             if (laneEl.open) state.folded.delete(lane.name);
             else state.folded.add(lane.name);
           });
-          laneEl.createEl("summary", { cls: "bdb-kanban-lane-title", text: `${lane.name} (${lane.n})` });
+          laneEl.createEl("summary", { cls: "bdb-kanban-lane-title", text: `${lane.name} (${lane.open}/${lane.n})` });
           host = laneEl.createDiv({ cls: "bdb-kanban-lane-row" });
         }
         for (const [index, col] of config.columns.entries()) {
@@ -1040,7 +1060,8 @@ var require_settings = __commonJS({
         colors: "",
         paths: "",
         maxage: 7,
-        sweep: "Doing > Parked"
+        sweep: "Doing > Parked",
+        lanesort: "total-desc"
       },
       ei: {
         paths: "",
@@ -1114,6 +1135,17 @@ var require_settings = __commonJS({
         this.bind(new Setting(el).setName("Default paths").setDesc("Comma list of path prefixes to scan; empty = whole vault."), "kanban", "paths");
         this.bind(new Setting(el).setName("Max age (days)").setDesc("Hide terminal cards stamped older than this; 0 = show all."), "kanban", "maxage", { number: true });
         this.bind(new Setting(el).setName("Sweep").setDesc('One "From > To" route per line; each adds a bulk-move button on its From column. Empty disables.'), "kanban", "sweep", { area: true });
+        new Setting(el).setName("Lane sort").setDesc("Default swimlane order.").addDropdown((d) => d.addOptions({
+          "total-desc": "Total cards (most first)",
+          "total-asc": "Total cards (fewest first)",
+          "open-desc": "Open tasks (most first)",
+          "open-asc": "Open tasks (fewest first)",
+          "name-asc": "Name (A\u2192Z)",
+          "name-desc": "Name (Z\u2192A)"
+        }).setValue(this.plugin.settings.kanban.lanesort).onChange(async (v) => {
+          this.plugin.settings.kanban.lanesort = v;
+          await this.plugin.saveSettings();
+        }));
         const preview = new Setting(el).setName("Current config as block").setDesc("Read-only. Paste into a kanban code block in any note to clone this board.").setClass("bdb-setting-area");
         preview.addButton((b) => b.setButtonText("Copy").onClick(async () => {
           await navigator.clipboard.writeText(this.kanbanBlockText());
@@ -1139,6 +1171,7 @@ var require_settings = __commonJS({
         const lines = multi("columns", k.columns);
         if (k.paths) lines.push(`paths: ${k.paths}`);
         lines.push(`maxage: ${k.maxage}`);
+        if (k.lanesort && k.lanesort !== "total-desc") lines.push(`lanesort: ${k.lanesort}`);
         if (k.sweep) lines.push(...multi("sweep", k.sweep));
         if (k.colors) lines.push(...multi("colors", k.colors));
         return lines.join("\n");

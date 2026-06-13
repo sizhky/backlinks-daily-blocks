@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
     paths: '',
     maxage: 7,
     sweep: 'Doing > Parked',
+    lanesort: 'total-desc',
   },
   ei: {
     paths: '',
@@ -80,6 +81,17 @@ class BdbSettingTab extends PluginSettingTab {
     this.bind(new Setting(el).setName('Default paths').setDesc('Comma list of path prefixes to scan; empty = whole vault.'), 'kanban', 'paths');
     this.bind(new Setting(el).setName('Max age (days)').setDesc('Hide terminal cards stamped older than this; 0 = show all.'), 'kanban', 'maxage', { number: true });
     this.bind(new Setting(el).setName('Sweep').setDesc('One "From > To" route per line; each adds a bulk-move button on its From column. Empty disables.'), 'kanban', 'sweep', { area: true });
+    new Setting(el).setName('Lane sort').setDesc('Default swimlane order.')
+      .addDropdown(d => d.addOptions({
+        'total-desc': 'Total cards (most first)',
+        'total-asc': 'Total cards (fewest first)',
+        'open-desc': 'Open tasks (most first)',
+        'open-asc': 'Open tasks (fewest first)',
+        'name-asc': 'Name (A→Z)',
+        'name-desc': 'Name (Z→A)',
+      })
+        .setValue(this.plugin.settings.kanban.lanesort)
+        .onChange(async v => { this.plugin.settings.kanban.lanesort = v; await this.plugin.saveSettings(); }));
 
     const preview = new Setting(el)
       .setName('Current config as block')
@@ -107,6 +119,7 @@ class BdbSettingTab extends PluginSettingTab {
     const lines = multi('columns', k.columns);
     if (k.paths) lines.push(`paths: ${k.paths}`);
     lines.push(`maxage: ${k.maxage}`);
+    if (k.lanesort && k.lanesort !== 'total-desc') lines.push(`lanesort: ${k.lanesort}`);
     if (k.sweep) lines.push(...multi('sweep', k.sweep));
     if (k.colors) lines.push(...multi('colors', k.colors));
     return lines.join('\n');

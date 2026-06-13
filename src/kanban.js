@@ -100,12 +100,12 @@ function parseColors(text) {
 //     Doing > Parked
 //     Parked > Todo
 function parseKanbanConfig(src) {
-  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null };
+  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null };
   let lastKey = null;
   for (const rawLine of (src || '').split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane)\s*:\s*(.*)$/);
+    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort)\s*:\s*(.*)$/);
     const key = m ? m[1] : lastKey;
     const value = m ? m[2].trim() : line;
     lastKey = key;
@@ -113,6 +113,10 @@ function parseKanbanConfig(src) {
 
     if (key === 'maxage') {
       config.maxage = Number(value) || 0;
+    } else if (key === 'hidedonelanes') {
+      config.hidedonelanes = value !== 'false';
+    } else if (key === 'lanesort') {
+      config.lanesort = colKey(value);
     } else if (key === 'filter') {
       config.filters.push(...parseFilters(value));
     } else if (key === 'lane') {
@@ -379,6 +383,7 @@ function resolveKanbanConfig(plugin, src) {
   if (!config.sweeps.length && defaults.sweep) {
     config.sweeps = parseSweeps(defaults.sweep);
   }
+  if (config.lanesort == null && defaults.lanesort) config.lanesort = defaults.lanesort;
   return config;
 }
 
@@ -423,13 +428,29 @@ function laneSplit(config, cards) {
       lanes.get(name).get(key).push(card);
     }
   }
-  // A lane with nothing left to do is finished work, not a lane — hide it.
+  // hidedonelanes: a lane with nothing left in an open column is finished
+  // work, not a lane — drop it. Off by default; all non-empty lanes show.
   const openKeys = config.columns.filter(c => !c.state).map(c => c.key);
+  const termKeys = config.columns.filter(c => c.state).map(c => c.key);
   return [...lanes.entries()]
-    .map(([name, m]) => ({ name, cards: m, n: [...m.values()].flat().length }))
-    .filter(l => openKeys.some(k => l.cards.get(k).length))
-    .sort((a, b) => (a.name === '(none)') - (b.name === '(none)')
-      || b.n - a.n || a.name.localeCompare(b.name));
+    .map(([name, m]) => ({
+      name, cards: m,
+      n: [...m.values()].flat().length,
+      done: termKeys.reduce((s, k) => s + m.get(k).length, 0), // closed = terminal cards
+      open: openKeys.reduce((s, k) => s + m.get(k).length, 0),
+    }))
+    .filter(l => !config.hidedonelanes || openKeys.some(k => l.cards.get(k).length))
+    // lanesort: "<key>-<dir>", key = total|open|name, dir = desc|asc (default
+    // desc; bare "total"/"open" still parse). For numeric keys (none) sorts by
+    // its value, losing ties to real lanes; for name sorts it always pins last.
+    .sort((a, b) => {
+      const [skey, dir = 'desc'] = (config.lanesort || 'total').split('-');
+      const sign = dir === 'asc' ? 1 : -1;
+      const noneLast = (a.name === '(none)') - (b.name === '(none)');
+      if (skey === 'name') return noneLast || sign * a.name.localeCompare(b.name);
+      const byKey = sign * ((skey === 'open' ? a.open : a.n) - (skey === 'open' ? b.open : b.n));
+      return byKey || noneLast || a.name.localeCompare(b.name);
+    });
 }
 
 async function drawBoard(plugin, board, config, state = { dragging: false }) {
@@ -452,7 +473,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
         if (laneEl.open) state.folded.delete(lane.name);
         else state.folded.add(lane.name);
       });
-      laneEl.createEl('summary', { cls: 'bdb-kanban-lane-title', text: `${lane.name} (${lane.n})` });
+      laneEl.createEl('summary', { cls: 'bdb-kanban-lane-title', text: `${lane.name} (${lane.open}/${lane.n})` });
       host = laneEl.createDiv({ cls: 'bdb-kanban-lane-row' });
     }
 
