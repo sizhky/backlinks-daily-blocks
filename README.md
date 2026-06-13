@@ -48,15 +48,33 @@ columns: Todo, Doing, Done=x, Cancelled=-
 - Task birth = note's `YYYYMMDD-HHmm` filename stamp; the journey starts there (gray backlog lead-in on the bar).
 - Card shows two journey bars (segments ∝ time, column colors): full timeline incl. idle, and active-only beneath. Full text trail on hover.
 - Open cards label current column + duration; terminal cards freeze the clock and label `16m work · 3d total`.
-- Aging WIP: idle-column cards (except the first column) grow a left stripe — amber past 2 days, red past 7.
-- Empty block = defaults: all paths, `Backlog~, Todo, Doing, Parked~, Done=x, Cancelled=-`, `maxage: 7`.
+- Aging WIP: idle-column cards (except the first column) grow a left stripe — amber past the column's `~N` threshold (days, default 1), red past 3N. e.g. `Waiting~3`.
+- Tags live on a tag line under the task (tags/wikilinks only, one indent deeper); inline tags on the task line still read. All moves write the tag line.
+- Empty block = defaults: all paths, `Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-`, `maxage: 7`.
 - `sweep:` routes, one per indented line below the key (commas also work); each puts a ⤳ button on its From column header that bulk-moves every card to the To column, history lines included. Default `Doing > Parked`. Terminal targets still respect the open-children guard.
   ```
   sweep:
     Doing > Parked
     Parked > Todo
   ```
-- Column colors: built-in palette by name (backlog/todo/doing/parked/review/done/cancelled), cycle for unknown names; override with `colors:` + one `Name=color` per indented line (block or settings).
+- Columns, one per line: `Name[~N idle][! heartbeat][=x terminal] [@color]`, e.g. `Waiting~3`, `Doing! @#2d7ff9`, `Done=x @green`. No `@color` = built-in palette by name (backlog/todo/doing/parked/review/done/cancelled), cycle for unknown names. Legacy `colors:` key still parses.
+
+### Ei (triage chute)
+````
+```ei
+from: Backlog
+doors:
+  Do > Todo
+  Delegate > Waiting +who
+  Delete > Cancelled
+```
+````
+- A triage lens over one kanban column — owns no tasks, same vault scan. Left tray = the `from` column (default: first open); doors beside it, each a real board move.
+- Door spec: `Name > TargetColumn [+who]`, one per line or comma-separated. Target is any kanban column — open targets tag the card, terminal targets close it (`[x]`/`[-]` + stamp, open-children guard applies). `+who` asks for a person and appends a `[[wikilink]]` to the tag line.
+- Door color follows its target column; a door whose target column doesn't exist refuses drops and says so.
+- No priority labels: a triage decision that doesn't change the board is clutter. "Schedule later" = leave it in the tray.
+- `[[who]]` pills render on cards in both ei and kanban; the person's note backlinks collect everything on their head.
+- Empty block = settings defaults (`Do > Todo`, `Delegate > Waiting +who`, `Delete > Cancelled`); `paths:` here overrides kanban default paths.
 
 ### Backlinks
 ````

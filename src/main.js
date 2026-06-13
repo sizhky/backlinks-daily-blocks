@@ -1,6 +1,7 @@
 const { Plugin } = require('obsidian');
 const { renderBacklinksBlock, renderDailyBlock } = require('./blocks');
 const { renderKanbanBlock } = require('./kanban');
+const { renderEiBlock } = require('./ei');
 const { BdbSettingTab, mergeSettings } = require('./settings');
 const { ChronicleView, CHRONICLE_VIEW_TYPE } = require('./views/chronicle');
 const { AtlasView, ATLAS_VIEW_TYPE } = require('./views/atlas');
@@ -26,6 +27,10 @@ class BacklinksDailyBlocksPlugin extends Plugin {
 
     this.registerMarkdownCodeBlockProcessor('kanban', (src, el, ctx) => {
       return renderKanbanBlock(this, src, el, ctx);
+    });
+
+    this.registerMarkdownCodeBlockProcessor('ei', (src, el, ctx) => {
+      return renderEiBlock(this, src, el, ctx);
     });
 
     this.registerBasesView(CHRONICLE_VIEW_TYPE, {

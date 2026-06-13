@@ -290,14 +290,70 @@
   gap: 0.6em;
   align-items: stretch; /* all columns as tall as the tallest = full-height drop zones */
   overflow-x: auto;
-  padding: 0.3em 0;
+  padding: 0.8em;
   min-height: 12em;
+}
+
+/* Lanes: the board stacks lane rows; each row lays out like the flat board.
+   One horizontal scrollbar on the board moves every lane together. */
+.bdb-kanban-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+.bdb-kanban-lane {
+  min-width: max-content;
+}
+
+.bdb-kanban-lane-title {
+  font-weight: 700;
+  font-size: 1.2em;
+  color: var(--text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0.5em 0 0.1em;
+  cursor: pointer;
+  user-select: none;
+  position: sticky; /* titles stay readable while the board scrolls sideways */
+  left: 0;
+  width: fit-content;
+  list-style: none; /* default disclosure triangle off; sleek chevron below */
+}
+
+.bdb-kanban-lane-title::-webkit-details-marker {
+  display: none;
+}
+
+.bdb-kanban-lane-title::before {
+  content: '›';
+  display: inline-block;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-right: 0.45em;
+  transition: transform 0.15s ease;
+}
+
+details[open] > .bdb-kanban-lane-title::before {
+  transform: rotate(90deg);
+}
+
+.bdb-kanban-lane:first-child .bdb-kanban-lane-title {
+  margin-top: 0;
+}
+
+.bdb-kanban-lane-row {
+  display: flex;
+  gap: 0.6em;
+  align-items: stretch;
+  padding: 0.3em 0;
 }
 
 .bdb-kanban-col {
   flex: 0 0 260px; /* fixed column width; board scrolls sideways instead of cramming */
   min-width: 260px;
   max-width: 260px; /* content min-width must not inflate the column */
+  position: relative; /* anchors the live-column wash overlay */
   background: var(--background-secondary);
   border-radius: 8px;
   padding: 0.5em;
@@ -309,7 +365,25 @@
   border-top: 3px solid var(--kb-col-color, var(--background-modifier-border));
 }
 
+/* Folded column: vertical strip, title rotated, still a drop target. */
+.bdb-kanban-col-folded {
+  flex: 0 0 2.4em;
+  min-width: 2.4em;
+  max-width: 2.4em;
+}
+
+.bdb-kanban-col-folded .bdb-kanban-col-title {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.bdb-kanban-col-folded .bdb-kanban-cards {
+  display: none;
+}
+
 .bdb-kanban-col-title {
+  cursor: pointer;
   font-weight: 700;
   font-size: 0.85em;
   margin-bottom: 0.5em;
@@ -344,7 +418,7 @@
   height: 0.6em;
   border-radius: 50%;
   background: var(--kb-col-color, var(--text-muted));
-  margin-right: 0.4em;
+  margin-inline-end: 0.7em; /* follows writing mode: right when horizontal, below when vertical */
 }
 
 .bdb-kanban-over {
@@ -376,14 +450,16 @@
   cursor: grabbing;
 }
 
-/* parent card: stacked-paper edges peeking out bottom-right */
+/* parent card: stacked-paper edges peeking out bottom-right,
+   bordered in its column color */
 .bdb-kanban-card-parent {
   border-width: 2px;
+  border-color: var(--kb-col-color, var(--background-modifier-border));
   box-shadow:
     3px 3px 0 var(--background-primary),
-    4px 4px 0 var(--background-modifier-border),
+    4px 4px 0 var(--kb-col-color, var(--background-modifier-border)),
     7px 7px 0 var(--background-primary),
-    8px 8px 0 var(--background-modifier-border);
+    8px 8px 0 var(--kb-col-color, var(--background-modifier-border));
   margin-right: 8px;
   margin-bottom: 8px;
 }
@@ -501,6 +577,69 @@ textarea.bdb-config-preview {
   white-space: nowrap;
 }
 
+/* live column: cards carry a heartbeat (border only, so parent stacks survive) */
+.bdb-kanban-card-live {
+  animation: bdb-kanban-heartbeat 4.8s ease-in-out infinite;
+}
+
+@keyframes bdb-kanban-heartbeat {
+  0%, 100% {
+    border-color: var(--background-modifier-border);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    border-color: var(--kb-col-color, var(--text-accent));
+    box-shadow: 0 0 10px 0 var(--kb-col-color, var(--text-accent));
+  }
+}
+
+/* the column itself breathes with its cards: a color wash overlay fades in
+   and out via opacity, which browsers interpolate smoothly */
+.bdb-kanban-col-live::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--kb-col-color, var(--text-accent));
+  opacity: 0;
+  pointer-events: none;
+  animation: bdb-kanban-col-heartbeat 4.8s ease-in-out infinite;
+}
+
+.bdb-kanban-col-live > * {
+  position: relative; /* content rides above the wash */
+}
+
+/* parent cards keep their stacked-paper shadows while glowing */
+.bdb-kanban-card-parent.bdb-kanban-card-live {
+  animation-name: bdb-kanban-heartbeat-parent;
+}
+
+@keyframes bdb-kanban-heartbeat-parent {
+  0%, 100% {
+    border-color: var(--kb-col-color, var(--background-modifier-border));
+    box-shadow:
+      3px 3px 0 var(--background-primary),
+      4px 4px 0 var(--kb-col-color, var(--background-modifier-border)),
+      7px 7px 0 var(--background-primary),
+      8px 8px 0 var(--kb-col-color, var(--background-modifier-border));
+  }
+  50% {
+    border-color: var(--kb-col-color, var(--text-accent));
+    box-shadow:
+      3px 3px 0 var(--background-primary),
+      4px 4px 0 var(--kb-col-color, var(--background-modifier-border)),
+      7px 7px 0 var(--background-primary),
+      8px 8px 0 var(--kb-col-color, var(--background-modifier-border)),
+      0 0 10px 0 var(--kb-col-color, var(--text-accent));
+  }
+}
+
+@keyframes bdb-kanban-col-heartbeat {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 0.22; }
+}
+
 /* aging WIP: rot stripe on the card's left spine */
 .bdb-kanban-age-amber {
   border-left: 3px solid #d29922;
@@ -556,4 +695,117 @@ textarea.bdb-config-preview {
 @keyframes bdb-kanban-glow-pulse {
   0%, 60% { box-shadow: 0 0 0 2px var(--text-accent, #2ea043), 0 0 12px var(--text-accent, #2ea043); }
   100% { box-shadow: none; }
+}
+
+/* ===== ei: Eisenhower triage lens over the kanban backlog ===== */
+
+.bdb-ei {
+  display: flex;
+  gap: 0.6em;
+  align-items: stretch;
+  padding: 0.3em 0;
+  min-height: 14em;
+}
+
+.bdb-ei-tray {
+  flex: 1.4;
+  min-width: 220px;
+}
+
+/* three doors stacked beside the tray; each is a drop target, not a column */
+.bdb-ei-grid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  min-width: 0;
+}
+
+.bdb-ei-zone {
+  background: var(--background-secondary);
+  border-radius: 8px;
+  border-top: 3px solid var(--ei-color, var(--background-modifier-border));
+  padding: 0.5em;
+  display: flex;
+  flex-direction: column;
+  min-height: 6em;
+}
+
+.bdb-ei-zone-title {
+  font-weight: 700;
+  font-size: 0.85em;
+  margin-bottom: 0.5em;
+  color: var(--text-muted);
+}
+
+.bdb-ei-zone-title::before {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--ei-color, var(--text-muted));
+  margin-right: 0.4em;
+}
+
+.bdb-ei-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  flex: 1; /* empty space stays a drop zone */
+}
+
+.bdb-ei-hint {
+  margin-top: 0.4em;
+  font-size: 0.72em;
+  color: var(--text-faint);
+}
+
+.bdb-ei-over {
+  outline: 2px dashed var(--text-accent, #2ea043);
+  outline-offset: -2px;
+}
+
+.bdb-ei-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 0.4em 0.55em;
+  cursor: grab;
+}
+
+.bdb-ei-card:active {
+  cursor: grabbing;
+}
+
+.bdb-ei-who {
+  margin-top: 0.3em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+}
+
+.bdb-ei-who-pill {
+  font-size: 0.72em;
+  padding: 0.05em 0.5em;
+  border-radius: 1em;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+/* parents above, everything else below — one quiet line between */
+.bdb-kanban-sep {
+  border-top: 1px dashed var(--kb-col-color, var(--background-modifier-border));
+  margin: 0.45em 0.3em 0.15em;
+  opacity: 0.6;
+}
+
+/* percentile-capped columns: tall ones scroll inside themselves */
+.bdb-kanban-cards {
+  overflow-y: auto;
+}
+
+/* clipped column: faint dashed lip — there's more below the fold */
+.bdb-kanban-clipped {
+  border-bottom: 1px dashed var(--kb-col-color, var(--background-modifier-border));
 }

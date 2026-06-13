@@ -259,6 +259,8 @@ var require_kanban = __commonJS({
     var STAMP_RE = /\s+\d{12}\s*$/;
     var TASK_RE = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
     var HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
+    var EI_HIST_RE = /^\s*%%\s?ei (\d{12}) ([\w-]+)\s?%%\s*$/;
+    var TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
       todo: "#d29922",
@@ -283,6 +285,33 @@ var require_kanban = __commonJS({
       }
       return out;
     }
+    function parseFilters(text) {
+      const out = [];
+      for (const part of (text || "").split(/[,\n]/)) {
+        let s = part.trim();
+        if (!s) continue;
+        const absent = s.startsWith("!");
+        if (absent) s = s.slice(1).trim();
+        const neq = s.includes("!=");
+        const [key, value] = s.split(/!?=/).map((x) => x.trim());
+        const values = (value || "").split("|").map((x) => x.trim().replace(/^\[\[|\]\]$/g, "").toLowerCase()).filter(Boolean);
+        if (key) out.push({ key: key.replace(/^\[\[|\]\]$/g, ""), values, absent, neq });
+      }
+      return out;
+    }
+    function fmValues(app, file, key) {
+      let v = app.metadataCache.getFileCache(file)?.frontmatter?.[key];
+      if (v == null) return [];
+      if (!Array.isArray(v)) v = [v];
+      return v.filter((x) => x != null).map((x) => String(x).replace(/^\[\[|\]\]$/g, "").trim()).filter(Boolean);
+    }
+    function passesFilter(app, file, f) {
+      const vals = fmValues(app, file, f.key);
+      if (f.absent) return !vals.length;
+      if (!f.values.length) return vals.length > 0;
+      const hit = vals.some((v) => f.values.includes(v.toLowerCase()));
+      return f.neq ? !hit : hit;
+    }
     function parseColors(text) {
       const out = {};
       for (const part of (text || "").split(/[,\n]/)) {
@@ -292,18 +321,22 @@ var require_kanban = __commonJS({
       return out;
     }
     function parseKanbanConfig(src) {
-      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [] };
+      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null };
       let lastKey = null;
       for (const rawLine of (src || "").split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
-        const m = line.match(/^(maxage|paths|columns|colors|sweep)\s*:\s*(.*)$/);
+        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane)\s*:\s*(.*)$/);
         const key = m ? m[1] : lastKey;
         const value = m ? m[2].trim() : line;
         lastKey = key;
         if (!key || !value) continue;
         if (key === "maxage") {
           config.maxage = Number(value) || 0;
+        } else if (key === "filter") {
+          config.filters.push(...parseFilters(value));
+        } else if (key === "lane") {
+          config.lane = value;
         } else if (key === "sweep") {
           config.sweeps.push(...parseSweeps(value));
         } else if (key === "colors") {
@@ -312,10 +345,21 @@ var require_kanban = __commonJS({
           config.paths.push(...value.split(",").map((s) => s.trim()).filter(Boolean));
         } else if (key === "columns") {
           config.columns.push(...value.split(",").map((s) => s.trim()).filter(Boolean).map((part) => {
-            const [rawName, state] = part.split("=").map((s) => s.trim());
-            const paused = rawName.endsWith("~");
-            const name = paused ? rawName.slice(0, -1).trim() : rawName;
-            return { name, key: colKey(name), state: state || null, paused };
+            const [spec, color] = part.split("@").map((s) => s.trim());
+            let [name, state] = spec.split("=").map((s) => s.trim());
+            let paused = false;
+            let live = false;
+            let age = null;
+            let am;
+            while (am = name.match(/(~(\d+(?:\.\d+)?)?|!)$/)) {
+              if (am[1][0] === "~") {
+                paused = true;
+                age = am[2] ? Number(am[2]) : 1;
+              } else live = true;
+              name = name.slice(0, name.length - am[1].length).trim();
+            }
+            if (color) config.colors[colKey(name)] = color;
+            return { name, key: colKey(name), state: state || null, paused, live, age };
           }));
         }
       }
@@ -327,10 +371,19 @@ var require_kanban = __commonJS({
       const byTag = new Map(open.map((c) => [c.key, c]));
       const cards = new Map(config.columns.map((c) => [c.key, []]));
       const cutoff = config.maxage ? stampNow(new Date(Date.now() - config.maxage * 864e5)) : null;
-      const files = app.vault.getMarkdownFiles().filter((f) => !config.paths.length || config.paths.some((p) => f.path.startsWith(p)));
+      const files = app.vault.getMarkdownFiles().filter((f) => (!config.paths.length || config.paths.some((p) => f.path.startsWith(p))) && config.filters.every((fl) => passesFilter(app, f, fl)));
       for (const file of files) {
+        const lane = config.lane ? fmValues(app, file, config.lane)[0] || null : null;
         const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
+        const fileCards = [];
         const stack = [];
+        const owner = (text) => {
+          const indent = indentWidth(text);
+          for (let s = stack.length - 1; s >= 0; s--) {
+            if (stack[s].indent < indent) return stack[s].card;
+          }
+          return null;
+        };
         for (let i = 0; i < lines.length; i++) {
           const text = lines[i];
           const tm = text.match(TASK_RE);
@@ -338,33 +391,82 @@ var require_kanban = __commonJS({
             const indent = indentWidth(text);
             while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
             const parent = stack.length ? stack[stack.length - 1].card : null;
-            const card = { file, line: i, body: tm[4], state: tm[2], parent, children: [], history: [] };
+            const card = {
+              file,
+              line: i,
+              body: tm[4],
+              state: tm[2],
+              parent,
+              lane,
+              children: [],
+              history: [],
+              eiHistory: [],
+              tags: [],
+              who: []
+            };
             if (parent) parent.children.push(card);
             stack.push({ indent, card });
-            let col;
-            if (card.state === " ") col = byTag.get(card.body.match(KB_TAG_RE)?.[1]) || open[0];
-            else {
-              col = byState.get(card.state);
-              if (col && cutoff && (card.body.match(STAMP_RE)?.[0]?.trim() || "") < cutoff) col = null;
-            }
-            if (col) cards.get(col.key).push(card);
+            fileCards.push(card);
             continue;
           }
           const hm = text.match(HIST_RE);
           if (hm) {
-            const indent = indentWidth(text);
-            for (let s = stack.length - 1; s >= 0; s--) {
-              if (stack[s].indent < indent) {
-                stack[s].card.history.push({ stamp: hm[1], from: hm[2], to: hm[3] });
-                break;
+            owner(text)?.history.push({ stamp: hm[1], from: hm[2], to: hm[3] });
+            continue;
+          }
+          const em = text.match(EI_HIST_RE);
+          if (em) {
+            owner(text)?.eiHistory.push({ stamp: em[1], label: em[2] });
+            continue;
+          }
+          const gm = text.match(TAGLINE_RE);
+          if (gm) {
+            const card = owner(text);
+            if (card) {
+              for (const tok of gm[1].split(/\s+/)) {
+                if (tok.startsWith("#")) card.tags.push(tok);
+                else card.who.push(tok.slice(2, -2));
               }
             }
             continue;
           }
           if (!/^\s/.test(text)) stack.length = 0;
         }
+        for (const card of fileCards) {
+          let col;
+          if (card.state === " ") {
+            const key = card.tags.find((t) => t.startsWith("#kb/"))?.match(KB_TAG_RE)?.[1] || card.body.match(KB_TAG_RE)?.[1];
+            col = byTag.get(key) || open[0];
+          } else {
+            col = byState.get(card.state);
+            if (col && cutoff && (card.body.match(STAMP_RE)?.[0]?.trim() || "") < cutoff) col = null;
+          }
+          if (col) cards.get(col.key).push(card);
+        }
       }
       return cards;
+    }
+    function tagLineAt(lines, line) {
+      const next = lines[line + 1];
+      if (next == null || !TAGLINE_RE.test(next)) return null;
+      if (indentWidth(next) <= indentWidth(lines[line])) return null;
+      return line + 1;
+    }
+    function editTags(lines, line, fn) {
+      const at = tagLineAt(lines, line);
+      const tokens = at != null ? lines[at].trim().split(/\s+/) : [];
+      const out = fn(tokens).filter(Boolean);
+      const indent = lines[line].match(/^\s*/)[0] + "  ";
+      if (at != null && !out.length) lines.splice(at, 1);
+      else if (at != null) lines[at] = indent + out.join(" ");
+      else if (out.length) lines.splice(line + 1, 0, indent + out.join(" "));
+    }
+    function commentInsertAt(lines, line) {
+      return tagLineAt(lines, line) != null ? line + 2 : line + 1;
+    }
+    function pct(values, q) {
+      const s = values.slice().sort((a, b) => a - b);
+      return s[Math.floor((s.length - 1) * q)];
     }
     function indentWidth(text) {
       let w = 0;
@@ -423,11 +525,15 @@ var require_kanban = __commonJS({
       if (targetCol.state) {
         lines[line] = `${pre}${targetCol.state}${close}${body} ${stampNow()}`;
       } else {
-        const tag = targetCol === firstOpen ? "" : ` #kb/${targetCol.key}`;
-        lines[line] = `${pre} ${close}${body}${tag}`;
+        lines[line] = `${pre} ${close}${body}`;
       }
+      const tag = !targetCol.state && targetCol !== firstOpen ? `#kb/${targetCol.key}` : null;
+      editTags(lines, line, (tokens) => {
+        const rest = tokens.filter((t) => !t.startsWith("#kb/"));
+        return tag ? [tag, ...rest] : rest;
+      });
       const indent = lines[line].match(/^\s*/)[0];
-      lines.splice(line + 1, 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
+      lines.splice(commentInsertAt(lines, line), 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
       await app.vault.modify(file, lines.join("\n"));
       return true;
     }
@@ -435,7 +541,9 @@ var require_kanban = __commonJS({
       const config = parseKanbanConfig(src);
       const defaults = plugin.settings?.kanban || {};
       if (!config.columns.length) {
-        config.columns = parseKanbanConfig(`columns: ${defaults.columns || "Backlog~, Todo, Doing, Parked~, Done=x, Cancelled=-"}`).columns;
+        const d = parseKanbanConfig(`columns: ${defaults.columns || "Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-"}`);
+        config.columns = d.columns;
+        config.colors = { ...d.colors, ...config.colors };
       }
       if (!Object.keys(config.colors).length && defaults.colors) {
         config.colors = parseColors(defaults.colors);
@@ -462,6 +570,369 @@ var require_kanban = __commonJS({
       const redraw = () => {
         if (!state.dragging) drawBoard(plugin, board, resolveKanbanConfig(plugin, src), state);
       };
+      const tick = () => {
+        if (!state.dragging) (state.timeUpdaters || []).forEach((fn) => fn());
+      };
+      const child = new MarkdownRenderChild(el);
+      ctx.addChild(child);
+      child.registerInterval(window.setInterval(tick, 6e4));
+      let pending = null;
+      child.registerEvent(plugin.app.vault.on("modify", () => {
+        window.clearTimeout(pending);
+        pending = window.setTimeout(redraw, 500);
+      }));
+      await drawBoard(plugin, board, config, state);
+    }
+    function laneSplit(config, cards) {
+      if (!config.lane) return [{ name: null, cards, n: 0 }];
+      const lanes = /* @__PURE__ */ new Map();
+      for (const [key, list] of cards) {
+        for (const card of list) {
+          const name = card.lane || "(none)";
+          if (!lanes.has(name)) lanes.set(name, new Map(config.columns.map((c) => [c.key, []])));
+          lanes.get(name).get(key).push(card);
+        }
+      }
+      const openKeys = config.columns.filter((c) => !c.state).map((c) => c.key);
+      return [...lanes.entries()].map(([name, m]) => ({ name, cards: m, n: [...m.values()].flat().length })).filter((l) => openKeys.some((k) => l.cards.get(k).length)).sort((a, b) => (a.name === "(none)") - (b.name === "(none)") || b.n - a.n || a.name.localeCompare(b.name));
+    }
+    async function drawBoard(plugin, board, config, state = { dragging: false }) {
+      board.empty();
+      const cards = await scanKanbanTasks(plugin.app, config);
+      const cardEls = /* @__PURE__ */ new Map();
+      state.timeUpdaters = [];
+      board.classList.toggle("bdb-kanban-stacked", !!config.lane);
+      for (const lane of laneSplit(config, cards)) {
+        let host = board;
+        if (lane.name != null) {
+          state.folded ??= /* @__PURE__ */ new Set();
+          const laneEl = board.createEl("details", { cls: "bdb-kanban-lane" });
+          if (!state.folded.has(lane.name)) laneEl.setAttribute("open", "");
+          laneEl.addEventListener("toggle", () => {
+            if (laneEl.open) state.folded.delete(lane.name);
+            else state.folded.add(lane.name);
+          });
+          laneEl.createEl("summary", { cls: "bdb-kanban-lane-title", text: `${lane.name} (${lane.n})` });
+          host = laneEl.createDiv({ cls: "bdb-kanban-lane-row" });
+        }
+        for (const [index, col] of config.columns.entries()) {
+          const colCards = lane.cards.get(col.key);
+          const colEl = host.createDiv({ cls: "bdb-kanban-col" });
+          if (col.live) colEl.classList.add("bdb-kanban-col-live");
+          colEl.style.setProperty("--kb-col-color", columnColor(config, col, index));
+          state.colFold ??= /* @__PURE__ */ new Map();
+          const foldKey = `${lane.name ?? ""}::${col.key}`;
+          const folded = state.colFold.get(foldKey) ?? !colCards.length;
+          if (folded) colEl.classList.add("bdb-kanban-col-folded");
+          const titleEl = colEl.createDiv({ cls: "bdb-kanban-col-title", text: `${col.name} (${colCards.length})` });
+          titleEl.addEventListener("click", async (e) => {
+            if (e.target.closest("button")) return;
+            state.colFold.set(foldKey, !folded);
+            await drawBoard(plugin, board, config, state);
+          });
+          if (!folded) for (const route of config.sweeps.filter((s) => s.from === col.key)) {
+            const sweepTo = config.columns.find((c) => c.key === route.to);
+            if (!sweepTo) continue;
+            const btn = titleEl.createEl("button", {
+              cls: "bdb-kanban-sweep",
+              text: `\u2933 ${sweepTo.name}`,
+              attr: { "aria-label": `Sweep all to ${sweepTo.name}` }
+            });
+            btn.addEventListener("click", async () => {
+              await sweepColumn(plugin.app, config, col, sweepTo, colCards);
+              await drawBoard(plugin, board, config, state);
+            });
+          }
+          const list = colEl.createDiv({ cls: "bdb-kanban-cards" });
+          const rejects = () => col.state && state.card && openDescendants(state.card) > 0;
+          colEl.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            if (rejects()) {
+              e.dataTransfer.dropEffect = "none";
+              colEl.classList.add("bdb-kanban-reject");
+            } else {
+              colEl.classList.add("bdb-kanban-over");
+            }
+          });
+          colEl.addEventListener("dragleave", () => colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject"));
+          colEl.addEventListener("drop", async (e) => {
+            e.preventDefault();
+            colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject");
+            const [path, lineStr, fromKey] = (e.dataTransfer.getData("text/plain") || "").split("::");
+            if (!path || fromKey === col.key) return;
+            const file = plugin.app.vault.getAbstractFileByPath(path);
+            if (!file) return;
+            state.dragging = false;
+            if (col.state) {
+              const dragged = [...cards.values()].flat().find((c) => c.file.path === path && c.line === Number(lineStr));
+              const blockers = dragged ? openDescendants(dragged) : 0;
+              if (blockers) {
+                new Notice(`kanban: ${blockers} open sub-task${blockers > 1 ? "s" : ""} \u2014 close them first`);
+                return;
+              }
+            }
+            await moveCard(plugin.app, file, Number(lineStr), col, config, {
+              fromCol: config.columns.find((c) => c.key === fromKey)
+            });
+            state.colFold.delete(foldKey);
+            await drawBoard(plugin, board, config, state);
+          });
+          const parents = folded ? [] : colCards.filter((c) => c.children.length);
+          const leaves = folded ? [] : colCards.filter((c) => !c.children.length);
+          for (const card of [...parents, ...leaves]) {
+            if (parents.length && leaves.length && card === leaves[0]) list.createDiv({ cls: "bdb-kanban-sep" });
+            const cardEl = list.createDiv({ cls: "bdb-kanban-card", attr: { draggable: "true" } });
+            if (card.children.length) cardEl.classList.add("bdb-kanban-card-parent");
+            if (col.live) cardEl.classList.add("bdb-kanban-card-live");
+            cardEls.set(card, cardEl);
+            if (card.parent) {
+              const crumb = cardEl.createDiv({ cls: "bdb-kanban-card-crumb", text: `${cleanText(card.parent.body)} \u25B8` });
+              crumb.addEventListener("click", (e) => {
+                const parentEl = cardEls.get(card.parent);
+                if (!parentEl) return openFileAtLine(plugin.app, card.parent.file, card.parent.line, e.ctrlKey || e.metaKey);
+                parentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                parentEl.classList.remove("bdb-kanban-glow");
+                void parentEl.offsetWidth;
+                parentEl.classList.add("bdb-kanban-glow");
+              });
+            }
+            const display = card.body.replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").trim();
+            const textEl = cardEl.createDiv({ cls: "bdb-kanban-card-text" });
+            await renderInteractive(plugin, display, textEl, card.file.path);
+            const total = countDescendants(card);
+            if (total) {
+              const closed = total - openDescendants(card);
+              const host2 = textEl.querySelector("p") || textEl;
+              const pill = host2.createSpan({ cls: "bdb-kanban-card-rollup", text: `${closed}/${total}` });
+              if (closed === total) pill.classList.add("bdb-kanban-card-rollup-full");
+            }
+            if (card.who.length) {
+              const whoEl = cardEl.createDiv({ cls: "bdb-ei-who" });
+              for (const name of card.who) whoEl.createSpan({ cls: "bdb-ei-who-pill", text: name });
+            }
+            if (card.history.length) {
+              const es = card.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+              const colorOf = new Map(config.columns.map((c, i) => [c.name, columnColor(config, c, i)]));
+              const idle = new Set(config.columns.filter((c) => c.paused).map((c) => c.name));
+              const terminal = !!col.state;
+              const birthM = card.file.name.match(/^(\d{8})-(\d{4})/);
+              const birth = birthM ? stampToDate(birthM[1] + birthM[2]) : null;
+              const visits = [];
+              if (birth) visits.push({ name: es[0].from, dur: Math.max(stampToDate(es[0].stamp) - birth, 0) });
+              for (let i = 0; i < es.length; i++) {
+                const isLast = i === es.length - 1;
+                if (isLast && terminal) break;
+                const dur = (isLast ? /* @__PURE__ */ new Date() : stampToDate(es[i + 1].stamp)) - stampToDate(es[i].stamp);
+                visits.push({ name: es[i].to, dur });
+              }
+              const active = visits.filter((v) => !idle.has(v.name)).reduce((sum, v) => sum + v.dur, 0);
+              const journeyStart = birth || stampToDate(es[0].stamp);
+              const journeyEnd = terminal ? stampToDate(es[es.length - 1].stamp) : /* @__PURE__ */ new Date();
+              const total2 = Math.max(journeyEnd - journeyStart, 0);
+              const parts = visits.map((v) => `${v.name} ${fmtDur(v.dur)}`);
+              if (!birth) parts.unshift(es[0].from);
+              if (terminal) parts.push(col.name);
+              const last = es[es.length - 1];
+              const inSync = last.to === col.name;
+              const lineStamp = card.body.match(STAMP_RE)?.[0]?.trim();
+              let since = null;
+              if (terminal && lineStamp) since = /* @__PURE__ */ new Date() - stampToDate(lineStamp);
+              else if (inSync) since = /* @__PURE__ */ new Date() - stampToDate(last.stamp);
+              const flow = cardEl.createDiv({ cls: "bdb-kanban-card-flow", attr: { title: parts.join(" \u2192 ") } });
+              const liveVisit = !terminal && inSync ? visits[visits.length - 1] : null;
+              const bars = flow.createDiv({ cls: "bdb-kanban-card-bars" });
+              for (const subset of [visits, visits.filter((v) => !idle.has(v.name))]) {
+                const bar = bars.createDiv({ cls: "bdb-kanban-card-bar" });
+                for (const v of subset) {
+                  const span = bar.createSpan();
+                  span.style.flexGrow = String(Math.max(v.dur, 1));
+                  span.style.background = colorOf.get(v.name) || "var(--background-modifier-border)";
+                  if (v === liveVisit) span.classList.add("bdb-kanban-live-span");
+                }
+              }
+              const nowEl = flow.createSpan({
+                cls: "bdb-kanban-card-now",
+                text: terminal ? `${fmtDur(active)} work \xB7 ${fmtDur(total2)} total` : since == null ? col.name : `${col.name} ${fmtDur(since)}`
+              });
+              const ages = !terminal && col.paused && col !== config.columns[0];
+              const ageT = (col.age || 1) * 864e5;
+              const applyAge = (ms) => {
+                if (!ages || ms == null) return;
+                cardEl.classList.toggle("bdb-kanban-age-red", ms > 3 * ageT);
+                cardEl.classList.toggle("bdb-kanban-age-amber", ms > ageT && ms <= 3 * ageT);
+              };
+              applyAge(since);
+              if (liveVisit) {
+                const startMs = stampToDate(last.stamp).getTime();
+                state.timeUpdaters.push(() => {
+                  const ms = Date.now() - startMs;
+                  nowEl.textContent = `${col.name} ${fmtDur(ms)}`;
+                  for (const sp of cardEl.querySelectorAll(".bdb-kanban-live-span")) {
+                    sp.style.flexGrow = String(Math.max(ms, 1));
+                  }
+                  applyAge(ms);
+                });
+              }
+            }
+            const stamp = card.body.match(STAMP_RE)?.[0]?.trim();
+            cardEl.createDiv({ cls: "bdb-kanban-card-meta", text: stamp ? `${card.file.basename} \xB7 ${stamp}` : card.file.basename });
+            cardEl.addEventListener("dragstart", (e) => {
+              state.dragging = true;
+              state.card = card;
+              e.dataTransfer.setData("text/plain", `${card.file.path}::${card.line}::${col.key}`);
+              e.dataTransfer.effectAllowed = "move";
+            });
+            cardEl.addEventListener("dragend", () => {
+              state.dragging = false;
+              state.card = null;
+            });
+            cardEl.querySelector(".bdb-kanban-card-meta").addEventListener("click", (e) => {
+              openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
+            });
+          }
+        }
+      }
+      const fit = (tries = 0) => {
+        if (!board.isConnected) {
+          if (tries < 120) window.requestAnimationFrame(() => fit(tries + 1));
+          return;
+        }
+        const lists = [...board.querySelectorAll(".bdb-kanban-cards")].filter((l) => (l.closest("details")?.open ?? true) && !l.closest(".bdb-kanban-col-folded"));
+        if (!lists.length) return;
+        for (const l of lists) {
+          l.style.flex = "0 0 auto";
+          l.style.maxHeight = "none";
+        }
+        const heights = lists.map((l) => l.offsetHeight);
+        for (const l of lists) l.style.flex = "";
+        let H = pct(heights, 0.75);
+        const hMax = Math.max(...heights);
+        if (hMax <= H * 1.2) H = hMax;
+        H = Math.max(H, 280);
+        H = Math.min(H, Math.round(window.innerHeight * 0.7));
+        for (const [i, l] of lists.entries()) {
+          l.style.maxHeight = `${Math.round(H)}px`;
+          l.classList.toggle("bdb-kanban-clipped", heights[i] > H + 4);
+        }
+      };
+      fit();
+      window.setTimeout(fit, 400);
+      window.setTimeout(fit, 2e3);
+    }
+    module2.exports = {
+      parseKanbanConfig,
+      scanKanbanTasks,
+      moveCard,
+      renderKanbanBlock: renderKanbanBlock2,
+      resolveKanbanConfig,
+      editTags,
+      tagLineAt,
+      commentInsertAt,
+      openDescendants,
+      cleanText,
+      stampNow,
+      stampToDate,
+      fmtDur,
+      TASK_RE,
+      STAMP_RE,
+      columnColor,
+      colKey
+    };
+  }
+});
+
+// src/ei.js
+var require_ei = __commonJS({
+  "src/ei.js"(exports2, module2) {
+    var { MarkdownRenderChild, Notice, Modal } = require("obsidian");
+    var { renderInteractive, openFileAtLine } = require_render();
+    var {
+      scanKanbanTasks,
+      moveCard,
+      resolveKanbanConfig,
+      editTags,
+      openDescendants,
+      columnColor,
+      colKey,
+      TASK_RE,
+      STAMP_RE
+    } = require_kanban();
+    function parseDoors(text) {
+      const out = [];
+      for (const part of (text || "").split(/[,\n]/)) {
+        let spec = part.trim();
+        if (!spec) continue;
+        const who = /\s\+who\b/.test(spec);
+        spec = spec.replace(/\s\+who\b/, "").trim();
+        const [name, target] = spec.split(">").map((s) => s.trim());
+        if (name && target) out.push({ name, target: colKey(target), who });
+      }
+      return out;
+    }
+    function resolveEiConfig(plugin, src) {
+      const config = { paths: [], from: null, doors: [] };
+      let lastKey = null;
+      for (const rawLine of (src || "").split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const m = line.match(/^(paths|from|doors)\s*:\s*(.*)$/);
+        const key = m ? m[1] : lastKey;
+        const value = m ? m[2].trim() : line;
+        lastKey = key;
+        if (!key || !value) continue;
+        if (key === "from") config.from = value;
+        else if (key === "doors") config.doors.push(...parseDoors(value));
+        else config.paths.push(...value.split(",").map((s) => s.trim()).filter(Boolean));
+      }
+      const d = plugin.settings?.ei || {};
+      if (!config.paths.length && d.paths) config.paths = d.paths.split(",").map((s) => s.trim()).filter(Boolean);
+      if (!config.from && d.from) config.from = d.from;
+      if (!config.doors.length) config.doors = parseDoors(d.doors || "Do > Todo\nDelegate > Waiting +who\nDelete > Cancelled");
+      return config;
+    }
+    async function editCardTags(app, card, who) {
+      const lines = (await app.vault.read(card.file)).split(/\r?\n/);
+      if (!TASK_RE.test(lines[card.line] || "")) return false;
+      editTags(lines, card.line, (tokens) => {
+        const out = tokens.filter((t) => !t.startsWith("#ei/"));
+        if (who && !out.includes(`[[${who}]]`)) out.push(`[[${who}]]`);
+        return out;
+      });
+      await app.vault.modify(card.file, lines.join("\n"));
+      return true;
+    }
+    function askWho(app) {
+      return new Promise((resolve) => {
+        const modal = new Modal(app);
+        let done = false;
+        modal.titleEl.setText("Delegate to");
+        const input = modal.contentEl.createEl("input", {
+          type: "text",
+          attr: { placeholder: "Person \u2014 becomes a [[wikilink]]" }
+        });
+        input.style.width = "100%";
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && input.value.trim()) {
+            done = true;
+            const v = input.value.trim();
+            modal.close();
+            resolve(v);
+          }
+        });
+        modal.onClose = () => {
+          if (!done) resolve(null);
+        };
+        modal.open();
+        window.setTimeout(() => input.focus(), 0);
+      });
+    }
+    async function renderEiBlock2(plugin, src, el, ctx) {
+      el.empty();
+      const root = el.createDiv({ cls: "bdb-ei" });
+      const state = { dragging: false };
+      const redraw = () => {
+        if (!state.dragging) drawEi(plugin, root, src, state);
+      };
       const child = new MarkdownRenderChild(el);
       ctx.addChild(child);
       child.registerInterval(window.setInterval(redraw, 6e4));
@@ -470,154 +941,92 @@ var require_kanban = __commonJS({
         window.clearTimeout(pending);
         pending = window.setTimeout(redraw, 500);
       }));
-      await drawBoard(plugin, board, config, state);
+      await drawEi(plugin, root, src, state);
     }
-    async function drawBoard(plugin, board, config, state = { dragging: false }) {
-      board.empty();
-      const cards = await scanKanbanTasks(plugin.app, config);
-      const cardEls = /* @__PURE__ */ new Map();
-      for (const [index, col] of config.columns.entries()) {
-        const colCards = cards.get(col.key);
-        const colEl = board.createDiv({ cls: "bdb-kanban-col" });
-        colEl.style.setProperty("--kb-col-color", columnColor(config, col, index));
-        const titleEl = colEl.createDiv({ cls: "bdb-kanban-col-title", text: `${col.name} (${colCards.length})` });
-        for (const route of config.sweeps.filter((s) => s.from === col.key)) {
-          const sweepTo = config.columns.find((c) => c.key === route.to);
-          if (!sweepTo) continue;
-          const btn = titleEl.createEl("button", {
-            cls: "bdb-kanban-sweep",
-            text: `\u2933 ${sweepTo.name}`,
-            attr: { "aria-label": `Sweep all to ${sweepTo.name}` }
-          });
-          btn.addEventListener("click", async () => {
-            await sweepColumn(plugin.app, config, col, sweepTo, colCards);
-            await drawBoard(plugin, board, config, state);
-          });
-        }
-        const list = colEl.createDiv({ cls: "bdb-kanban-cards" });
-        const rejects = () => col.state && state.card && openDescendants(state.card) > 0;
-        colEl.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          if (rejects()) {
-            e.dataTransfer.dropEffect = "none";
-            colEl.classList.add("bdb-kanban-reject");
-          } else {
-            colEl.classList.add("bdb-kanban-over");
-          }
+    async function drawEi(plugin, root, src, state) {
+      root.empty();
+      const app = plugin.app;
+      const ei = resolveEiConfig(plugin, src);
+      const kb = resolveKanbanConfig(plugin, "");
+      if (ei.paths.length) kb.paths = ei.paths;
+      const open = kb.columns.filter((c) => !c.state);
+      const first = ei.from ? open.find((c) => c.key === colKey(ei.from)) : open[0];
+      if (!first) {
+        root.createDiv({ text: `ei: no open kanban column${ei.from ? ` named "${ei.from}"` : ""}` });
+        return;
+      }
+      const doors = ei.doors.map((d) => ({ ...d, col: kb.columns.find((c) => c.key === d.target) || null }));
+      const backlog = (await scanKanbanTasks(app, kb)).get(first.key) || [];
+      const tray = root.createDiv({ cls: "bdb-ei-zone bdb-ei-tray" });
+      tray.style.setProperty("--ei-color", columnColor(kb, first, kb.columns.indexOf(first)));
+      tray.createDiv({ cls: "bdb-ei-zone-title", text: `${first.name} (${backlog.length})` });
+      const trayList = tray.createDiv({ cls: "bdb-ei-cards" });
+      tray.createDiv({ cls: "bdb-ei-hint", text: "drag right to decide" });
+      for (const card of backlog) await eiCard(plugin, trayList, card, state);
+      const grid = root.createDiv({ cls: "bdb-ei-grid" });
+      for (const door of doors) {
+        const zoneEl = grid.createDiv({ cls: "bdb-ei-zone" });
+        zoneEl.style.setProperty(
+          "--ei-color",
+          door.col ? columnColor(kb, door.col, kb.columns.indexOf(door.col)) : "var(--text-faint)"
+        );
+        zoneEl.createDiv({ cls: "bdb-ei-zone-title", text: door.name });
+        zoneEl.createDiv({ cls: "bdb-ei-cards" });
+        zoneEl.createDiv({
+          cls: "bdb-ei-hint",
+          text: door.col ? `${door.who ? "who? " : ""}\u2192 ${door.col.name}${door.col.state ? ` [${door.col.state}]` : ""}` : `no "${door.target}" column on the kanban`
         });
-        colEl.addEventListener("dragleave", () => colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject"));
-        colEl.addEventListener("drop", async (e) => {
+        zoneEl.addEventListener("dragover", (e) => {
           e.preventDefault();
-          colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject");
-          const [path, lineStr, fromKey] = (e.dataTransfer.getData("text/plain") || "").split("::");
-          if (!path || fromKey === col.key) return;
-          const file = plugin.app.vault.getAbstractFileByPath(path);
-          if (!file) return;
+          zoneEl.classList.add("bdb-ei-over");
+        });
+        zoneEl.addEventListener("dragleave", () => zoneEl.classList.remove("bdb-ei-over"));
+        zoneEl.addEventListener("drop", async (e) => {
+          e.preventDefault();
+          zoneEl.classList.remove("bdb-ei-over");
           state.dragging = false;
-          if (col.state) {
-            const dragged = [...cards.values()].flat().find((c) => c.file.path === path && c.line === Number(lineStr));
-            const blockers = dragged ? openDescendants(dragged) : 0;
-            if (blockers) {
-              new Notice(`kanban: ${blockers} open sub-task${blockers > 1 ? "s" : ""} \u2014 close them first`);
-              return;
-            }
+          const [path, lineStr] = (e.dataTransfer.getData("text/plain") || "").split("::");
+          const card = backlog.find((c) => c.file.path === path && c.line === Number(lineStr));
+          if (!card) return;
+          if (!door.col) {
+            new Notice(`ei: add a "${door.target}" column to your kanban first`);
+            return;
           }
-          await moveCard(plugin.app, file, Number(lineStr), col, config, {
-            fromCol: config.columns.find((c) => c.key === fromKey)
-          });
-          await drawBoard(plugin, board, config, state);
+          if (door.col.state && openDescendants(card) > 0) {
+            new Notice("ei: open sub-tasks \u2014 close them first");
+            return;
+          }
+          let who = null;
+          if (door.who) {
+            who = await askWho(app);
+            if (who == null) return;
+          }
+          await editCardTags(app, card, who);
+          await moveCard(app, card.file, card.line, door.col, kb, { fromCol: first });
+          await drawEi(plugin, root, src, state);
         });
-        for (const card of colCards) {
-          const cardEl = list.createDiv({ cls: "bdb-kanban-card", attr: { draggable: "true" } });
-          if (card.children.length) cardEl.classList.add("bdb-kanban-card-parent");
-          cardEls.set(card, cardEl);
-          if (card.parent) {
-            const crumb = cardEl.createDiv({ cls: "bdb-kanban-card-crumb", text: `${cleanText(card.parent.body)} \u25B8` });
-            crumb.addEventListener("click", (e) => {
-              const parentEl = cardEls.get(card.parent);
-              if (!parentEl) return openFileAtLine(plugin.app, card.parent.file, card.parent.line, e.ctrlKey || e.metaKey);
-              parentEl.scrollIntoView({ behavior: "smooth", block: "center" });
-              parentEl.classList.remove("bdb-kanban-glow");
-              void parentEl.offsetWidth;
-              parentEl.classList.add("bdb-kanban-glow");
-            });
-          }
-          const display = card.body.replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").trim();
-          const textEl = cardEl.createDiv({ cls: "bdb-kanban-card-text" });
-          await renderInteractive(plugin, display, textEl, card.file.path);
-          const total = countDescendants(card);
-          if (total) {
-            const closed = total - openDescendants(card);
-            const host = textEl.querySelector("p") || textEl;
-            const pill = host.createSpan({ cls: "bdb-kanban-card-rollup", text: `${closed}/${total}` });
-            if (closed === total) pill.classList.add("bdb-kanban-card-rollup-full");
-          }
-          if (card.history.length) {
-            const es = card.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
-            const colorOf = new Map(config.columns.map((c, i) => [c.name, columnColor(config, c, i)]));
-            const idle = new Set(config.columns.filter((c) => c.paused).map((c) => c.name));
-            const terminal = !!col.state;
-            const birthM = card.file.name.match(/^(\d{8})-(\d{4})/);
-            const birth = birthM ? stampToDate(birthM[1] + birthM[2]) : null;
-            const visits = [];
-            if (birth) visits.push({ name: es[0].from, dur: Math.max(stampToDate(es[0].stamp) - birth, 0) });
-            for (let i = 0; i < es.length; i++) {
-              const isLast = i === es.length - 1;
-              if (isLast && terminal) break;
-              const dur = (isLast ? /* @__PURE__ */ new Date() : stampToDate(es[i + 1].stamp)) - stampToDate(es[i].stamp);
-              visits.push({ name: es[i].to, dur });
-            }
-            const active = visits.filter((v) => !idle.has(v.name)).reduce((sum, v) => sum + v.dur, 0);
-            const journeyStart = birth || stampToDate(es[0].stamp);
-            const journeyEnd = terminal ? stampToDate(es[es.length - 1].stamp) : /* @__PURE__ */ new Date();
-            const total2 = Math.max(journeyEnd - journeyStart, 0);
-            const parts = visits.map((v) => `${v.name} ${fmtDur(v.dur)}`);
-            if (!birth) parts.unshift(es[0].from);
-            if (terminal) parts.push(col.name);
-            const last = es[es.length - 1];
-            const inSync = last.to === col.name;
-            const lineStamp = card.body.match(STAMP_RE)?.[0]?.trim();
-            let since = null;
-            if (terminal && lineStamp) since = /* @__PURE__ */ new Date() - stampToDate(lineStamp);
-            else if (inSync) since = /* @__PURE__ */ new Date() - stampToDate(last.stamp);
-            const flow = cardEl.createDiv({ cls: "bdb-kanban-card-flow", attr: { title: parts.join(" \u2192 ") } });
-            const bars = flow.createDiv({ cls: "bdb-kanban-card-bars" });
-            for (const subset of [visits, visits.filter((v) => !idle.has(v.name))]) {
-              const bar = bars.createDiv({ cls: "bdb-kanban-card-bar" });
-              for (const v of subset) {
-                const span = bar.createSpan();
-                span.style.flexGrow = String(Math.max(v.dur, 1));
-                span.style.background = colorOf.get(v.name) || "var(--background-modifier-border)";
-              }
-            }
-            flow.createSpan({
-              cls: "bdb-kanban-card-now",
-              text: terminal ? `${fmtDur(active)} work \xB7 ${fmtDur(total2)} total` : since == null ? col.name : `${col.name} ${fmtDur(since)}`
-            });
-            if (!terminal && col.paused && col !== config.columns[0] && since != null) {
-              if (since > 7 * 864e5) cardEl.classList.add("bdb-kanban-age-red");
-              else if (since > 2 * 864e5) cardEl.classList.add("bdb-kanban-age-amber");
-            }
-          }
-          const stamp = card.body.match(STAMP_RE)?.[0]?.trim();
-          cardEl.createDiv({ cls: "bdb-kanban-card-meta", text: stamp ? `${card.file.basename} \xB7 ${stamp}` : card.file.basename });
-          cardEl.addEventListener("dragstart", (e) => {
-            state.dragging = true;
-            state.card = card;
-            e.dataTransfer.setData("text/plain", `${card.file.path}::${card.line}::${col.key}`);
-            e.dataTransfer.effectAllowed = "move";
-          });
-          cardEl.addEventListener("dragend", () => {
-            state.dragging = false;
-            state.card = null;
-          });
-          cardEl.querySelector(".bdb-kanban-card-meta").addEventListener("click", (e) => {
-            openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
-          });
-        }
       }
     }
-    module2.exports = { parseKanbanConfig, scanKanbanTasks, moveCard, renderKanbanBlock: renderKanbanBlock2 };
+    async function eiCard(plugin, list, card, state) {
+      const cardEl = list.createDiv({ cls: "bdb-ei-card", attr: { draggable: "true" } });
+      const display = card.body.replace(/#[\w/-]+/g, "").replace(STAMP_RE, "").replace(/\s{2,}/g, " ").trim();
+      await renderInteractive(plugin, display, cardEl.createDiv({ cls: "bdb-kanban-card-text" }), card.file.path);
+      if (card.who.length) {
+        const whoEl = cardEl.createDiv({ cls: "bdb-ei-who" });
+        for (const name of card.who) whoEl.createSpan({ cls: "bdb-ei-who-pill", text: name });
+      }
+      const meta = cardEl.createDiv({ cls: "bdb-kanban-card-meta", text: card.file.basename });
+      meta.addEventListener("click", (e) => openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey));
+      cardEl.addEventListener("dragstart", (e) => {
+        state.dragging = true;
+        e.dataTransfer.setData("text/plain", `${card.file.path}::${card.line}`);
+        e.dataTransfer.effectAllowed = "move";
+      });
+      cardEl.addEventListener("dragend", () => {
+        state.dragging = false;
+      });
+    }
+    module2.exports = { renderEiBlock: renderEiBlock2, resolveEiConfig, parseDoors };
   }
 });
 
@@ -627,11 +1036,16 @@ var require_settings = __commonJS({
     var { PluginSettingTab, Setting } = require("obsidian");
     var DEFAULT_SETTINGS = {
       kanban: {
-        columns: "Backlog~, Todo, Doing, Parked~, Done=x, Cancelled=-",
+        columns: "Backlog~\nTodo\nDoing!\nParked~\nDone=x\nCancelled=-",
         colors: "",
         paths: "",
         maxage: 7,
         sweep: "Doing > Parked"
+      },
+      ei: {
+        paths: "",
+        from: "",
+        doors: "Do > Todo\nDelegate > Waiting +who\nDelete > Cancelled"
       },
       backlinks: {
         heading: "Backlinks",
@@ -647,7 +1061,7 @@ var require_settings = __commonJS({
         includeCurrent: false
       }
     };
-    var TABS = ["Kanban", "Backlinks", "Daily", "Views"];
+    var TABS = ["Kanban", "Ei", "Backlinks", "Daily", "Views"];
     var BdbSettingTab2 = class extends PluginSettingTab {
       constructor(plugin) {
         super(plugin.app, plugin);
@@ -691,8 +1105,12 @@ var require_settings = __commonJS({
         }
       }
       renderKanban(el) {
-        this.bind(new Setting(el).setName("Default columns").setDesc("Comma list; Name=char marks a terminal column."), "kanban", "columns");
-        this.bind(new Setting(el).setName("Column colors").setDesc("One Name=color per line; empty = built-in palette. e.g. Doing=#2d7ff9"), "kanban", "colors", { area: true });
+        this.bind(
+          new Setting(el).setName("Default columns").setDesc('One per line: Name[~N idle, ages amber past N days (default 1), red past 3N][! heartbeat][=x terminal char] [@color]. e.g. "Waiting~3", "Doing! @#2d7ff9", "Done=x @green". No @color = built-in palette.'),
+          "kanban",
+          "columns",
+          { area: true }
+        );
         this.bind(new Setting(el).setName("Default paths").setDesc("Comma list of path prefixes to scan; empty = whole vault."), "kanban", "paths");
         this.bind(new Setting(el).setName("Max age (days)").setDesc("Hide terminal cards stamped older than this; 0 = show all."), "kanban", "maxage", { number: true });
         this.bind(new Setting(el).setName("Sweep").setDesc('One "From > To" route per line; each adds a bulk-move button on its From column. Empty disables.'), "kanban", "sweep", { area: true });
@@ -718,11 +1136,41 @@ var require_settings = __commonJS({
       kanbanBlockText() {
         const k = this.plugin.settings.kanban;
         const multi = (key, text) => [`${key}:`, ...text.split(/[,\n]/).map((s) => s.trim()).filter(Boolean).map((s) => `  ${s}`)];
-        const lines = [`columns: ${k.columns}`];
+        const lines = multi("columns", k.columns);
         if (k.paths) lines.push(`paths: ${k.paths}`);
         lines.push(`maxage: ${k.maxage}`);
         if (k.sweep) lines.push(...multi("sweep", k.sweep));
         if (k.colors) lines.push(...multi("colors", k.colors));
+        return lines.join("\n");
+      }
+      renderEi(el) {
+        this.bind(new Setting(el).setName("Default paths").setDesc("Comma list of path prefixes to scan; empty = kanban default paths."), "ei", "paths");
+        this.bind(new Setting(el).setName("Tray column").setDesc("Open kanban column the tray shows; empty = first open column."), "ei", "from");
+        this.bind(new Setting(el).setName("Doors").setDesc('One "Name > TargetColumn [+who]" per line. +who asks for a person and appends a [[wikilink]]. Target must exist on the kanban.'), "ei", "doors", { area: true });
+        const preview = new Setting(el).setName("Current config as block").setDesc("Read-only. Paste into an ei code block in any note to clone this chute.").setClass("bdb-setting-area");
+        preview.addButton((b) => b.setButtonText("Copy").onClick(async () => {
+          await navigator.clipboard.writeText(this.eiBlockText());
+          b.setButtonText("Copied");
+          window.setTimeout(() => b.setButtonText("Copy"), 1200);
+        }));
+        preview.addTextArea((t) => {
+          t.inputEl.readOnly = true;
+          t.inputEl.rows = 6;
+          t.inputEl.classList.add("bdb-config-preview");
+          const fill = () => t.setValue(this.eiBlockText());
+          fill();
+          t.inputEl.addEventListener("focus", () => {
+            fill();
+            t.inputEl.select();
+          });
+        });
+      }
+      // Settings rendered as ```ei``` block syntax.
+      eiBlockText() {
+        const e = this.plugin.settings.ei;
+        const lines = ["doors:", ...e.doors.split(/[,\n]/).map((s) => s.trim()).filter(Boolean).map((s) => `  ${s}`)];
+        if (e.from) lines.unshift(`from: ${e.from}`);
+        if (e.paths) lines.push(`paths: ${e.paths}`);
         return lines.join("\n");
       }
       renderBacklinks(el) {
@@ -1462,6 +1910,7 @@ var require_beacon = __commonJS({
 var { Plugin } = require("obsidian");
 var { renderBacklinksBlock, renderDailyBlock } = require_blocks();
 var { renderKanbanBlock } = require_kanban();
+var { renderEiBlock } = require_ei();
 var { BdbSettingTab, mergeSettings } = require_settings();
 var { ChronicleView, CHRONICLE_VIEW_TYPE } = require_chronicle();
 var { AtlasView, ATLAS_VIEW_TYPE } = require_atlas();
@@ -1480,6 +1929,9 @@ var BacklinksDailyBlocksPlugin = class extends Plugin {
     });
     this.registerMarkdownCodeBlockProcessor("kanban", (src, el, ctx) => {
       return renderKanbanBlock(this, src, el, ctx);
+    });
+    this.registerMarkdownCodeBlockProcessor("ei", (src, el, ctx) => {
+      return renderEiBlock(this, src, el, ctx);
     });
     this.registerBasesView(CHRONICLE_VIEW_TYPE, {
       name: "Chronicle",

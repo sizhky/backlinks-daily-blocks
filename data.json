@@ -1,11 +1,17 @@
 {
   "kanban": {
-    "columns": "Backlog~, Todo, Doing, Parked~, Done=x, Cancelled=-",
+    "columns": "Backlog~ @#afd3fe\nTodo~!\nDoing!\nParked!~\nWaiting~ @#9a2302\nDone=x\nCancelled=-",
     "colors": "",
     "paths": "",
     "maxage": 7,
     "sweep": "Doing > Parked\nDoing > Done\nParked > Doing\nParked > Cancelled",
     "logfile": "90-99 Obsidian Meta/Logs/Task Logs.md"
+  },
+  "ei": {
+    "paths": "",
+    "from": "",
+    "doors": "Do > Todo\nDelegate > Waiting +who\nDelete > Cancelled",
+    "decay": 3
   },
   "backlinks": {
     "heading": "Backlinks",

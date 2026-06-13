@@ -4,11 +4,16 @@ const { PluginSettingTab, Setting } = require('obsidian');
 
 const DEFAULT_SETTINGS = {
   kanban: {
-    columns: 'Backlog~, Todo, Doing, Parked~, Done=x, Cancelled=-',
+    columns: 'Backlog~\nTodo\nDoing!\nParked~\nDone=x\nCancelled=-',
     colors: '',
     paths: '',
     maxage: 7,
     sweep: 'Doing > Parked',
+  },
+  ei: {
+    paths: '',
+    from: '',
+    doors: 'Do > Todo\nDelegate > Waiting +who\nDelete > Cancelled',
   },
   backlinks: {
     heading: 'Backlinks',
@@ -25,7 +30,7 @@ const DEFAULT_SETTINGS = {
   },
 };
 
-const TABS = ['Kanban', 'Backlinks', 'Daily', 'Views'];
+const TABS = ['Kanban', 'Ei', 'Backlinks', 'Daily', 'Views'];
 
 class BdbSettingTab extends PluginSettingTab {
   constructor(plugin) {
@@ -69,8 +74,9 @@ class BdbSettingTab extends PluginSettingTab {
   }
 
   renderKanban(el) {
-    this.bind(new Setting(el).setName('Default columns').setDesc('Comma list; Name=char marks a terminal column.'), 'kanban', 'columns');
-    this.bind(new Setting(el).setName('Column colors').setDesc('One Name=color per line; empty = built-in palette. e.g. Doing=#2d7ff9'), 'kanban', 'colors', { area: true });
+    this.bind(new Setting(el).setName('Default columns')
+      .setDesc('One per line: Name[~N idle, ages amber past N days (default 1), red past 3N][! heartbeat][=x terminal char] [@color]. e.g. "Waiting~3", "Doing! @#2d7ff9", "Done=x @green". No @color = built-in palette.'),
+      'kanban', 'columns', { area: true });
     this.bind(new Setting(el).setName('Default paths').setDesc('Comma list of path prefixes to scan; empty = whole vault.'), 'kanban', 'paths');
     this.bind(new Setting(el).setName('Max age (days)').setDesc('Hide terminal cards stamped older than this; 0 = show all.'), 'kanban', 'maxage', { number: true });
     this.bind(new Setting(el).setName('Sweep').setDesc('One "From > To" route per line; each adds a bulk-move button on its From column. Empty disables.'), 'kanban', 'sweep', { area: true });
@@ -98,11 +104,47 @@ class BdbSettingTab extends PluginSettingTab {
   kanbanBlockText() {
     const k = this.plugin.settings.kanban;
     const multi = (key, text) => [`${key}:`, ...text.split(/[,\n]/).map(s => s.trim()).filter(Boolean).map(s => `  ${s}`)];
-    const lines = [`columns: ${k.columns}`];
+    const lines = multi('columns', k.columns);
     if (k.paths) lines.push(`paths: ${k.paths}`);
     lines.push(`maxage: ${k.maxage}`);
     if (k.sweep) lines.push(...multi('sweep', k.sweep));
     if (k.colors) lines.push(...multi('colors', k.colors));
+    return lines.join('\n');
+  }
+
+  renderEi(el) {
+    this.bind(new Setting(el).setName('Default paths')
+      .setDesc('Comma list of path prefixes to scan; empty = kanban default paths.'), 'ei', 'paths');
+    this.bind(new Setting(el).setName('Tray column')
+      .setDesc('Open kanban column the tray shows; empty = first open column.'), 'ei', 'from');
+    this.bind(new Setting(el).setName('Doors')
+      .setDesc('One "Name > TargetColumn [+who]" per line. +who asks for a person and appends a [[wikilink]]. Target must exist on the kanban.'), 'ei', 'doors', { area: true });
+
+    const preview = new Setting(el)
+      .setName('Current config as block')
+      .setDesc('Read-only. Paste into an ei code block in any note to clone this chute.')
+      .setClass('bdb-setting-area');
+    preview.addButton(b => b.setButtonText('Copy').onClick(async () => {
+      await navigator.clipboard.writeText(this.eiBlockText());
+      b.setButtonText('Copied');
+      window.setTimeout(() => b.setButtonText('Copy'), 1200);
+    }));
+    preview.addTextArea(t => {
+      t.inputEl.readOnly = true;
+      t.inputEl.rows = 6;
+      t.inputEl.classList.add('bdb-config-preview');
+      const fill = () => t.setValue(this.eiBlockText());
+      fill();
+      t.inputEl.addEventListener('focus', () => { fill(); t.inputEl.select(); });
+    });
+  }
+
+  // Settings rendered as ```ei``` block syntax.
+  eiBlockText() {
+    const e = this.plugin.settings.ei;
+    const lines = ['doors:', ...e.doors.split(/[,\n]/).map(s => s.trim()).filter(Boolean).map(s => `  ${s}`)];
+    if (e.from) lines.unshift(`from: ${e.from}`);
+    if (e.paths) lines.push(`paths: ${e.paths}`);
     return lines.join('\n');
   }
 
