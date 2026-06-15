@@ -2,6 +2,9 @@ const { Plugin } = require('obsidian');
 const { renderBacklinksBlock, renderDailyBlock } = require('./blocks');
 const { renderKanbanBlock } = require('./kanban');
 const { renderEiBlock } = require('./ei');
+const { renderReportBlock } = require('./report');
+const { renderHabitsBlock, renderHabitPad } = require('./habits');
+const { buildApi } = require('./api');
 const { BdbSettingTab, mergeSettings } = require('./settings');
 const { ChronicleView, CHRONICLE_VIEW_TYPE } = require('./views/chronicle');
 const { AtlasView, ATLAS_VIEW_TYPE } = require('./views/atlas');
@@ -11,6 +14,8 @@ const { BeaconView, BEACON_VIEW_TYPE } = require('./views/beacon');
 class BacklinksDailyBlocksPlugin extends Plugin {
   async onload() {
     this.settings = mergeSettings(await this.loadData());
+    this.api = buildApi(this);
+    globalThis.kb = this.api; // CLI shortcut: obsidian eval code='kb.active({limit:3})'
     this.addSettingTab(new BdbSettingTab(this));
 
     // Normalize any groupBy entries stored as strings into object form
@@ -31,6 +36,18 @@ class BacklinksDailyBlocksPlugin extends Plugin {
 
     this.registerMarkdownCodeBlockProcessor('ei', (src, el, ctx) => {
       return renderEiBlock(this, src, el, ctx);
+    });
+
+    this.registerMarkdownCodeBlockProcessor('report', (src, el, ctx) => {
+      return renderReportBlock(this, src, el, ctx);
+    });
+
+    this.registerMarkdownCodeBlockProcessor('habits', (src, el, ctx) => {
+      return renderHabitsBlock(this, src, el, ctx);
+    });
+
+    this.registerMarkdownCodeBlockProcessor('habit-pad', (src, el, ctx) => {
+      return renderHabitPad(this, src, el, ctx);
     });
 
     this.registerBasesView(CHRONICLE_VIEW_TYPE, {

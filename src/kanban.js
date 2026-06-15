@@ -2,7 +2,7 @@
 // Columns map to #kb/<name> tags; terminal columns (Name=x) map to checkbox chars
 // and stamp completion time as YYYYMMDDHHmm at end of line.
 
-const { MarkdownRenderChild, Notice } = require('obsidian');
+const { MarkdownRenderChild, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
 
 const KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
@@ -16,6 +16,8 @@ const HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
 // Eisenhower triage stamps (written by the ei block):
 //     %% ei 202606120850 sched %%
 const EI_HIST_RE = /^\s*%%\s?ei (\d{12}) ([\w-]+)\s?%%\s*$/;
+// Per-card color override (under the task): %% kbcolor #e06c8b %%. Beats frontmatter.
+const COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
 // Tag line: tags and wikilinks only, indented under a task. Holds #kb state,
 // #ei priority and [[who]] so the task line itself stays clean. Tags on the
 // task line are still read (legacy); all writes target the tag line.
@@ -100,12 +102,12 @@ function parseColors(text) {
 //     Doing > Parked
 //     Parked > Todo
 function parseKanbanConfig(src) {
-  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null };
+  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null, mode: null };
   let lastKey = null;
   for (const rawLine of (src || '').split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort)\s*:\s*(.*)$/);
+    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort|mode)\s*:\s*(.*)$/);
     const key = m ? m[1] : lastKey;
     const value = m ? m[2].trim() : line;
     lastKey = key;
@@ -113,6 +115,8 @@ function parseKanbanConfig(src) {
 
     if (key === 'maxage') {
       config.maxage = Number(value) || 0;
+    } else if (key === 'mode') {
+      config.mode = value.toLowerCase();
     } else if (key === 'hidedonelanes') {
       config.hidedonelanes = value !== 'false';
     } else if (key === 'lanesort') {
@@ -191,7 +195,7 @@ async function scanKanbanTasks(app, config) {
         const parent = stack.length ? stack[stack.length - 1].card : null;
         const card = {
           file, line: i, body: tm[4], state: tm[2], parent, lane,
-          children: [], history: [], eiHistory: [], tags: [], who: [],
+          children: [], history: [], eiHistory: [], tags: [], who: [], color: null,
         };
         if (parent) parent.children.push(card);
         stack.push({ indent, card });
@@ -208,6 +212,13 @@ async function scanKanbanTasks(app, config) {
       const em = text.match(EI_HIST_RE);
       if (em) {
         owner(text)?.eiHistory.push({ stamp: em[1], label: em[2] });
+        continue;
+      }
+
+      const cm = text.match(COLOR_RE);
+      if (cm) {
+        const card = owner(text);
+        if (card) card.color = cm[1];
         continue;
       }
 
@@ -264,9 +275,19 @@ function editTags(lines, line, fn) {
   else if (out.length) lines.splice(line + 1, 0, indent + out.join(' '));
 }
 
-// History and ei stamps insert below the tag line when one exists.
+// New history inserts directly below the task's *config* lines (tag line and
+// %% kbcolor %%), above older logs. Config stays glued to the task; newest log
+// sits on top of the log stack.
 function commentInsertAt(lines, line) {
-  return tagLineAt(lines, line) != null ? line + 2 : line + 1;
+  const base = indentWidth(lines[line]);
+  let i = line + 1;
+  while (i < lines.length) {
+    const t = lines[i];
+    if (!t.trim() || indentWidth(t) <= base) break;   // blank or dedent = block ends
+    if (TAGLINE_RE.test(t) || COLOR_RE.test(t)) { i++; continue; } // skip pinned config
+    break;                                            // first log line — insert above it
+  }
+  return i;
 }
 
 // Indent depth in visual columns, tab = 4. Char counts lie when tabs and
@@ -300,6 +321,22 @@ function countDescendants(card) {
 function cleanText(body) {
   return body.replace(KB_TAG_GLOBAL_RE, '').replace(STAMP_RE, '')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim();
+}
+
+// A copy icon on a swimlane/group header that copies just the group title.
+// Stops propagation so it never toggles the lane fold underneath it.
+function addTitleCopy(titleEl, text) {
+  const btn = titleEl.createSpan({ cls: 'bdb-title-copy', attr: { 'aria-label': 'Copy title' } });
+  setIcon(btn, 'copy');
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    await navigator.clipboard.writeText(text);
+    setIcon(btn, 'check');
+    btn.classList.add('bdb-title-copied');
+    window.setTimeout(() => { setIcon(btn, 'copy'); btn.classList.remove('bdb-title-copied'); }, 1200);
+  });
+  return btn;
 }
 
 function stampNow(d = new Date()) {
@@ -408,9 +445,14 @@ async function renderKanbanBlock(plugin, src, el, ctx) {
   child.registerInterval(window.setInterval(tick, 60000));
   let pending = null;
   child.registerEvent(plugin.app.vault.on('modify', () => {
+    // A move we just made echoes back as a modify; we already redrew in place.
+    if (state.selfWriteAt && Date.now() - state.selfWriteAt < 1500) return;
     window.clearTimeout(pending);
     pending = window.setTimeout(redraw, 500);
   }));
+  // Shift-click on any board's collapse button broadcasts here; every board folds
+  // its own empty/terminal columns. state.collapse is refreshed each drawBoard.
+  child.registerDomEvent(window, 'bdb-kanban-collapse-all', () => state.collapse?.());
 
   await drawBoard(plugin, board, config, state);
 }
@@ -460,20 +502,73 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
   // Per-card in-place clock updaters; the minute tick runs these instead of a
   // full teardown. Reset every full redraw so stale element refs drop out.
   state.timeUpdaters = [];
-  board.classList.toggle('bdb-kanban-stacked', !!config.lane);
+  state.folded ??= new Set();
+  state.colFold ??= new Map();
 
-  for (const lane of laneSplit(config, cards)) {
-    let host = board;
+  const lanes = laneSplit(config, cards);
+
+  // Top action bar: common board-wide actions. First action collapses every
+  // empty column and every lane with no pending (open-column) cards.
+  const bar = board.createDiv({ cls: 'bdb-kanban-toolbar' });
+  const collapseBtn = bar.createEl('button', { cls: 'bdb-kanban-tool', attr: { 'aria-label': 'Collapse empty/terminal columns (Shift: all boards)' } });
+  setIcon(collapseBtn, 'fold-vertical');
+  // Stored on state so the window broadcast (Shift-click on any board) can fold
+  // this board too; refreshed each draw with the current lanes.
+  const collapse = async () => {
+    for (const lane of lanes) {
+      if (lane.name != null && lane.open === 0) state.folded.add(lane.name);
+      for (const col of config.columns) {
+        // Fold empty columns and terminal columns (Done/Cancelled) regardless of count.
+        if (!lane.cards.get(col.key).length || col.state) state.colFold.set(`${lane.name ?? ''}::${col.key}`, true);
+      }
+    }
+    await drawBoard(plugin, board, config, state);
+  };
+  state.collapse = collapse;
+  collapseBtn.addEventListener('click', (e) => {
+    if (e.shiftKey) window.dispatchEvent(new CustomEvent('bdb-kanban-collapse-all'));
+    else collapse();
+  });
+
+  // Body holds the lanes/columns; the board is now a column wrapper (toolbar + body).
+  const body = board.createDiv({ cls: 'bdb-kanban-body' });
+  body.classList.toggle('bdb-kanban-stacked', !!config.lane);
+
+  // Shared move path for HTML5 drop and mobile tap-to-move. Returns true if a
+  // move happened. Enforces the terminal-column blocker rule for both.
+  const tryDrop = async (path, lineStr, fromKey, col, foldKey) => {
+    if (!path || fromKey === col.key) return false;
+    const file = plugin.app.vault.getAbstractFileByPath(path);
+    if (!file) return false;
+    state.dragging = false;
+    if (col.state) {
+      const dragged = [...cards.values()].flat().find(c => c.file.path === path && c.line === Number(lineStr));
+      const blockers = dragged ? openDescendants(dragged) : 0;
+      if (blockers) {
+        new Notice(`kanban: ${blockers} open sub-task${blockers > 1 ? 's' : ''} — close them first`);
+        return false;
+      }
+    }
+    await moveCard(plugin.app, file, Number(lineStr), col, config, {
+      fromCol: config.columns.find(c => c.key === fromKey),
+    });
+    state.selfWriteAt = Date.now(); // our own write — skip the echoed vault-modify redraw
+    state.colFold.delete(foldKey); // a drop reopens the column; refolding is the user's call
+    return true;
+  };
+
+  for (const lane of lanes) {
+    let host = body;
     if (lane.name != null) {
       // Native <details>/<summary> fold; folded lanes survive redraws via state.
-      state.folded ??= new Set();
-      const laneEl = board.createEl('details', { cls: 'bdb-kanban-lane' });
+      const laneEl = body.createEl('details', { cls: 'bdb-kanban-lane' });
       if (!state.folded.has(lane.name)) laneEl.setAttribute('open', '');
       laneEl.addEventListener('toggle', () => {
         if (laneEl.open) state.folded.delete(lane.name);
         else state.folded.add(lane.name);
       });
-      laneEl.createEl('summary', { cls: 'bdb-kanban-lane-title', text: `${lane.name} (${lane.open}/${lane.n})` });
+      const laneTitle = laneEl.createEl('summary', { cls: 'bdb-kanban-lane-title', text: `${lane.name} (${lane.open}/${lane.n})` });
+      addTitleCopy(laneTitle, lane.name);
       host = laneEl.createDiv({ cls: 'bdb-kanban-lane-row' });
     }
 
@@ -486,7 +581,6 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
       // Fold: column collapses to a vertical strip (still a drop target).
       // Empty columns auto-fold; a manual toggle overrides until the next
       // drop into the column clears it. Keyed per lane.
-      state.colFold ??= new Map();
       const foldKey = `${lane.name ?? ''}::${col.key}`;
       const folded = state.colFold.get(foldKey) ?? !colCards.length;
       if (folded) colEl.classList.add('bdb-kanban-col-folded');
@@ -527,24 +621,17 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
         e.preventDefault();
         colEl.classList.remove('bdb-kanban-over', 'bdb-kanban-reject');
         const [path, lineStr, fromKey] = (e.dataTransfer.getData('text/plain') || '').split('::');
-        if (!path || fromKey === col.key) return;
-        const file = plugin.app.vault.getAbstractFileByPath(path);
-        if (!file) return;
-        state.dragging = false;
-        // Terminal columns refuse parents with open children.
-        if (col.state) {
-          const dragged = [...cards.values()].flat().find(c => c.file.path === path && c.line === Number(lineStr));
-          const blockers = dragged ? openDescendants(dragged) : 0;
-          if (blockers) {
-            new Notice(`kanban: ${blockers} open sub-task${blockers > 1 ? 's' : ''} — close them first`);
-            return;
-          }
-        }
-        await moveCard(plugin.app, file, Number(lineStr), col, config, {
-          fromCol: config.columns.find(c => c.key === fromKey),
-        });
-        state.colFold.delete(foldKey); // a drop reopens the column; refolding is the user's call
-        await drawBoard(plugin, board, config, state);
+        // Terminal columns refuse parents with open children (handled in tryDrop).
+        if (await tryDrop(path, lineStr, fromKey, col, foldKey)) await drawBoard(plugin, board, config, state);
+      });
+
+      // Mobile has no HTML5 drag events: tap a picked card here to drop it.
+      if (Platform.isMobile) colEl.addEventListener('click', async (e) => {
+        if (!state.picked || e.target.closest('.bdb-kanban-card')) return;
+        const p = state.picked;
+        const moved = await tryDrop(p.path, p.line, p.fromKey, col, foldKey);
+        if (moved) state.picked = null;
+        if (moved) await drawBoard(plugin, board, config, state);
       });
 
       // Parents float to the top, children and singles below one separator.
@@ -553,6 +640,8 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
       for (const card of [...parents, ...leaves]) {
         if (parents.length && leaves.length && card === leaves[0]) list.createDiv({ cls: 'bdb-kanban-sep' });
         const cardEl = list.createDiv({ cls: 'bdb-kanban-card', attr: { draggable: 'true' } });
+        const kbcolor = card.color || app.metadataCache.getFileCache(card.file)?.frontmatter?.kbcolor;
+        if (kbcolor) { cardEl.classList.add('bdb-kanban-card-tinted'); cardEl.style.setProperty('--kb-card-color', kbcolor); }
         if (card.children.length) cardEl.classList.add('bdb-kanban-card-parent');
         if (col.live) cardEl.classList.add('bdb-kanban-card-live');
         cardEls.set(card, cardEl);
@@ -571,6 +660,17 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
         const textEl = cardEl.createDiv({ cls: 'bdb-kanban-card-text' });
         await renderInteractive(plugin, display, textEl, card.file.path);
 
+        // Copy the clean task text without leaving the board.
+        const copyBtn = cardEl.createSpan({ cls: 'bdb-kanban-card-copy', attr: { 'aria-label': 'Copy task' } });
+        setIcon(copyBtn, 'copy');
+        copyBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await navigator.clipboard.writeText(cleanText(card.body));
+          setIcon(copyBtn, 'check');
+          copyBtn.classList.add('bdb-kanban-card-copied');
+          window.setTimeout(() => { setIcon(copyBtn, 'copy'); copyBtn.classList.remove('bdb-kanban-card-copied'); }, 1200);
+        });
+
         // Rollup: derived child progress, never mutates parent state.
         // Lives inline at the end of the title text.
         const total = countDescendants(card);
@@ -588,7 +688,29 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
           for (const name of card.who) whoEl.createSpan({ cls: 'bdb-ei-who-pill', text: name });
         }
 
-        if (card.history.length) {
+        if (config.mode === 'habits') {
+          const { habitStats, fmtHours } = require('./habits');
+          const fm = app.metadataCache.getFileCache(card.file)?.frontmatter || {};
+          const metric = fm.metric === 'count' ? 'count' : 'sum';
+          const st = habitStats(card.history, metric, new Date());
+          const foot = cardEl.createDiv({ cls: 'bdb-kanban-card-habit' });
+          if (!st) { foot.createSpan({ text: 'no logs yet' }); }
+          else {
+            const f = (v) => metric === 'count'
+              ? (Number.isInteger(v) ? `${v}` : v.toFixed(1)) + 'x'
+              : fmtHours(v);
+            const arrow = st.trend > 0.05 ? '↑' : st.trend < -0.05 ? '↓' : '→';
+            foot.setAttribute('title',
+              `min ${f(st.min)} · mean ${f(st.mean)} · max ${f(st.max)} · ${st.days}d logged`);
+            foot.createSpan({ cls: 'bdb-kanban-habit-trend', text: arrow });
+            if (st.open) foot.createSpan({ cls: 'bdb-kanban-habit-live', text: '● live' });
+            foot.createSpan({ cls: 'bdb-kanban-habit-stat', text: `today ${f(st.today)}` });
+            foot.createSpan({ cls: 'bdb-kanban-habit-sep', text: '·' });
+            foot.createSpan({ cls: 'bdb-kanban-habit-stat', text: `7d ${f(st.avg7)}` });
+            foot.createSpan({ cls: 'bdb-kanban-habit-sep', text: '·' });
+            foot.createSpan({ cls: 'bdb-kanban-habit-stat', text: `${st.streak}d streak` });
+          }
+        } else if (card.history.length) {
           const es = card.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
           const colorOf = new Map(config.columns.map((c, i) => [c.name, columnColor(config, c, i)]));
           const idle = new Set(config.columns.filter(c => c.paused).map(c => c.name));
@@ -646,8 +768,8 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
           const nowEl = flow.createSpan({
             cls: 'bdb-kanban-card-now',
             text: terminal
-              ? `${fmtDur(active)} work · ${fmtDur(total)} total`
-              : (since == null ? col.name : `${col.name} ${fmtDur(since)}`),
+              ? `${fmtDur(active)} spent · ${fmtDur(total)} total`
+              : (since == null ? col.name : `${col.name} ${fmtDur(since)} · ${fmtDur(active)} spent`),
           });
 
           // Aging WIP: paused cards rot visibly (not the first column — a
@@ -665,9 +787,11 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
           // Register the minute updater only for cards whose clock is running.
           if (liveVisit) {
             const startMs = stampToDate(last.stamp).getTime();
+            const activeBase = active - (idle.has(col.name) ? 0 : liveVisit.dur);
             state.timeUpdaters.push(() => {
               const ms = Date.now() - startMs;
-              nowEl.textContent = `${col.name} ${fmtDur(ms)}`;
+              const act = activeBase + (idle.has(col.name) ? 0 : ms);
+              nowEl.textContent = `${col.name} ${fmtDur(ms)} · ${fmtDur(act)} spent`;
               for (const sp of cardEl.querySelectorAll('.bdb-kanban-live-span')) {
                 sp.style.flexGrow = String(Math.max(ms, 1));
               }
@@ -686,6 +810,19 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
           e.dataTransfer.effectAllowed = 'move';
         });
         cardEl.addEventListener('dragend', () => { state.dragging = false; state.card = null; });
+
+        // Mobile tap-to-move: tap card to pick, tap again to cancel, tap a
+        // column to drop. Ignore taps on links/meta/crumb so they still work.
+        if (Platform.isMobile) cardEl.addEventListener('click', (e) => {
+          if (e.target.closest('a, .bdb-kanban-card-meta, .bdb-kanban-card-crumb')) return;
+          e.stopPropagation();
+          const wasPicked = state.picked && state.picked.el === cardEl;
+          board.querySelectorAll('.bdb-kanban-picked').forEach(el => el.classList.remove('bdb-kanban-picked'));
+          if (wasPicked) { state.picked = null; return; }
+          state.picked = { el: cardEl, path: card.file.path, line: card.line, fromKey: col.key };
+          state.card = card;
+          cardEl.classList.add('bdb-kanban-picked');
+        });
         cardEl.querySelector('.bdb-kanban-card-meta').addEventListener('click', (e) => {
           openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
         });
@@ -709,6 +846,10 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
     const lists = [...board.querySelectorAll('.bdb-kanban-cards')]
       .filter(l => (l.closest('details')?.open ?? true) && !l.closest('.bdb-kanban-col-folded'));
     if (!lists.length) return;
+    // Adjusting column heights reflows the note; capture the page scroll so the
+    // re-fit (and the 400ms/2s refits) don't yank the viewport — the "jump".
+    const scroller = board.closest('.markdown-preview-view, .cm-scroller, .view-content');
+    const savedTop = scroller ? scroller.scrollTop : null;
     // align-items: stretch inflates every list to the tallest column, and
     // scrollHeight can't read below the stretched height — un-stretch for
     // one frame to measure natural content height.
@@ -724,6 +865,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
       l.style.maxHeight = `${Math.round(H)}px`;
       l.classList.toggle('bdb-kanban-clipped', heights[i] > H + 4);
     }
+    if (scroller && savedTop != null) scroller.scrollTop = savedTop;
   };
   // Right after attach (notably on app reload) styles and pane layout may
   // not have settled, so the first measure can read junk — refit twice on
@@ -736,6 +878,6 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 module.exports = {
   parseKanbanConfig, scanKanbanTasks, moveCard, renderKanbanBlock,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
-  openDescendants, cleanText, stampNow, stampToDate, fmtDur, TASK_RE, STAMP_RE,
+  openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, fmtDur, TASK_RE, STAMP_RE,
   columnColor, colKey,
 };

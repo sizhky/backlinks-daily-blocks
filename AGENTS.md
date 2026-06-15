@@ -27,3 +27,28 @@ styles.css             all styling incl. wave separators; no inline styles, no i
 - Daily-note filename contract: `YYYYMMDD-HHmm.md` (optionally `.excalidraw.md`).
 - Atlas mutates frontmatter of the host note — respect `bdb-disable-sync: true` and template skips.
 - Plain JS CommonJS, no TypeScript. `obsidian` is external in the bundle.
+
+Note that there's obsidian cli for tracking and reporting tasks
+Whenever there's a new cli based feature, update this repo's kanban-cli skill
+
+## Querying tasks via `obsidian eval`
+
+`obsidian` resolves to `/Applications/Obsidian.app/Contents/MacOS/obsidian`. Global `kb`
+= `app.plugins.plugins["backlinks-daily-blocks"].api`. Methods: `active(opts)`,
+`getDone(date,opts)`, `getReport(date,opts)`, `moveTask(file,line,col)`. (No `getPlate` —
+that's stale skill docs; use `active()`.) All take `opts.col`/`opts.paths`/etc; date is
+`YYYYMMDD`; `file` is the bare note name e.g. `20260613-1844.md`.
+
+```bash
+obsidian eval code='kb.getReport(20260613,{col:"Doing"})'
+obsidian eval code='kb.moveTask("20260613-1844.md",0,"Done")'
+```
+
+The api methods are `async`. This needs an up-to-date Obsidian **installer** (Electron
+shell), not just the auto-updated app package — keep it current via
+`brew install --cask obsidian`. On a stale installer `eval` cold-spawns an old asar that
+does NOT await: async results come back **blank** and top-level `await` errors. If you see
+the "installer is out of date" banner and blank output, that's the cause.
+
+$ which obsidian
+/Applications/Obsidian.app/Contents/MacOS/obsidian

@@ -287,11 +287,36 @@
 /* kanban block */
 .bdb-kanban {
   display: flex;
+  flex-direction: column; /* toolbar row on top, board body below */
+  min-height: 12em;
+}
+
+.bdb-kanban-body {
+  display: flex;
   gap: 0.6em;
   align-items: stretch; /* all columns as tall as the tallest = full-height drop zones */
   overflow-x: auto;
-  padding: 0.8em;
-  min-height: 12em;
+  padding: 0.5em 0.8em; /* half-gap top/bottom so edges match the inter-lane gap */
+}
+
+/* Top action bar: board-wide common actions, separated from the body below. */
+.bdb-kanban-toolbar {
+  display: flex;
+  gap: 0.4em;
+  padding: 0.4em 0.8em;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.bdb-kanban-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3em;
+  border-radius: 0.4em;
+  cursor: pointer;
+}
+.bdb-kanban-tool .svg-icon {
+  width: 1.1em;
+  height: 1.1em;
 }
 
 /* Lanes: the board stacks lane rows; each row lays out like the flat board.
@@ -304,6 +329,12 @@
 
 .bdb-kanban-lane {
   min-width: max-content;
+  padding: 0.5em 0; /* equal half-gap each side; borders land centered between lanes */
+}
+
+/* Divider centered in the 1em gap between stacked lanes (0.5em from each). */
+.bdb-kanban-lane + .bdb-kanban-lane {
+  border-top: 1px solid var(--background-modifier-border);
 }
 
 .bdb-kanban-lane-title {
@@ -312,7 +343,7 @@
   color: var(--text-accent);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin: 0.5em 0 0.1em;
+  margin: 0 0 0.1em; /* no top margin: lane padding owns the vertical rhythm */
   cursor: pointer;
   user-select: none;
   position: sticky; /* titles stay readable while the board scrolls sideways */
@@ -431,6 +462,13 @@ details[open] > .bdb-kanban-lane-title::before {
   outline-offset: -2px;
 }
 
+/* Mobile tap-to-move: picked card glows, columns invite a drop tap. */
+.bdb-kanban-picked {
+  outline: 2px solid var(--text-accent, #2ea043);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.04);
+}
+
 .bdb-kanban-cards {
   display: flex;
   flex-direction: column;
@@ -444,7 +482,25 @@ details[open] > .bdb-kanban-lane-title::before {
   border-radius: 6px;
   padding: 0.4em 0.55em;
   cursor: grab;
+  position: relative; /* anchors the copy button */
 }
+
+.bdb-kanban-card-copy {
+  position: absolute;
+  top: 0.3em;
+  right: 0.3em;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.bdb-kanban-card-copy svg { width: 14px; height: 14px; }
+.bdb-kanban-card:hover .bdb-kanban-card-copy { opacity: 1; }
+.bdb-kanban-card-copy:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.bdb-kanban-card-copied { opacity: 1; color: var(--text-success); }
 
 .bdb-kanban-card:active {
   cursor: grabbing;
@@ -809,3 +865,88 @@ textarea.bdb-config-preview {
 .bdb-kanban-clipped {
   border-bottom: 1px dashed var(--kb-col-color, var(--background-modifier-border));
 }
+
+/* report fence — daily Gantt */
+.bdb-report { padding: 12px 16px; border: 1px solid var(--background-modifier-border); border-radius: 8px; margin: 8px 0; }
+.bdb-report-title { font-size: 11px; color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 8px; }
+.bdb-report-ruler { position: relative; height: 14px; margin: 0 0 4px 140px; }
+.bdb-report-tick { position: absolute; font-size: 9px; color: var(--text-faint); transform: translateX(-50%); white-space: nowrap; }
+.bdb-report-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.bdb-report-label { width: 132px; font-size: 11px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-normal); flex-shrink: 0; cursor: pointer; }
+.bdb-report-label:hover { color: var(--text-accent); text-decoration: underline; }
+.bdb-report-bar { flex: 1; height: 16px; position: relative; background: var(--background-modifier-border); border-radius: 3px; overflow: hidden; }
+.bdb-report-seg { position: absolute; height: 100%; cursor: default; }
+.bdb-report-seg:hover { filter: brightness(1.2); }
+/* terminal-state endpoint tick: a completion event, not a duration */
+.bdb-report-mark { position: absolute; top: -1px; bottom: -1px; width: 3px; margin-left: -1px; border-radius: 2px; box-shadow: 0 0 0 1px var(--background-primary); cursor: default; }
+.bdb-report-mark:hover { filter: brightness(1.3); }
+.bdb-report-legend { display: flex; gap: 10px; margin: 8px 0 0 140px; flex-wrap: wrap; }
+.bdb-report-legend-item { font-size: 9px; display: flex; align-items: center; gap: 3px; color: var(--text-muted); }
+.bdb-report-legend-dot { width: 10px; height: 10px; display: inline-block; border-radius: 2px; flex-shrink: 0; }
+.bdb-report-pending-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 12px 0 4px 0; }
+.bdb-report-pending-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.bdb-report-pending-label { font-size: 11px; color: var(--text-normal); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bdb-report-pending-label:hover { color: var(--text-accent); text-decoration: underline; }
+
+/* ---- habits heatmap ---- */
+.bdb-habits { font-size: 11px; padding: 14px 16px; }
+.bdb-habits-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 8px; }
+.bdb-habit-row { margin-bottom: 14px; }
+.bdb-habit-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.bdb-habit-name { font-weight: 600; color: var(--text-normal); }
+.bdb-habit-stat { font-size: 10px; color: var(--text-faint); }
+.bdb-habit-grid { display: grid; grid-auto-flow: column; grid-template-rows: 12px repeat(7, 11px); gap: 2px; overflow-x: auto; padding-bottom: 2px; }
+.bdb-habit-month { font-size: 9px; color: var(--text-faint); align-self: end; white-space: nowrap; }
+.bdb-habit-cell { width: 11px; height: 11px; border-radius: 2px; background: var(--background-modifier-border); }
+.bdb-habit-cell:hover { outline: 1px solid var(--text-accent); }
+.bdb-h-empty { background: var(--background-modifier-border); opacity: 0.45; }
+.bdb-h-future { background: transparent; }
+.bdb-h0 { background: var(--kb-habit-color, var(--text-accent)); opacity: 0.25; }
+.bdb-h1 { background: var(--kb-habit-color, var(--text-accent)); opacity: 0.45; }
+.bdb-h2 { background: var(--kb-habit-color, var(--text-accent)); opacity: 0.65; }
+.bdb-h3 { background: var(--kb-habit-color, var(--text-accent)); opacity: 0.82; }
+.bdb-h4 { background: var(--kb-habit-color, var(--text-accent)); opacity: 1; }
+.bdb-h-open { background: var(--text-accent-hover); animation: bdb-h-pulse 1.4s ease-in-out infinite; }
+@keyframes bdb-h-pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+.bdb-kanban-card-tinted { border-left: 3px solid var(--kb-card-color); }
+.bdb-kanban-card-tinted .bdb-kanban-card-text { color: var(--kb-card-color); }
+
+/* habit footer on kanban cards (mode: habits) */
+.bdb-kanban-card-habit { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 4px; font-size: 11px; color: var(--text-muted); font-family: var(--font-monospace); }
+.bdb-kanban-habit-trend { font-size: 13px; color: var(--kb-card-color, var(--text-accent)); font-weight: 700; }
+.bdb-kanban-habit-live { color: var(--text-accent-hover); font-size: 10px; }
+.bdb-kanban-habit-sep { color: var(--text-faint); }
+
+/* report group headers + rollups */
+.bdb-report-rollup { font-size: 11px; color: var(--text-muted); font-family: var(--font-monospace); margin: 2px 0 8px 0; }
+.bdb-report-group { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 4px 0; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 2px; }
+.bdb-report-group-name { font-weight: 700; color: var(--text-normal); font-size: 12px; }
+.bdb-report-group-stat { font-size: 10px; color: var(--text-faint); font-family: var(--font-monospace); }
+
+/* habit-pad: grid of skeuomorphic push-buttons */
+.bdb-pad { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; padding: 8px 2px; }
+.bdb-pad-card {
+  user-select: none; cursor: pointer; border-radius: 9px; padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-top: 3px solid var(--kb-card-color, var(--text-accent));
+  background: linear-gradient(180deg, var(--background-secondary-alt), var(--background-secondary));
+  box-shadow: 0 3px 0 var(--background-modifier-border), 0 5px 9px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.07);
+  transition: transform .05s ease, box-shadow .09s ease;
+}
+.bdb-pad-card:hover { filter: brightness(1.06); }
+/* press = physical depression */
+.bdb-pad-card:active { transform: translateY(3px); box-shadow: inset 0 3px 7px rgba(0,0,0,0.55); }
+/* on = stays pushed in + glows in the habit's color */
+.bdb-pad-on {
+  transform: translateY(3px);
+  /* fill with the habit's color, darkened so white text stays readable */
+  background: linear-gradient(rgba(0,0,0,0.42), rgba(0,0,0,0.56)), var(--kb-card-color, var(--text-accent));
+  box-shadow: inset 0 3px 8px rgba(0,0,0,0.6), 0 0 0 1px var(--kb-card-color, var(--text-accent)), 0 0 14px var(--kb-card-color, var(--text-accent));
+  animation: bdb-pad-glow 1.6s ease-in-out infinite;
+}
+.bdb-pad-on .bdb-pad-name { color: #fff; }
+@keyframes bdb-pad-glow { 0%,100% { box-shadow: inset 0 3px 8px rgba(0,0,0,0.6), 0 0 0 1px var(--kb-card-color, var(--text-accent)), 0 0 8px var(--kb-card-color, var(--text-accent)); } 50% { box-shadow: inset 0 3px 8px rgba(0,0,0,0.6), 0 0 0 1px var(--kb-card-color, var(--text-accent)), 0 0 18px var(--kb-card-color, var(--text-accent)); } }
+.bdb-pad-name { font-weight: 700; color: var(--text-normal); font-size: 13px; }
+.bdb-pad-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-monospace); margin-top: 4px; }
+.bdb-pad-on .bdb-pad-sub { color: var(--kb-card-color, var(--text-accent)); }
