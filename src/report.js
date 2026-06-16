@@ -1,7 +1,7 @@
 // report fence — daily task Gantt chart
 const { TASK_RE, STAMP_RE, stampToDate, parseKanbanConfig, fmtDur, addTitleCopy } = require('./kanban');
 const { openFileAtLine } = require('./core/render');
-const { MarkdownRenderChild, Modal, Notice } = require('obsidian');
+const { MarkdownRenderChild, Modal, Notice, getFrontMatterInfo, parseYaml } = require('obsidian');
 
 const HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
 const COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
@@ -28,6 +28,18 @@ function fmtClock(d) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
+function fmtDateTitle(dateStr) {
+  return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+}
+
+function shiftDateStr(dateStr, { years = 0, months = 0, days = 0 } = {}) {
+  const d = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8));
+  if (years) d.setFullYear(d.getFullYear() + years);
+  if (months) d.setMonth(d.getMonth() + months);
+  if (days) d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+
 async function collectReportData(app, dateStr, paths, isActive) {
   const tasks = [], standing = [];
   const files = app.vault.getMarkdownFiles().filter(f => {
@@ -35,7 +47,10 @@ async function collectReportData(app, dateStr, paths, isActive) {
     return !!app.metadataCache.getFileCache(f)?.listItems?.some(it => it.task != null);
   });
   for (const file of files) {
-    const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
+    const raw = await app.vault.cachedRead(file);
+    const info = getFrontMatterInfo(raw);
+    const fm = info.frontmatter ? (parseYaml(info.frontmatter) || {}) : {};
+    const lines = raw.split(/\r?\n/);
     const stack = [], cards = [];
     for (let li = 0; li < lines.length; li++) {
       const text = lines[li];
@@ -43,7 +58,7 @@ async function collectReportData(app, dateStr, paths, isActive) {
       if (tm) {
         const indent = indentWidth(text);
         while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
-        const card = { body: tm[4].replace(STAMP_RE, '').trim(), history: [], indent, file, line: li, color: null };
+        const card = { body: tm[4].replace(STAMP_RE, '').trim(), history: [], indent, file, line: li, color: null, fm };
         stack.push({ indent, card }); cards.push(card); continue;
       }
       const hm = text.match(HIST_RE);
@@ -95,31 +110,135 @@ function stampForDateTime(dateStr, hhmm) {
   return `${dateStr}${digits}`;
 }
 
+function stampToMs(stamp) {
+  return stampToDate(stamp).getTime();
+}
+
+function formatDragStamp(ms) {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 async function rewriteReportSegmentTimes(app, task, seg, dateStr, startVal, endVal) {
-  const startStamp = stampForDateTime(dateStr, startVal);
+  const startStamp = seg.startIdx == null ? null : stampForDateTime(dateStr, startVal);
   const endStamp = seg.endIdx == null ? null : stampForDateTime(dateStr, endVal);
-  if (!startStamp || (seg.endIdx != null && !endStamp)) throw new Error('time must be HH:MM');
-  if (seg.endIdx != null && startStamp >= endStamp) throw new Error('start must be before end');
-  if (seg.startIdx == null) throw new Error('segment start is not editable');
+  if ((seg.startIdx != null && !startStamp) || (seg.endIdx != null && !endStamp)) throw new Error('time must be HH:MM');
+  if (seg.startIdx != null && seg.endIdx != null && startStamp >= endStamp) throw new Error('start must be before end');
   const events = task.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
   const prev = seg.startIdx > 0 ? events[seg.startIdx - 1].stamp : `${dateStr}0000`;
   const next = seg.endIdx == null
     ? null
     : (seg.endIdx + 1 < events.length ? events[seg.endIdx + 1].stamp : `${dateStr}2359`);
-  if (startStamp <= prev) throw new Error('start would overlap previous segment');
+  if (startStamp && startStamp <= prev) throw new Error('start would overlap previous segment');
   if (endStamp && endStamp >= next) throw new Error('end would overlap next segment');
+  if (startStamp && endStamp && startStamp >= endStamp) throw new Error('start must be before end');
 
   const content = await app.vault.read(task.file);
   const lines = content.split(/\r?\n/);
-  const refs = [events[seg.startIdx], ...(seg.endIdx == null ? [] : [events[seg.endIdx]])];
+  const refs = [
+    ...(seg.startIdx == null ? [] : [events[seg.startIdx]]),
+    ...(seg.endIdx == null ? [] : [events[seg.endIdx]]),
+  ];
   for (const ref of refs) {
     const li = ref.line;
     const m = lines[li]?.match(HIST_RE);
     if (!m) throw new Error('history line not found');
-    const newStamp = ref === refs[0] ? startStamp : endStamp;
+    const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
     lines[li] = lines[li].replace(ref.stamp, newStamp);
   }
   await app.vault.modify(task.file, lines.join('\n'));
+}
+
+function dragBounds(task, seg, dateStr, maxT) {
+  const events = task.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+  return {
+    prev: seg.startIdx > 0 ? stampToMs(events[seg.startIdx - 1].stamp) : new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8), 0, 0, 0).getTime(),
+    next: seg.endIdx == null
+      ? maxT
+      : (seg.endIdx + 1 < events.length ? stampToMs(events[seg.endIdx + 1].stamp) : new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8), 23, 59, 0).getTime()),
+  };
+}
+
+function reportSegDragMode(seg, localX, segWidthPx, edgePx) {
+  const canStart = seg.startIdx != null;
+  const canEnd = seg.endIdx != null;
+  if (canStart && canEnd) {
+    if (localX <= edgePx) return 'start';
+    if (localX >= segWidthPx - edgePx) return 'end';
+    return 'move';
+  }
+  if (canStart && localX <= edgePx) return 'start';
+  if (canEnd && localX >= segWidthPx - edgePx) return 'end';
+  return null;
+}
+
+function showDragBubble(text, x, y) {
+  let el = document.querySelector('.bdb-report-drag-bubble');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'bdb-report-drag-bubble';
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  const pad = 12;
+  const width = el.offsetWidth || 0;
+  const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+  const clamped = Math.max(pad + width / 2, Math.min(vw - pad - width / 2, x));
+  const anchor = width ? ((x - (clamped - width / 2)) / width) * 100 : 50;
+  el.style.left = `${clamped}px`;
+  el.style.top = `${y}px`;
+  el.style.setProperty('--bdb-bubble-anchor', `${Math.max(10, Math.min(90, anchor))}%`);
+  el.classList.add('is-visible');
+  return el;
+}
+
+function hideDragBubble() {
+  document.querySelector('.bdb-report-drag-bubble')?.classList.remove('is-visible');
+}
+
+function showOriginBubble(text, x, y, color) {
+  let el = document.querySelector('.bdb-report-origin-bubble');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'bdb-report-origin-bubble';
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  const pad = 12;
+  const width = el.offsetWidth || 0;
+  const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+  const clamped = Math.max(pad + width / 2, Math.min(vw - pad - width / 2, x));
+  const anchor = width ? ((x - (clamped - width / 2)) / width) * 100 : 50;
+  el.style.left = `${clamped}px`;
+  el.style.top = `${y}px`;
+  el.style.setProperty('--bdb-bubble-anchor', `${Math.max(10, Math.min(90, anchor))}%`);
+  if (color) el.style.setProperty('--bdb-origin-color', color);
+  if (color) el.style.setProperty('--bdb-origin-color-mix', `color-mix(in srgb, ${color} 78%, black)`);
+  el.classList.add('is-visible');
+  return el;
+}
+
+function hideOriginBubble() {
+  document.querySelector('.bdb-report-origin-bubble')?.classList.remove('is-visible');
+}
+
+function setReportGuidesVisible(el, on, topPx = null) {
+  if (!el) return;
+  if (topPx != null) el.style.top = `${topPx}px`;
+  el.classList.toggle('is-visible', !!on);
+}
+
+let activeReportDrag = null;
+let reportEscBound = false;
+function ensureReportEscHandler() {
+  if (reportEscBound) return;
+  reportEscBound = true;
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || !activeReportDrag?.cancel) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    activeReportDrag.cancel();
+  }, true);
 }
 
 function editSegmentTimes(app, task, seg, dateStr) {
@@ -132,6 +251,10 @@ function editSegmentTimes(app, task, seg, dateStr) {
     start.style.display = end.style.display = 'block';
     start.style.width = end.style.width = '100%';
     start.style.marginBottom = '8px';
+    if (seg.startIdx == null) {
+      start.disabled = true;
+      modal.contentEl.createDiv({ text: 'Carryover segment: start stays at day start.' });
+    }
     if (seg.endIdx == null) {
       end.disabled = true;
       modal.contentEl.createDiv({ text: 'Running segment: end stays at now.' });
@@ -174,10 +297,12 @@ function renderPending(plugin, wrap, standing) {
   }
 }
 
-async function drawReport(plugin, source, el, ctx, redraw) {
-  let dateStr = (source || '').trim().replace(/[^0-9]/g, '').substring(0, 8);
+async function drawReport(plugin, source, el, ctx, redraw, state) {
+  ensureReportEscHandler();
+  let dateStr = state?.dateStr || (source || '').trim().replace(/[^0-9]/g, '').substring(0, 8);
   if (!dateStr) { const m = ctx.sourcePath.match(/(\d{8})/); dateStr = m ? m[1] : null; }
   if (!dateStr) { const t = new Date(); dateStr = `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}`; }
+  if (state) state.dateStr = dateStr;
 
   const DEFAULT_COLS = 'columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-';
   const config = parseKanbanConfig(source || '');
@@ -189,9 +314,54 @@ async function drawReport(plugin, source, el, ctx, redraw) {
   // Terminal columns (Done, Cancelled) are events, not durations — render them as
   // an endpoint tick at completion time, never a bar stretched to end-of-day.
   const terminalNames = new Set(cols.filter(c => c.state).map(c => c.name.toLowerCase()));
+
+  const wrap = el.createEl('div', { cls: 'bdb-report' });
+  const head = wrap.createDiv({ cls: 'bdb-report-head' });
+  const dock = head.createDiv({ cls: 'bdb-report-dock' });
+  const dateBtn = dock.createEl('button', { cls: 'bdb-report-title', text: fmtDateTitle(dateStr), attr: { type: 'button', 'aria-label': 'Pick report date' } });
+  const picker = head.createEl('input', { attr: { type: 'date' } });
+  picker.value = fmtDateTitle(dateStr);
+  picker.style.position = 'absolute';
+  picker.style.opacity = '0';
+  picker.style.pointerEvents = 'none';
+  const nav = dock.createDiv({ cls: 'bdb-report-nav' });
+  const today = (() => {
+    const t = new Date();
+    return `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}`;
+  })();
+  const addJump = (label, delta, explicitDate = null) => {
+    const btn = nav.createEl('button', { cls: 'bdb-report-navbtn', text: label, attr: { type: 'button' } });
+    if (label === '•') btn.classList.add('is-today');
+    btn.addEventListener('click', async () => {
+      state.dateStr = explicitDate || shiftDateStr(dateStr, delta);
+      await redraw();
+    });
+  };
+  addJump('-Y', { years: -1 });
+  addJump('-M', { months: -1 });
+  addJump('-W', { days: -7 });
+  addJump('-D', { days: -1 });
+  addJump('•', {}, today);
+  addJump('D+', { days: 1 });
+  addJump('W+', { days: 7 });
+  addJump('M+', { months: 1 });
+  addJump('Y+', { years: 1 });
+  dateBtn.addEventListener('click', () => picker.showPicker ? picker.showPicker() : picker.click());
+  picker.addEventListener('change', async () => {
+    const picked = picker.value.replace(/[^0-9]/g, '');
+    if (picked.length === 8) { state.dateStr = picked; await redraw(); }
+  });
+
   const { tasks, standing } = await collectReportData(plugin.app, dateStr, config.paths, n => activeNames.has((n || '').toLowerCase()));
-  if (!tasks.length && !standing.length) { el.createEl('div', { text: `report: no task movements on ${dateStr}` }); return; }
-  if (!tasks.length) { renderPending(plugin, el.createEl('div', { cls: 'bdb-report' }), standing); return; }
+  if (!tasks.length && !standing.length) {
+    wrap.createEl('div', { cls: 'bdb-report-empty', text: `No task movements on ${fmtDateTitle(dateStr)}` });
+    return;
+  }
+  if (!tasks.length) {
+    wrap.createEl('div', { cls: 'bdb-report-empty', text: `No task movements on ${fmtDateTitle(dateStr)}` });
+    renderPending(plugin, wrap, standing);
+    return;
+  }
 
   const y = +dateStr.slice(0, 4), mo = +dateStr.slice(4, 6) - 1, d = +dateStr.slice(6, 8);
   const dayStart = new Date(y, mo, d, 0, 0, 0);
@@ -209,9 +379,7 @@ async function drawReport(plugin, source, el, ctx, redraw) {
   const rangeMs = maxT - minT || 1;
   const pct = (t) => Math.max(0, Math.min(100, ((t.getTime() - minT) / rangeMs) * 100)).toFixed(2);
   const fmt = fmtClock;
-
-  const wrap = el.createEl('div', { cls: 'bdb-report' });
-  wrap.createEl('div', { cls: 'bdb-report-title', text: `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}` });
+  const pxToMinuteMs = (dx, width) => Math.round(((dx / Math.max(width, 1)) * rangeMs) / 60000) * 60000;
 
   // Ruler
   const rulerBar = wrap.createEl('div', { cls: 'bdb-report-ruler' });
@@ -230,6 +398,16 @@ async function drawReport(plugin, source, el, ctx, redraw) {
     }, 0);
     task._done = task._segs.some(seg => terminalNames.has((seg.col || '').toLowerCase()));
   }
+  const guidePcts = [...new Set(tasks.flatMap(t => t._segs.flatMap(seg => {
+    const k = (seg.col || '').toLowerCase();
+    if (pausedNames.has(k) || terminalNames.has(k)) return [];
+    return [pct(seg.start), pct(seg.end)];
+  })))];
+  const guidesEl = wrap.createDiv({ cls: 'bdb-report-guides' });
+  for (const p of guidePcts) {
+    const line = guidesEl.createDiv({ cls: 'bdb-report-guide' });
+    line.style.left = `${p}%`;
+  }
 
   const renderRow = (host, task) => {
     const row = host.createEl('div', { cls: 'bdb-report-row' });
@@ -238,7 +416,7 @@ async function drawReport(plugin, source, el, ctx, redraw) {
     const bar = row.createEl('div', { cls: 'bdb-report-bar' });
     // Habit cards carry their own identity color (per-task %% kbcolor %% beats the
     // file's frontmatter); normal tasks keep column colors.
-    const cardColor = task.color || plugin.app.metadataCache.getFileCache(task.file)?.frontmatter?.kbcolor || null;
+    const cardColor = task.color || task.fm?.kbcolor || null;
     for (const seg of task._segs) {
       const key = (seg.col || '').toLowerCase();
       if (pausedNames.has(key)) continue; // gap, not a wash
@@ -250,12 +428,116 @@ async function drawReport(plugin, source, el, ctx, redraw) {
       }
       const s = bar.createEl('div', { cls: 'bdb-report-seg' });
       s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
-      s.title = `${seg.col}: ${fmt(seg.start)}–${fmt(seg.end)} · ${fmtDur(seg.end - seg.start)}`;
-      if (seg.startIdx != null) {
-        s.addEventListener('click', async (e) => {
+      const tip = `${seg.col}: ${fmt(seg.start)}–${fmt(seg.end)} · ${fmtDur(seg.end - seg.start)}`;
+      s.setAttribute('aria-label', tip);
+      if (seg.startIdx != null || seg.endIdx != null) {
+        s.addEventListener('pointerenter', (e) => {
+          if (activeReportDrag) return;
+          showDragBubble(tip, e.clientX, e.clientY - 14);
+        });
+        s.addEventListener('pointermove', (e) => {
+          if (!activeReportDrag) showDragBubble(tip, e.clientX, e.clientY - 14);
+          const localX = e.clientX - s.getBoundingClientRect().left;
+          const segWidthPx = s.getBoundingClientRect().width;
+          const edgePx = 10;
+          const mode = reportSegDragMode(seg, localX, segWidthPx, edgePx);
+          s.classList.toggle('is-drag-start', mode === 'start');
+          s.classList.toggle('is-drag-end', mode === 'end');
+          s.classList.toggle('is-drag-move', mode === 'move');
+        });
+        s.addEventListener('pointerleave', () => {
+          if (!activeReportDrag) hideDragBubble();
+          s.classList.remove('is-drag-start', 'is-drag-end', 'is-drag-move');
+        });
+        s.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
-          if (await editSegmentTimes(plugin.app, task, seg, dateStr)) await redraw();
+          const rect = bar.getBoundingClientRect();
+          const segStartMs = seg.start.getTime(), segEndMs = seg.end.getTime();
+          const widthPx = rect.width;
+          const edgePx = 10;
+          const localX = e.clientX - (s.getBoundingClientRect().left);
+          const segWidthPx = s.getBoundingClientRect().width;
+          let mode = reportSegDragMode(seg, localX, segWidthPx, edgePx);
+          if (!mode) return;
+          const bounds = dragBounds(task, seg, dateStr, maxT);
+          let moved = false, cancelled = false, draftStart = segStartMs, draftEnd = segEndMs;
+          const originText = mode === 'move'
+            ? `${formatDragStamp(segStartMs)}-${formatDragStamp(segEndMs)}`
+            : formatDragStamp(mode === 'end' ? segEndMs : segStartMs);
+          setReportGuidesVisible(guidesEl, true, rulerBar.offsetTop + rulerBar.offsetHeight + 4);
+          showOriginBubble(originText, e.clientX, rect.top - 18, cardColor || colColor(seg.col));
+          const paint = () => {
+            s.style.left = `${((draftStart - minT) / rangeMs) * 100}%`;
+            s.style.width = `${Math.max(0.5, ((draftEnd - draftStart) / rangeMs) * 100)}%`;
+          };
+          const updateBubble = (x, y) => {
+            const text = mode === 'move'
+              ? `${formatDragStamp(draftStart)}-${formatDragStamp(draftEnd)}`
+              : formatDragStamp(mode === 'end' ? draftEnd : draftStart);
+            showDragBubble(text, x, y - 18);
+          };
+          const onMove = (ev) => {
+            const delta = pxToMinuteMs(ev.clientX - e.clientX, widthPx);
+            moved = moved || Math.abs(delta) >= 60000;
+            if (mode === 'start') {
+              draftStart = Math.max(bounds.prev + 60000, Math.min(segEndMs - 60000, segStartMs + delta));
+            } else if (mode === 'end') {
+              draftEnd = Math.min(bounds.next - 60000, Math.max(segStartMs + 60000, segEndMs + delta));
+            } else {
+              const span = segEndMs - segStartMs;
+              const minStart = bounds.prev + 60000;
+              const maxStart = bounds.next - span - 60000;
+              draftStart = Math.max(minStart, Math.min(maxStart, segStartMs + delta));
+              draftEnd = draftStart + span;
+            }
+            paint();
+            updateBubble(ev.clientX, rect.top);
+          };
+          const onKey = (ev) => {
+            if (ev.key !== 'Escape') return;
+            cancelled = true;
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            hideDragBubble();
+            hideOriginBubble();
+            setReportGuidesVisible(guidesEl, false);
+            activeReportDrag = null;
+            s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
+          };
+          activeReportDrag = { cancel: () => onKey({ key: 'Escape' }) };
+          const onUp = async (ev) => {
+            activeReportDrag = null;
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            hideDragBubble();
+            hideOriginBubble();
+            setReportGuidesVisible(guidesEl, false);
+            if (cancelled) return;
+            if (!moved) {
+              s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
+              if (await editSegmentTimes(plugin.app, task, seg, dateStr)) await redraw();
+              return;
+            }
+            try {
+              await rewriteReportSegmentTimes(
+                plugin.app,
+                task,
+                seg,
+                dateStr,
+                hhmmInput(new Date(draftStart)),
+                hhmmInput(new Date(draftEnd)),
+              );
+              await redraw();
+            } catch (err) {
+              new Notice(`report: ${err.message}`);
+              s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
+            }
+          };
+          updateBubble(e.clientX, rect.top);
+          window.addEventListener('pointermove', onMove);
+          window.addEventListener('pointerup', onUp, { once: true });
         });
       }
     }
@@ -270,7 +552,7 @@ async function drawReport(plugin, source, el, ctx, redraw) {
   // Group rows by a frontmatter prop (lane:), mirroring the kanban swimlanes.
   const laneKey = config.lane;
   const groupOf = (task) => {
-    let v = plugin.app.metadataCache.getFileCache(task.file)?.frontmatter?.[laneKey];
+    let v = task.fm?.[laneKey];
     if (Array.isArray(v)) v = v[0];
     v = v == null ? '' : String(v).replace(/^\[\[|\]\]$/g, '').replace(/\|.*$/, '').trim();
     return v || '(none)';
@@ -313,9 +595,10 @@ async function drawReport(plugin, source, el, ctx, redraw) {
 // Wrapper: redraw each minute so today's axis tracks the wall clock and
 // in-progress bars grow. Lifecycle tied to the block via MarkdownRenderChild.
 async function renderReportBlock(plugin, source, el, ctx) {
+  const state = { dateStr: null };
   const child = new MarkdownRenderChild(el);
   ctx.addChild(child);
-  const draw = async () => { el.empty(); try { await drawReport(plugin, source, el, ctx, draw); } catch (e) { console.error('bdb report', e); } };
+  const draw = async () => { el.empty(); try { await drawReport(plugin, source, el, ctx, draw, state); } catch (e) { console.error('bdb report', e); } };
   child.registerInterval(window.setInterval(draw, 60000));
   await draw();
 }

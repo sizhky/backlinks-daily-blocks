@@ -886,8 +886,28 @@ textarea.bdb-config-preview {
 }
 
 /* report fence — daily Gantt */
-.bdb-report { padding: 12px 16px; border: 1px solid var(--background-modifier-border); border-radius: 8px; margin: 8px 0; }
-.bdb-report-title { font-size: 11px; color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 8px; }
+.bdb-report { position: relative; padding: 12px 16px; border: 1px solid var(--background-modifier-border); border-radius: 8px; margin: 8px 0; }
+.bdb-report-head { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 12px; }
+.bdb-report-dock { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.bdb-report-title {
+  appearance: none; -webkit-appearance: none;
+  padding: 0 !important; border: 0 !important; background: transparent !important;
+  box-shadow: none !important; cursor: pointer; font-size: 24px; font-weight: 800; color: var(--text-accent); letter-spacing: 0.01em;
+  text-align: center; align-self: center;
+}
+.bdb-report-nav { display: grid; grid-template-columns: repeat(9, 40px); gap: 8px; align-items: center; justify-content: start; }
+.bdb-report-navbtn {
+  appearance: none; -webkit-appearance: none;
+  width: 40px !important; min-width: 40px !important; height: auto !important; padding: 1px 4px !important; border: 1px solid var(--background-modifier-border) !important; border-radius: 4px !important;
+  background: transparent !important; box-shadow: none !important; cursor: pointer; font: inherit; font-size: 14px; font-weight: 700; color: var(--text-normal);
+  filter: none !important; backdrop-filter: none !important;
+}
+.bdb-report-navbtn.is-today { color: var(--text-accent); }
+.bdb-report-navbtn:hover, .bdb-report-title:hover {
+  color: var(--text-accent);
+  background: transparent;
+}
+.bdb-report-empty { font-size: 12px; color: var(--text-muted); margin: 6px 0 2px 0; }
 .bdb-report-ruler { position: relative; height: 14px; margin: 0 0 4px 140px; }
 .bdb-report-tick { position: absolute; font-size: 9px; color: var(--text-faint); transform: translateX(-50%); white-space: nowrap; }
 .bdb-report-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -896,9 +916,39 @@ textarea.bdb-config-preview {
 .bdb-report-bar { flex: 1; height: 16px; position: relative; background: var(--background-modifier-border); border-radius: 3px; overflow: hidden; }
 .bdb-report-seg { position: absolute; height: 100%; cursor: default; }
 .bdb-report-seg:hover { filter: brightness(1.2); }
+.bdb-report-seg.is-drag-start,
+.bdb-report-seg.is-drag-end { cursor: ew-resize; }
+.bdb-report-seg.is-drag-move { cursor: grab; }
+.bdb-report-drag-bubble {
+  position: fixed; z-index: 1000; transform: translate(-50%, -100%);
+  padding: 3px 8px; border-radius: 6px; background: var(--background-primary-alt, #222);
+  color: var(--text-normal); font-size: 11px; box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  pointer-events: none; opacity: 0; transition: opacity .04s linear;
+  white-space: nowrap; line-height: 1.1;
+}
+.bdb-report-drag-bubble.is-visible { opacity: 1; }
+.bdb-report-drag-bubble::after {
+  content: ''; position: absolute; left: var(--bdb-bubble-anchor, 50%); bottom: -5px; width: 8px; height: 8px;
+  background: inherit; transform: translateX(-50%) rotate(45deg);
+}
+.bdb-report-origin-bubble {
+  position: fixed; z-index: 999; transform: translate(-50%, -100%);
+  padding: 3px 8px; border-radius: 6px; background: var(--bdb-origin-color-mix, var(--bdb-origin-color, var(--text-accent)));
+  color: var(--text-on-accent, #fff); font-size: 11px; font-weight: 700;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35); pointer-events: none; opacity: 0;
+  white-space: nowrap; line-height: 1.1;
+}
+.bdb-report-origin-bubble.is-visible { opacity: 1; }
+.bdb-report-origin-bubble::after {
+  content: ''; position: absolute; left: var(--bdb-bubble-anchor, 50%); bottom: -5px; width: 8px; height: 8px;
+  background: inherit; transform: translateX(-50%) rotate(45deg);
+}
 /* terminal-state endpoint tick: a completion event, not a duration */
 .bdb-report-mark { position: absolute; top: -1px; bottom: -1px; width: 3px; margin-left: -1px; border-radius: 2px; box-shadow: 0 0 0 1px var(--background-primary); cursor: default; }
 .bdb-report-mark:hover { filter: brightness(1.3); }
+.bdb-report-guides { position: absolute; left: 140px; right: 16px; bottom: 0; pointer-events: none; opacity: 0; }
+.bdb-report-guides.is-visible { opacity: 1; }
+.bdb-report-guide { position: absolute; top: 0; bottom: 0; margin-left: -1px; border-left: 2px dotted rgba(255,255,255,0.22); }
 .bdb-report-legend { display: flex; gap: 10px; margin: 8px 0 0 140px; flex-wrap: wrap; }
 .bdb-report-legend-item { font-size: 9px; display: flex; align-items: center; gap: 3px; color: var(--text-muted); }
 .bdb-report-legend-dot { width: 10px; height: 10px; display: inline-block; border-radius: 2px; flex-shrink: 0; }
