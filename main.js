@@ -1596,7 +1596,53 @@ var require_report = __commonJS({
       if (days) d.setDate(d.getDate() + days);
       return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
     }
-    async function collectReportData(app2, dateStr, paths2, isActive) {
+    function parseDateStr(dateStr) {
+      return new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8));
+    }
+    function toDateStr(d) {
+      return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    }
+    function rangeDates(startStr, endStr) {
+      const out = [];
+      for (let d = parseDateStr(startStr), end = parseDateStr(endStr); d <= end; d.setDate(d.getDate() + 1)) {
+        out.push(toDateStr(d));
+      }
+      return out;
+    }
+    function weekBounds(dateStr) {
+      const d = parseDateStr(dateStr);
+      const dow = (d.getDay() + 6) % 7;
+      d.setDate(d.getDate() - dow);
+      const start = toDateStr(d);
+      d.setDate(d.getDate() + 6);
+      const end = toDateStr(d);
+      return { start, end };
+    }
+    function reportRange(state) {
+      if (state.mode === "week") {
+        const { start, end } = weekBounds(state.dateStr);
+        return { start, end, dates: rangeDates(start, end), label: `${fmtDateTitle(start)} .. ${fmtDateTitle(end)}` };
+      }
+      if (state.mode === "7d") {
+        const end = state.dateStr;
+        const start = shiftDateStr(end, { days: -6 });
+        return { start, end, dates: rangeDates(start, end), label: `${fmtDateTitle(start)} .. ${fmtDateTitle(end)}` };
+      }
+      return { start: state.dateStr, end: state.dateStr, dates: [state.dateStr], label: fmtDateTitle(state.dateStr) };
+    }
+    function dayOfWeekLabel(dateStr) {
+      return parseDateStr(dateStr).toLocaleDateString(void 0, { weekday: "long" });
+    }
+    function weekNumberLabel(dateStr) {
+      const d = parseDateStr(dateStr);
+      const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const day = utc.getUTCDay() || 7;
+      utc.setUTCDate(utc.getUTCDate() + 4 - day);
+      const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+      const week = Math.ceil(((utc - yearStart) / 864e5 + 1) / 7);
+      return `Week ${week}`;
+    }
+    async function collectReportData(app2, startStr, endStr, paths2, isActive) {
       const tasks = [], standing = [];
       const files = app2.vault.getMarkdownFiles().filter((f) => {
         if (paths2.length && !paths2.some((p) => f.path.startsWith(p))) return false;
@@ -1642,12 +1688,15 @@ var require_report = __commonJS({
           }
         }
         for (const card of cards) {
-          const todayMoves = card.history.filter((h) => h.stamp.startsWith(dateStr));
-          if (todayMoves.length) {
-            tasks.push({ ...card, history: todayMoves });
+          const rangeMoves = card.history.filter((h) => {
+            const ds = h.stamp.slice(0, 8);
+            return ds >= startStr && ds <= endStr;
+          });
+          if (rangeMoves.length) {
+            tasks.push({ ...card, history: rangeMoves });
             continue;
           }
-          const upto = card.history.filter((h) => h.stamp.slice(0, 8) <= dateStr);
+          const upto = card.history.filter((h) => h.stamp.slice(0, 8) <= endStr);
           if (!upto.length) continue;
           const last = upto.reduce((a, b) => b.stamp > a.stamp ? b : a);
           if (isActive(last.to)) standing.push({ ...card, col: last.to });
@@ -1679,6 +1728,13 @@ var require_report = __commonJS({
     function formatDragStamp(ms) {
       const d = new Date(ms);
       return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    }
+    function fmtDurGranular(ms) {
+      const m = Math.floor(ms / 6e4);
+      if (m < 60) return `${m}m`;
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      return mm ? `${h}h ${mm}m` : `${h}h`;
     }
     async function rewriteReportSegmentTimes(app2, task, seg, dateStr, startVal, endVal) {
       const startStamp = seg.startIdx == null ? null : stampForDateTime(dateStr, startVal);
@@ -1852,6 +1908,244 @@ var require_report = __commonJS({
         lbl.addEventListener("click", (e) => openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey));
       }
     }
+    async function renderReportRangeSection(plugin, host, startStr, endStr, config, activeNames, pausedNames, terminalNames, redraw, { showSubtitle = false, label = null, interactive = true } = {}) {
+      const title = label || (startStr === endStr ? fmtDateTitle(startStr) : `${fmtDateTitle(startStr)} .. ${fmtDateTitle(endStr)}`);
+      const visibleKeys = new Set((config.only?.length ? config.only : ["todo", "doing", "parked", "done", "cancelled"]).map((s) => String(s).toLowerCase()));
+      const { tasks, standing } = await collectReportData(plugin.app, startStr, endStr, config.paths, (n) => activeNames.has((n || "").toLowerCase()));
+      const section = host.createDiv({ cls: "bdb-report-day" });
+      if (showSubtitle) section.createDiv({ cls: "bdb-report-subtitle", text: title });
+      if (!tasks.length && !standing.length) {
+        section.createEl("div", { cls: "bdb-report-empty", text: `No task movements on ${title}` });
+        return;
+      }
+      if (!tasks.length) {
+        section.createEl("div", { cls: "bdb-report-empty", text: `No task movements on ${title}` });
+        renderPending(plugin, section, standing);
+        return;
+      }
+      const dayStart = parseDateStr(startStr);
+      dayStart.setHours(0, 0, 0, 0);
+      const endOfDay = parseDateStr(endStr);
+      endOfDay.setHours(23, 59, 59, 999);
+      const allStamps = tasks.flatMap((t) => t.history.map((h) => stampToDate(h.stamp).getTime()));
+      const pad = 15 * 6e4;
+      const minT = dayStart.getTime();
+      const now = /* @__PURE__ */ new Date();
+      const todayStr = toDateStr(now);
+      const maxEvent = Math.max(...allStamps) + pad;
+      const maxT = Math.min(endOfDay.getTime(), endStr === todayStr ? Math.max(maxEvent, now.getTime()) : maxEvent);
+      const rangeMs = maxT - minT || 1;
+      const pct = (t) => Math.max(0, Math.min(100, (t.getTime() - minT) / rangeMs * 100)).toFixed(2);
+      const fmt = fmtClock;
+      const pxToMinuteMs = (dx, width) => Math.round(dx / Math.max(width, 1) * rangeMs / 6e4) * 6e4;
+      section.dataset.zoom = section.dataset.zoom || "1";
+      section.dataset.pan = section.dataset.pan || "0";
+      const applyZoom = (z, anchor01) => {
+        section.dataset.zoom = String(z);
+        const pan = Number(section.dataset.pan || "0");
+        section.style.setProperty("--bdb-report-zoom", String(z));
+        section.style.setProperty("--bdb-report-zoom-shift", `${pan - (z - 1) * anchor01 * 100}%`);
+      };
+      const applyPan = (pan) => {
+        const zoom = Number(section.dataset.zoom || "1");
+        const minPan = -(zoom - 1) * 100;
+        const clamped = Math.max(minPan, Math.min(0, pan));
+        section.dataset.pan = String(clamped);
+        section.style.setProperty("--bdb-report-zoom", String(zoom));
+        section.style.setProperty("--bdb-report-zoom-shift", `${clamped}%`);
+      };
+      applyPan(Number(section.dataset.pan || "0"));
+      const rulerBar = section.createEl("div", { cls: "bdb-report-ruler" });
+      const rulerInner = rulerBar.createDiv({ cls: "bdb-report-ruler-inner" });
+      for (let i = 0; i <= 4; i++) {
+        const tick = rulerInner.createEl("span", { cls: "bdb-report-tick", text: fmt(new Date(minT + rangeMs * i / 4)) });
+        tick.style.left = `${i / 4 * 100}%`;
+      }
+      section.addEventListener("wheel", (e) => {
+        const rect = rulerBar.getBoundingClientRect();
+        if (e.altKey) {
+          e.preventDefault();
+          applyPan(Number(section.dataset.pan || "0") - (e.deltaY + e.deltaX) * 0.08);
+          return;
+        }
+        if (!(e.metaKey || e.ctrlKey)) return;
+        e.preventDefault();
+        const anchor01 = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(rect.width, 1)));
+        const cur = Number(section.dataset.zoom || "1");
+        const next = Math.max(1, Math.min(20, e.deltaY < 0 ? cur * 1.12 : cur / 1.12));
+        applyZoom(next, anchor01);
+      }, { passive: false });
+      for (const task of tasks) {
+        task._segs = buildSegments(task.history, new Date(minT), new Date(maxT));
+        task._active = task._segs.reduce((s, seg) => {
+          const k = (seg.col || "").toLowerCase();
+          return s + (!pausedNames.has(k) && !terminalNames.has(k) ? seg.end - seg.start : 0);
+        }, 0);
+        task._done = task._segs.some((seg) => terminalNames.has((seg.col || "").toLowerCase()));
+      }
+      const guidePcts = [...new Set(tasks.flatMap((t) => t._segs.flatMap((seg) => {
+        const k = (seg.col || "").toLowerCase();
+        if (pausedNames.has(k) || terminalNames.has(k)) return [];
+        return [pct(seg.start), pct(seg.end)];
+      })))];
+      const midnightPcts = [];
+      if (startStr !== endStr) {
+        for (let d = new Date(dayStart); ; ) {
+          d.setDate(d.getDate() + 1);
+          if (d > endOfDay) break;
+          midnightPcts.push(pct(d));
+        }
+      }
+      const midnightsEl = section.createDiv({ cls: "bdb-report-midnights" });
+      for (const p of midnightPcts) {
+        const line = midnightsEl.createDiv({ cls: "bdb-report-midnight" });
+        line.style.left = `${p}%`;
+      }
+      const guidesEl = section.createDiv({ cls: "bdb-report-guides" });
+      for (const p of guidePcts) {
+        const line = guidesEl.createDiv({ cls: "bdb-report-guide" });
+        line.style.left = `${p}%`;
+      }
+      const renderRow = (task) => {
+        const row = section.createEl("div", { cls: "bdb-report-row" });
+        const lbl = row.createEl("div", { cls: "bdb-report-label", text: task.body, attr: { "aria-label": task.body } });
+        lbl.addEventListener("click", (e) => openFileAtLine(plugin.app, task.file, task.line, e.ctrlKey || e.metaKey));
+        const bar = row.createEl("div", { cls: "bdb-report-bar" });
+        const barInner = bar.createDiv({ cls: "bdb-report-bar-inner" });
+        const cardColor = task.color || task.fm?.kbcolor || null;
+        for (const seg of task._segs) {
+          const key = (seg.col || "").toLowerCase();
+          if (!visibleKeys.has(key)) continue;
+          if (terminalNames.has(key)) {
+            const m = barInner.createEl("div", { cls: "bdb-report-mark" });
+            m.style.cssText = `left:${pct(seg.start)}%;background:${cardColor || colColor(seg.col)}`;
+            continue;
+          }
+          const s = barInner.createEl("div", { cls: "bdb-report-seg" });
+          s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
+          const tip = `${task.body} \xB7 ${seg.col}: ${fmt(seg.start)}\u2013${fmt(seg.end)} \xB7 ${fmtDurGranular(seg.end - seg.start)}`;
+          s.dataset.bdbTip = tip;
+          s.addEventListener("pointerenter", (e) => {
+            if (!activeReportDrag) showDragBubble(tip, e.clientX, e.clientY - 14);
+          });
+          s.addEventListener("pointerleave", () => {
+            if (!activeReportDrag) hideDragBubble();
+            s.classList.remove("is-drag-start", "is-drag-end", "is-drag-move");
+          });
+          s.addEventListener("pointermove", (e) => {
+            if (!activeReportDrag) showDragBubble(tip, e.clientX, e.clientY - 14);
+            if (!interactive) return;
+            const localX = e.clientX - s.getBoundingClientRect().left;
+            const segWidthPx = s.getBoundingClientRect().width;
+            const mode = reportSegDragMode(seg, localX, segWidthPx, 10);
+            s.classList.toggle("is-drag-start", mode === "start");
+            s.classList.toggle("is-drag-end", mode === "end");
+            s.classList.toggle("is-drag-move", mode === "move");
+          });
+          if (interactive && (seg.startIdx != null || seg.endIdx != null)) {
+            s.addEventListener("pointerdown", (e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const rect = bar.getBoundingClientRect();
+              const segStartMs = seg.start.getTime(), segEndMs = seg.end.getTime();
+              const localX = e.clientX - s.getBoundingClientRect().left;
+              const segWidthPx = s.getBoundingClientRect().width;
+              const mode = reportSegDragMode(seg, localX, segWidthPx, 10);
+              if (!mode) return;
+              const bounds = dragBounds(task, seg, startStr, maxT);
+              let moved = false, cancelled = false, draftStart = segStartMs, draftEnd = segEndMs;
+              const originText = mode === "move" ? `${formatDragStamp(segStartMs)}-${formatDragStamp(segEndMs)}` : formatDragStamp(mode === "end" ? segEndMs : segStartMs);
+              setReportGuidesVisible(guidesEl, true, rulerBar.offsetTop + rulerBar.offsetHeight + 4);
+              showOriginBubble(originText, e.clientX, rect.top - 18, cardColor || colColor(seg.col));
+              const paint = () => {
+                s.style.left = `${(draftStart - minT) / rangeMs * 100}%`;
+                s.style.width = `${Math.max(0.5, (draftEnd - draftStart) / rangeMs * 100)}%`;
+              };
+              const updateBubble = (x, y) => showDragBubble(mode === "move" ? `${formatDragStamp(draftStart)}-${formatDragStamp(draftEnd)}` : formatDragStamp(mode === "end" ? draftEnd : draftStart), x, y - 18);
+              const onMove = (ev) => {
+                const delta = pxToMinuteMs(ev.clientX - e.clientX, rect.width);
+                moved = moved || Math.abs(delta) >= 6e4;
+                if (mode === "start") draftStart = Math.max(bounds.prev + 6e4, Math.min(segEndMs - 6e4, segStartMs + delta));
+                else if (mode === "end") draftEnd = Math.min(bounds.next - 6e4, Math.max(segStartMs + 6e4, segEndMs + delta));
+                else {
+                  const span = segEndMs - segStartMs, minStart = bounds.prev + 6e4, maxStart = bounds.next - span - 6e4;
+                  draftStart = Math.max(minStart, Math.min(maxStart, segStartMs + delta));
+                  draftEnd = draftStart + span;
+                }
+                paint();
+                updateBubble(ev.clientX, rect.top);
+              };
+              const cancelDrag = () => {
+                cancelled = true;
+                window.removeEventListener("pointermove", onMove);
+                window.removeEventListener("pointerup", onUp);
+                hideDragBubble();
+                hideOriginBubble();
+                setReportGuidesVisible(guidesEl, false);
+                activeReportDrag = null;
+                s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
+              };
+              activeReportDrag = { cancel: cancelDrag };
+              const onUp = async () => {
+                activeReportDrag = null;
+                window.removeEventListener("pointermove", onMove);
+                window.removeEventListener("pointerup", onUp);
+                hideDragBubble();
+                hideOriginBubble();
+                setReportGuidesVisible(guidesEl, false);
+                if (cancelled) return;
+                if (!moved) {
+                  s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
+                  if (await editSegmentTimes(plugin.app, task, seg, startStr)) await redraw();
+                  return;
+                }
+                try {
+                  await rewriteReportSegmentTimes(plugin.app, task, seg, startStr, hhmmInput(new Date(draftStart)), hhmmInput(new Date(draftEnd)));
+                  await redraw();
+                } catch (err) {
+                  new Notice(`report: ${err.message}`);
+                  s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
+                }
+              };
+              updateBubble(e.clientX, rect.top);
+              window.addEventListener("pointermove", onMove);
+              window.addEventListener("pointerup", onUp, { once: true });
+            });
+          }
+        }
+      };
+      const rollup = (list) => `${list.length}t \xB7 ${fmtDur(list.reduce((s, t) => s + t._active, 0))} active \xB7 ${list.filter((t) => t._done).length} done`;
+      const laneKey = config.lane;
+      const groupOf = (task) => {
+        let v = task.fm?.[laneKey];
+        if (Array.isArray(v)) v = v[0];
+        v = v == null ? "" : String(v).replace(/^\[\[|\]\]$/g, "").replace(/\|.*$/, "").trim();
+        return v || "(none)";
+      };
+      if (!laneKey) {
+        section.createEl("div", { cls: "bdb-report-rollup", text: rollup(tasks) });
+        for (const task of tasks) renderRow(task);
+      } else {
+        const groups = /* @__PURE__ */ new Map();
+        for (const task of tasks) (groups.get(groupOf(task)) || groups.set(groupOf(task), []).get(groupOf(task))).push(task);
+        for (const [name, list] of [...groups.entries()].sort((a, b) => (a[0] === "(none)") - (b[0] === "(none)") || b[1].length - a[1].length || a[0].localeCompare(b[0]))) {
+          const head = section.createEl("div", { cls: "bdb-report-group" });
+          const nameEl = head.createEl("span", { cls: "bdb-report-group-name", text: name });
+          addTitleCopy(nameEl, name);
+          head.createEl("span", { cls: "bdb-report-group-stat", text: rollup(list) });
+          for (const task of list) renderRow(task);
+        }
+      }
+      renderPending(plugin, section, standing);
+      const legendCols = [...new Set(tasks.flatMap((t) => t.history.flatMap((h) => [h.from, h.to])))].filter((c) => visibleKeys.has((c || "").toLowerCase()));
+      const legend = section.createEl("div", { cls: "bdb-report-legend" });
+      for (const col of legendCols) {
+        const item = legend.createEl("span", { cls: "bdb-report-legend-item" });
+        item.createEl("i", { cls: "bdb-report-legend-dot" }).style.background = colColor(col);
+        item.appendText(col);
+      }
+    }
     async function drawReport(plugin, source, el, ctx, redraw, state) {
       ensureReportEscHandler();
       let dateStr = state?.dateStr || (source || "").trim().replace(/[^0-9]/g, "").substring(0, 8);
@@ -1868,12 +2162,24 @@ var require_report = __commonJS({
       const config = parseKanbanConfig(source || "");
       const cols = config.columns.length ? config.columns : parseKanbanConfig(DEFAULT_COLS).columns;
       const activeNames = new Set(cols.filter((c) => !c.state && !c.paused).map((c) => c.name.toLowerCase()));
+      const visibleKeys = new Set((config.only?.length ? config.only : ["todo", "doing", "parked", "done", "cancelled"]).map((s) => String(s).toLowerCase()));
       const pausedNames = new Set(cols.filter((c) => c.paused).map((c) => c.name.toLowerCase()));
       const terminalNames = new Set(cols.filter((c) => c.state).map((c) => c.name.toLowerCase()));
       const wrap = el.createEl("div", { cls: "bdb-report" });
       const head = wrap.createDiv({ cls: "bdb-report-head" });
+      const mode = state.mode || "day";
+      const range = reportRange({ mode, dateStr });
+      const modeWrap = head.createDiv({ cls: "bdb-report-modes" });
+      for (const key of ["day", "week", "7d"]) {
+        const btn = modeWrap.createEl("button", { cls: `bdb-report-mode${mode === key ? " is-active" : ""}`, text: key === "day" ? "D" : key === "week" ? "W" : "7D", attr: { type: "button" } });
+        btn.addEventListener("click", async () => {
+          state.mode = key;
+          await redraw();
+        });
+      }
       const dock = head.createDiv({ cls: "bdb-report-dock" });
       const dateBtn = dock.createEl("button", { cls: "bdb-report-title", text: fmtDateTitle(dateStr), attr: { type: "button", "aria-label": "Pick report date" } });
+      const metaEl = dock.createDiv({ cls: "bdb-report-meta" });
       const picker = head.createEl("input", { attr: { type: "date" } });
       picker.value = fmtDateTitle(dateStr);
       picker.style.position = "absolute";
@@ -1884,6 +2190,17 @@ var require_report = __commonJS({
         const t = /* @__PURE__ */ new Date();
         return `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, "0")}${String(t.getDate()).padStart(2, "0")}`;
       })();
+      dateBtn.addEventListener("click", () => picker.showPicker ? picker.showPicker() : picker.click());
+      picker.addEventListener("change", async () => {
+        const picked = picker.value.replace(/[^0-9]/g, "");
+        if (picked.length === 8) {
+          state.dateStr = picked;
+          await redraw();
+        }
+      });
+      dateBtn.setText(mode === "week" ? range.label : fmtDateTitle(dateStr));
+      metaEl.setText(mode === "week" ? weekNumberLabel(dateStr) : mode === "7d" ? "Rolling 7 days" : dayOfWeekLabel(dateStr));
+      nav.empty();
       const addJump = (label, delta, explicitDate = null) => {
         const btn = nav.createEl("button", { cls: "bdb-report-navbtn", text: label, attr: { type: "button" } });
         if (label === "\u2022") btn.classList.add("is-today");
@@ -1895,235 +2212,28 @@ var require_report = __commonJS({
       addJump("-Y", { years: -1 });
       addJump("-M", { months: -1 });
       addJump("-W", { days: -7 });
-      addJump("-D", { days: -1 });
+      if (mode !== "week") addJump("-D", { days: -1 });
       addJump("\u2022", {}, today);
-      addJump("D+", { days: 1 });
+      if (mode !== "week") addJump("D+", { days: 1 });
       addJump("W+", { days: 7 });
       addJump("M+", { months: 1 });
       addJump("Y+", { years: 1 });
-      dateBtn.addEventListener("click", () => picker.showPicker ? picker.showPicker() : picker.click());
-      picker.addEventListener("change", async () => {
-        const picked = picker.value.replace(/[^0-9]/g, "");
-        if (picked.length === 8) {
-          state.dateStr = picked;
-          await redraw();
-        }
-      });
-      const { tasks, standing } = await collectReportData(plugin.app, dateStr, config.paths, (n) => activeNames.has((n || "").toLowerCase()));
-      if (!tasks.length && !standing.length) {
-        wrap.createEl("div", { cls: "bdb-report-empty", text: `No task movements on ${fmtDateTitle(dateStr)}` });
-        return;
-      }
-      if (!tasks.length) {
-        wrap.createEl("div", { cls: "bdb-report-empty", text: `No task movements on ${fmtDateTitle(dateStr)}` });
-        renderPending(plugin, wrap, standing);
-        return;
-      }
-      const y = +dateStr.slice(0, 4), mo = +dateStr.slice(4, 6) - 1, d = +dateStr.slice(6, 8);
-      const dayStart = new Date(y, mo, d, 0, 0, 0);
-      const endOfDay = new Date(y, mo, d, 23, 59, 59);
-      const allStamps = tasks.flatMap((t) => t.history.map((h) => stampToDate(h.stamp).getTime()));
-      const pad = 15 * 6e4;
-      const minT = dayStart.getTime();
-      const now = /* @__PURE__ */ new Date();
-      const todayStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-      const maxEvent = Math.max(...allStamps) + pad;
-      const maxT = Math.min(endOfDay.getTime(), dateStr === todayStr ? Math.max(maxEvent, now.getTime()) : maxEvent);
-      const rangeMs = maxT - minT || 1;
-      const pct = (t) => Math.max(0, Math.min(100, (t.getTime() - minT) / rangeMs * 100)).toFixed(2);
-      const fmt = fmtClock;
-      const pxToMinuteMs = (dx, width) => Math.round(dx / Math.max(width, 1) * rangeMs / 6e4) * 6e4;
-      const rulerBar = wrap.createEl("div", { cls: "bdb-report-ruler" });
-      for (let i = 0; i <= 4; i++) {
-        const tick = rulerBar.createEl("span", { cls: "bdb-report-tick", text: fmt(new Date(minT + rangeMs * i / 4)) });
-        tick.style.left = `${i / 4 * 100}%`;
-      }
-      for (const task of tasks) {
-        task._segs = buildSegments(task.history, new Date(minT), new Date(maxT));
-        task._active = task._segs.reduce((s, seg) => {
-          const k = (seg.col || "").toLowerCase();
-          return s + (!pausedNames.has(k) && !terminalNames.has(k) ? seg.end - seg.start : 0);
-        }, 0);
-        task._done = task._segs.some((seg) => terminalNames.has((seg.col || "").toLowerCase()));
-      }
-      const guidePcts = [...new Set(tasks.flatMap((t) => t._segs.flatMap((seg) => {
-        const k = (seg.col || "").toLowerCase();
-        if (pausedNames.has(k) || terminalNames.has(k)) return [];
-        return [pct(seg.start), pct(seg.end)];
-      })))];
-      const guidesEl = wrap.createDiv({ cls: "bdb-report-guides" });
-      for (const p of guidePcts) {
-        const line = guidesEl.createDiv({ cls: "bdb-report-guide" });
-        line.style.left = `${p}%`;
-      }
-      const renderRow = (host, task) => {
-        const row = host.createEl("div", { cls: "bdb-report-row" });
-        const lbl = row.createEl("div", { cls: "bdb-report-label", text: task.body, attr: { "aria-label": task.body } });
-        lbl.addEventListener("click", (e) => openFileAtLine(plugin.app, task.file, task.line, e.ctrlKey || e.metaKey));
-        const bar = row.createEl("div", { cls: "bdb-report-bar" });
-        const cardColor = task.color || task.fm?.kbcolor || null;
-        for (const seg of task._segs) {
-          const key = (seg.col || "").toLowerCase();
-          if (pausedNames.has(key)) continue;
-          if (terminalNames.has(key)) {
-            const m = bar.createEl("div", { cls: "bdb-report-mark" });
-            m.style.cssText = `left:${pct(seg.start)}%;background:${cardColor || colColor(seg.col)}`;
-            m.title = `${seg.col}: ${fmt(seg.start)}`;
-            continue;
-          }
-          const s = bar.createEl("div", { cls: "bdb-report-seg" });
-          s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
-          const tip = `${seg.col}: ${fmt(seg.start)}\u2013${fmt(seg.end)} \xB7 ${fmtDur(seg.end - seg.start)}`;
-          s.setAttribute("aria-label", tip);
-          if (seg.startIdx != null || seg.endIdx != null) {
-            s.addEventListener("pointerenter", (e) => {
-              if (activeReportDrag) return;
-              showDragBubble(tip, e.clientX, e.clientY - 14);
-            });
-            s.addEventListener("pointermove", (e) => {
-              if (!activeReportDrag) showDragBubble(tip, e.clientX, e.clientY - 14);
-              const localX = e.clientX - s.getBoundingClientRect().left;
-              const segWidthPx = s.getBoundingClientRect().width;
-              const edgePx = 10;
-              const mode = reportSegDragMode(seg, localX, segWidthPx, edgePx);
-              s.classList.toggle("is-drag-start", mode === "start");
-              s.classList.toggle("is-drag-end", mode === "end");
-              s.classList.toggle("is-drag-move", mode === "move");
-            });
-            s.addEventListener("pointerleave", () => {
-              if (!activeReportDrag) hideDragBubble();
-              s.classList.remove("is-drag-start", "is-drag-end", "is-drag-move");
-            });
-            s.addEventListener("pointerdown", (e) => {
-              if (e.button !== 0) return;
-              e.preventDefault();
-              e.stopPropagation();
-              const rect = bar.getBoundingClientRect();
-              const segStartMs = seg.start.getTime(), segEndMs = seg.end.getTime();
-              const widthPx = rect.width;
-              const edgePx = 10;
-              const localX = e.clientX - s.getBoundingClientRect().left;
-              const segWidthPx = s.getBoundingClientRect().width;
-              let mode = reportSegDragMode(seg, localX, segWidthPx, edgePx);
-              if (!mode) return;
-              const bounds = dragBounds(task, seg, dateStr, maxT);
-              let moved = false, cancelled = false, draftStart = segStartMs, draftEnd = segEndMs;
-              const originText = mode === "move" ? `${formatDragStamp(segStartMs)}-${formatDragStamp(segEndMs)}` : formatDragStamp(mode === "end" ? segEndMs : segStartMs);
-              setReportGuidesVisible(guidesEl, true, rulerBar.offsetTop + rulerBar.offsetHeight + 4);
-              showOriginBubble(originText, e.clientX, rect.top - 18, cardColor || colColor(seg.col));
-              const paint = () => {
-                s.style.left = `${(draftStart - minT) / rangeMs * 100}%`;
-                s.style.width = `${Math.max(0.5, (draftEnd - draftStart) / rangeMs * 100)}%`;
-              };
-              const updateBubble = (x, y2) => {
-                const text = mode === "move" ? `${formatDragStamp(draftStart)}-${formatDragStamp(draftEnd)}` : formatDragStamp(mode === "end" ? draftEnd : draftStart);
-                showDragBubble(text, x, y2 - 18);
-              };
-              const onMove = (ev) => {
-                const delta = pxToMinuteMs(ev.clientX - e.clientX, widthPx);
-                moved = moved || Math.abs(delta) >= 6e4;
-                if (mode === "start") {
-                  draftStart = Math.max(bounds.prev + 6e4, Math.min(segEndMs - 6e4, segStartMs + delta));
-                } else if (mode === "end") {
-                  draftEnd = Math.min(bounds.next - 6e4, Math.max(segStartMs + 6e4, segEndMs + delta));
-                } else {
-                  const span = segEndMs - segStartMs;
-                  const minStart = bounds.prev + 6e4;
-                  const maxStart = bounds.next - span - 6e4;
-                  draftStart = Math.max(minStart, Math.min(maxStart, segStartMs + delta));
-                  draftEnd = draftStart + span;
-                }
-                paint();
-                updateBubble(ev.clientX, rect.top);
-              };
-              const onKey = (ev) => {
-                if (ev.key !== "Escape") return;
-                cancelled = true;
-                window.removeEventListener("pointermove", onMove);
-                window.removeEventListener("pointerup", onUp);
-                hideDragBubble();
-                hideOriginBubble();
-                setReportGuidesVisible(guidesEl, false);
-                activeReportDrag = null;
-                s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
-              };
-              activeReportDrag = { cancel: () => onKey({ key: "Escape" }) };
-              const onUp = async (ev) => {
-                activeReportDrag = null;
-                window.removeEventListener("pointermove", onMove);
-                window.removeEventListener("pointerup", onUp);
-                hideDragBubble();
-                hideOriginBubble();
-                setReportGuidesVisible(guidesEl, false);
-                if (cancelled) return;
-                if (!moved) {
-                  s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
-                  if (await editSegmentTimes(plugin.app, task, seg, dateStr)) await redraw();
-                  return;
-                }
-                try {
-                  await rewriteReportSegmentTimes(
-                    plugin.app,
-                    task,
-                    seg,
-                    dateStr,
-                    hhmmInput(new Date(draftStart)),
-                    hhmmInput(new Date(draftEnd))
-                  );
-                  await redraw();
-                } catch (err) {
-                  new Notice(`report: ${err.message}`);
-                  s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
-                }
-              };
-              updateBubble(e.clientX, rect.top);
-              window.addEventListener("pointermove", onMove);
-              window.addEventListener("pointerup", onUp, { once: true });
-            });
-          }
-        }
-      };
-      const rollup = (list) => {
-        const active = list.reduce((s, t) => s + t._active, 0);
-        const done = list.filter((t) => t._done).length;
-        return `${list.length}t \xB7 ${fmtDur(active)} active \xB7 ${done} done`;
-      };
-      const laneKey = config.lane;
-      const groupOf = (task) => {
-        let v = task.fm?.[laneKey];
-        if (Array.isArray(v)) v = v[0];
-        v = v == null ? "" : String(v).replace(/^\[\[|\]\]$/g, "").replace(/\|.*$/, "").trim();
-        return v || "(none)";
-      };
-      if (!laneKey) {
-        wrap.createEl("div", { cls: "bdb-report-rollup", text: rollup(tasks) });
-        for (const task of tasks) renderRow(wrap, task);
+      if (mode === "week" || mode === "7d") {
+        await renderReportRangeSection(plugin, wrap, range.start, range.end, config, activeNames, pausedNames, terminalNames, redraw, {
+          showSubtitle: false,
+          label: range.label,
+          interactive: false
+        });
       } else {
-        const groups = /* @__PURE__ */ new Map();
-        for (const task of tasks) {
-          const g = groupOf(task);
-          (groups.get(g) || groups.set(g, []).get(g)).push(task);
-        }
-        const entries = [...groups.entries()].sort((a, b) => (a[0] === "(none)") - (b[0] === "(none)") || b[1].length - a[1].length || a[0].localeCompare(b[0]));
-        for (const [name, list] of entries) {
-          const head2 = wrap.createEl("div", { cls: "bdb-report-group" });
-          const nameEl = head2.createEl("span", { cls: "bdb-report-group-name", text: name });
-          addTitleCopy(nameEl, name);
-          head2.createEl("span", { cls: "bdb-report-group-stat", text: rollup(list) });
-          for (const task of list) renderRow(wrap, task);
-        }
-      }
-      renderPending(plugin, wrap, standing);
-      const legendCols = [...new Set(tasks.flatMap((t) => t.history.flatMap((h) => [h.from, h.to])))].filter((c) => !pausedNames.has((c || "").toLowerCase()));
-      const legend = wrap.createEl("div", { cls: "bdb-report-legend" });
-      for (const col of legendCols) {
-        const item = legend.createEl("span", { cls: "bdb-report-legend-item" });
-        item.createEl("i", { cls: "bdb-report-legend-dot" }).style.background = colColor(col);
-        item.appendText(col);
+        await renderReportRangeSection(plugin, wrap, dateStr, dateStr, config, activeNames, pausedNames, terminalNames, redraw, {
+          showSubtitle: false,
+          label: fmtDateTitle(dateStr),
+          interactive: true
+        });
       }
     }
     async function renderReportBlock2(plugin, source, el, ctx) {
-      const state = { dateStr: null };
+      const state = { dateStr: null, mode: "day" };
       const child = new MarkdownRenderChild(el);
       ctx.addChild(child);
       const draw = async () => {
@@ -2137,7 +2247,7 @@ var require_report = __commonJS({
       child.registerInterval(window.setInterval(draw, 6e4));
       await draw();
     }
-    module2.exports = { renderReportBlock: renderReportBlock2, collectDayTasks: async (app2, dateStr, paths2) => (await collectReportData(app2, dateStr, paths2, () => false)).tasks };
+    module2.exports = { renderReportBlock: renderReportBlock2, collectDayTasks: async (app2, dateStr, paths2) => (await collectReportData(app2, dateStr, dateStr, paths2, () => false)).tasks };
   }
 });
 
