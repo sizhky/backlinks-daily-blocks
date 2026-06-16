@@ -71,16 +71,16 @@ function parseFilters(text) {
 }
 
 // Frontmatter values for a key, normalized: always a list, [[brackets]] off.
-function fmValues(app, file, key) {
-  let v = app.metadataCache.getFileCache(file)?.frontmatter?.[key];
+function fmValues(cache, key) {
+  let v = cache?.frontmatter?.[key];
   if (v == null) return [];
   if (!Array.isArray(v)) v = [v];
   return v.filter(x => x != null)
     .map(x => String(x).replace(/^\[\[|\]\]$/g, '').trim()).filter(Boolean);
 }
 
-function passesFilter(app, file, f) {
-  const vals = fmValues(app, file, f.key);
+function passesFilter(cache, f) {
+  const vals = fmValues(cache, f.key);
   if (f.absent) return !vals.length;
   if (!f.values.length) return vals.length > 0;
   const hit = vals.some(v => f.values.includes(v.toLowerCase()));
@@ -102,12 +102,12 @@ function parseColors(text) {
 //     Doing > Parked
 //     Parked > Todo
 function parseKanbanConfig(src) {
-  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null, mode: null };
+  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null, mode: null, only: [] };
   let lastKey = null;
   for (const rawLine of (src || '').split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort|mode)\s*:\s*(.*)$/);
+    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort|mode|only)\s*:\s*(.*)$/);
     const key = m ? m[1] : lastKey;
     const value = m ? m[2].trim() : line;
     lastKey = key;
@@ -125,6 +125,12 @@ function parseKanbanConfig(src) {
       config.filters.push(...parseFilters(value));
     } else if (key === 'lane') {
       config.lane = value;
+    } else if (key === 'only') {
+      // Display filter: render only these columns. Bucketing is unchanged, so
+      // untagged tasks still land in the real inbox (first column) and just
+      // don't show here. Lets a board show a single column without making it
+      // the catch-all. Matched by colKey against the full column set.
+      config.only.push(...value.split(',').map(s => colKey(s.trim())).filter(Boolean));
     } else if (key === 'sweep') {
       config.sweeps.push(...parseSweeps(value));
     } else if (key === 'colors') {
@@ -156,7 +162,7 @@ function parseKanbanConfig(src) {
 }
 
 // Scan vault for task lines, bucket them into configured columns.
-async function scanKanbanTasks(app, config) {
+async function scanKanbanTasks(app, config, opts = {}) {
   const open = config.columns.filter(c => !c.state);
   const byState = new Map(config.columns.filter(c => c.state).map(c => [c.state, c]));
   const byTag = new Map(open.map(c => [c.key, c]));
@@ -165,12 +171,17 @@ async function scanKanbanTasks(app, config) {
   // Terminal cards older than maxage days (or unstamped) get hidden.
   const cutoff = config.maxage ? stampNow(new Date(Date.now() - config.maxage * 86400000)) : null;
 
-  const files = app.vault.getMarkdownFiles().filter(f =>
-    (!config.paths.length || config.paths.some(p => f.path.startsWith(p)))
-    && config.filters.every(fl => passesFilter(app, f, fl)));
+  const files = app.vault.getMarkdownFiles().filter(f => {
+    if (config.paths.length && !config.paths.some(p => f.path.startsWith(p))) return false;
+    const cache = app.metadataCache.getFileCache(f);
+    if (!cache?.listItems?.some(it => it.task != null)) return false;
+    if (opts.cacheFilter && !opts.cacheFilter(cache, f)) return false;
+    return config.filters.every(fl => passesFilter(cache, fl));
+  });
 
   for (const file of files) {
-    const lane = config.lane ? (fmValues(app, file, config.lane)[0] || null) : null;
+    const cache = app.metadataCache.getFileCache(file);
+    const lane = config.lane ? (fmValues(cache, config.lane)[0] || null) : null;
     const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
     // Ancestor chain by indent: tasks at any depth become cards; history,
     // ei stamps and tag lines attach to the deepest task above them with
@@ -275,19 +286,32 @@ function editTags(lines, line, fn) {
   else if (out.length) lines.splice(line + 1, 0, indent + out.join(' '));
 }
 
-// New history inserts directly below the task's *config* lines (tag line and
-// %% kbcolor %%), above older logs. Config stays glued to the task; newest log
-// sits on top of the log stack.
-function commentInsertAt(lines, line) {
+// Keep task metadata ordered as: pinned config, freeform note lines, hidden
+// logs, then any child tasks. Returns where the next kb log should go.
+function normalizeTaskMeta(lines, line) {
   const base = indentWidth(lines[line]);
   let i = line + 1;
   while (i < lines.length) {
     const t = lines[i];
-    if (!t.trim() || indentWidth(t) <= base) break;   // blank or dedent = block ends
-    if (TAGLINE_RE.test(t) || COLOR_RE.test(t)) { i++; continue; } // skip pinned config
-    break;                                            // first log line — insert above it
+    if (!t.trim() || indentWidth(t) <= base) break;
+    i++;
   }
-  return i;
+  const end = i;
+  const prefix = [], notes = [], logs = [];
+  let restAt = end;
+  for (i = line + 1; i < end; i++) {
+    const t = lines[i];
+    if (TAGLINE_RE.test(t) || COLOR_RE.test(t)) prefix.push(t);
+    else if (HIST_RE.test(t) || EI_HIST_RE.test(t)) logs.push(t);
+    else if (TASK_RE.test(t)) { restAt = i; break; }
+    else notes.push(t);
+  }
+  lines.splice(line + 1, end - (line + 1), ...prefix, ...notes, ...logs, ...lines.slice(restAt, end));
+  return line + 1 + prefix.length + notes.length;
+}
+
+function commentInsertAt(lines, line) {
+  return normalizeTaskMeta(lines, line);
 }
 
 // Indent depth in visual columns, tab = 4. Char counts lie when tabs and
@@ -348,12 +372,24 @@ function stampToDate(s) {
   return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12));
 }
 
+function hhmmMs(ms) {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
 function fmtDur(ms) {
   const m = Math.floor(ms / 60000);
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h`;
   return `${Math.floor(h / 24)}d${h % 24 ? `${h % 24}h` : ''}`;
+}
+
+function fmtDurCompact(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h${m % 60 ? `${m % 60}m` : ''}`;
 }
 
 // Bulk-move every card in a column. Same-file cards go bottom-up so the
@@ -382,7 +418,7 @@ async function moveCard(app, file, line, targetCol, config, { fromCol } = {}) {
   const firstOpen = config.columns.find(c => !c.state);
 
   if (targetCol.state) {
-    lines[line] = `${pre}${targetCol.state}${close}${body} ${stampNow()}`;
+    lines[line] = `${pre}${targetCol.state}${close}${body}`;
   } else {
     lines[line] = `${pre} ${close}${body}`;
   }
@@ -393,9 +429,9 @@ async function moveCard(app, file, line, targetCol, config, { fromCol } = {}) {
     const rest = tokens.filter(t => !t.startsWith('#kb/'));
     return tag ? [tag, ...rest] : rest;
   });
-  // Record the move as a hidden comment right under the task, one level deeper.
+  // Record the move under note lines but above any child tasks.
   const indent = lines[line].match(/^\s*/)[0];
-  lines.splice(commentInsertAt(lines, line), 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || '?'} > ${targetCol.name} %%`);
+  lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || '?'} > ${targetCol.name} %%`);
   await app.vault.modify(file, lines.join('\n'));
   return true;
 }
@@ -496,8 +532,11 @@ function laneSplit(config, cards) {
 }
 
 async function drawBoard(plugin, board, config, state = { dragging: false }) {
-  board.empty();
+  // Scan BEFORE clearing: the vault read is slow, and an empty board collapses
+  // to height 0 mid-await, jumping the page scroll. Build the data first, then
+  // tear down and refill in the same synchronous stretch.
   const cards = await scanKanbanTasks(plugin.app, config);
+  board.empty();
   const cardEls = new Map(); // card object -> element, for breadcrumb jumps
   // Per-card in-place clock updaters; the minute tick runs these instead of a
   // full teardown. Reset every full redraw so stale element refs drop out.
@@ -573,6 +612,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
     }
 
     for (const [index, col] of config.columns.entries()) {
+      if (config.only.length && !config.only.includes(col.key)) continue;
       const colCards = lane.cards.get(col.key);
       const colEl = host.createDiv({ cls: 'bdb-kanban-col' });
       if (col.live) colEl.classList.add('bdb-kanban-col-live');
@@ -722,12 +762,17 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 
           // Visits: every stay in a column, starting at birth when known.
           const visits = [];
-          if (birth) visits.push({ name: es[0].from, dur: Math.max(stampToDate(es[0].stamp) - birth, 0) });
+          if (birth) {
+            const start = birth.getTime();
+            const end = stampToDate(es[0].stamp).getTime();
+            visits.push({ name: es[0].from, start, end, dur: Math.max(end - start, 0) });
+          }
           for (let i = 0; i < es.length; i++) {
             const isLast = i === es.length - 1;
             if (isLast && terminal) break;
-            const dur = (isLast ? new Date() : stampToDate(es[i + 1].stamp)) - stampToDate(es[i].stamp);
-            visits.push({ name: es[i].to, dur });
+            const start = stampToDate(es[i].stamp).getTime();
+            const end = (isLast ? new Date() : stampToDate(es[i + 1].stamp)).getTime();
+            visits.push({ name: es[i].to, start, end, dur: end - start });
           }
           const active = visits.filter(v => !idle.has(v.name)).reduce((sum, v) => sum + v.dur, 0);
           const journeyStart = birth || stampToDate(es[0].stamp);
@@ -753,16 +798,15 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
           // the clock tick can resize them without rebuilding the board.
           const liveVisit = (!terminal && inSync) ? visits[visits.length - 1] : null;
 
-          // Two bars: full timeline (idle included), active-only below it.
+          // Single bar: full timeline (idle included). Each span = one column stay.
           const bars = flow.createDiv({ cls: 'bdb-kanban-card-bars' });
-          for (const subset of [visits, visits.filter(v => !idle.has(v.name))]) {
-            const bar = bars.createDiv({ cls: 'bdb-kanban-card-bar' });
-            for (const v of subset) {
-              const span = bar.createSpan();
-              span.style.flexGrow = String(Math.max(v.dur, 1));
-              span.style.background = colorOf.get(v.name) || 'var(--background-modifier-border)';
-              if (v === liveVisit) span.classList.add('bdb-kanban-live-span');
-            }
+          const bar = bars.createDiv({ cls: 'bdb-kanban-card-bar' });
+          for (const v of visits) {
+            const span = bar.createSpan();
+            span.style.flexGrow = String(Math.max(v.dur, 1));
+            span.style.background = colorOf.get(v.name) || 'var(--background-modifier-border)';
+            span.setAttribute('title', `${v.name}: ${hhmmMs(v.start)}-${hhmmMs(v.end)} · ${fmtDurCompact(v.dur)}`);
+            if (v === liveVisit) span.classList.add('bdb-kanban-live-span');
           }
 
           const nowEl = flow.createSpan({
@@ -794,6 +838,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
               nowEl.textContent = `${col.name} ${fmtDur(ms)} · ${fmtDur(act)} spent`;
               for (const sp of cardEl.querySelectorAll('.bdb-kanban-live-span')) {
                 sp.style.flexGrow = String(Math.max(ms, 1));
+                sp.setAttribute('title', `${col.name}: ${hhmmMs(startMs)}-${hhmmMs(Date.now())} · ${fmtDurCompact(ms)}`);
               }
               applyAge(ms);
             });

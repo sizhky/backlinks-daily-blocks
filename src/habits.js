@@ -1,8 +1,9 @@
 // Habits heatmap block. Reuses the kanban scan: each habit card cycles
 // Idle <-> Doing; a span = (Idle>Doing , Doing>Idle) pair. The block reads
 // spans, buckets them by end-date, and renders a year grid per habit.
-const { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard } = require('./kanban');
-const { MarkdownRenderChild } = require('obsidian');
+const { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, addTitleCopy } = require('./kanban');
+const { MarkdownRenderChild, setIcon } = require('obsidian');
+const { openFileAtLine } = require('./core/render');
 
 const HABIT_COLS = 'columns: Idle~, Doing!';
 
@@ -46,12 +47,13 @@ function bucketByDay(history, metric, year) {
 // Gather every habit card under the block's paths, with its per-file config.
 async function collectHabits(app, paths, year) {
   const config = parseKanbanConfig(`${HABIT_COLS}\npaths: ${paths.join(', ')}`);
-  const cards = await scanKanbanTasks(app, config);
+  const cards = await scanKanbanTasks(app, config, {
+    cacheFilter: (cache) => cache?.frontmatter?.metric != null,
+  });
   const all = [].concat(...cards.values());
   // A habit is a card whose file declares a `metric`; identity is the task body
   // (one file may hold several habits, e.g. Reddit + Youtube).
   return all
-    .filter(card => app.metadataCache.getFileCache(card.file)?.frontmatter?.metric != null)
     .map(card => {
       const fm = app.metadataCache.getFileCache(card.file).frontmatter;
       const metric = (fm.metric === 'count') ? 'count' : 'sum';
@@ -66,17 +68,33 @@ async function collectHabits(app, paths, year) {
 
 // --- render ---------------------------------------------------------------
 
-// Hours (float) -> "8h 9m" / "8h" / "9m". Used everywhere a sum-metric shows.
+// Hours (float) -> "8h9m" / "8h" / "9m". Used everywhere a sum-metric shows.
 function fmtHours(h) {
   const min = Math.round((h || 0) * 60);
   const hh = Math.floor(min / 60), mm = min % 60;
-  if (hh && mm) return `${hh}h ${mm}m`;
+  if (hh && mm) return `${hh}h${mm}m`;
   return hh ? `${hh}h` : `${mm}m`;
 }
 
 function fmtVal(v, metric) {
   if (metric === 'count') return `${v}x`;
   return fmtHours(v);
+}
+
+function renderPadTitle(parent, text) {
+  const nameEl = parent.createDiv({ cls: 'bdb-pad-name' });
+  const track = nameEl.createDiv({ cls: 'bdb-pad-name-track' });
+  const first = track.createSpan({ cls: 'bdb-pad-name-copy', text });
+  window.requestAnimationFrame(() => {
+    const overflow = first.scrollWidth - nameEl.clientWidth;
+    if (overflow <= 8) return;
+    const gap = 56;
+    track.createSpan({ cls: 'bdb-pad-name-copy bdb-pad-name-copy-ghost', text });
+    nameEl.addClass('is-ticker');
+    nameEl.style.setProperty('--bdb-ticker-gap', `${gap}px`);
+    nameEl.style.setProperty('--bdb-ticker-shift', `${first.scrollWidth + gap}px`);
+    nameEl.style.setProperty('--bdb-ticker-duration', `${Math.max(7, Math.round((first.scrollWidth + gap) / 18))}s`);
+  });
 }
 
 function dayKey(d) {
@@ -91,7 +109,8 @@ function renderHabitRow(parent, habit, year, today) {
   const row = parent.createDiv({ cls: 'bdb-habit-row' });
   if (habit.color) row.style.setProperty('--kb-habit-color', habit.color);
   const head = row.createDiv({ cls: 'bdb-habit-head' });
-  head.createDiv({ cls: 'bdb-habit-name', text: habit.name });
+  const nameEl = head.createDiv({ cls: 'bdb-habit-name', text: habit.name });
+  addTitleCopy(nameEl, habit.name);
   const max = Math.max(0, ...[...habit.days.values()].map(d => d.value));
   const total = [...habit.days.values()].reduce((a, d) => a + d.value, 0);
   const active = [...habit.days.values()].filter(d => d.value > 0 || d.open).length;
@@ -173,6 +192,14 @@ function habitStats(history, metric, now) {
 
   const vals = [...byDay.values()];
   const todayVal = byDay.get(today) || 0;
+  const dayVal = (offset) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return byDay.get(k) || 0;
+  };
+  const yesterdayVal = dayVal(1);
+  const prevVal = dayVal(2);
+  const prev2Val = dayVal(3);
 
   // 7-day average over the trailing 7 calendar days (incl today).
   const lastN = (n) => {
@@ -184,8 +211,16 @@ function habitStats(history, metric, now) {
     }
     return sum / n;
   };
+  const avg3 = lastN(3);
   const avg7 = lastN(7);
   const avg30 = lastN(30);
+  const avg3Closed = (yesterdayVal + prevVal + prev2Val) / 3;
+  const spark7 = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    spark7.push(byDay.get(k) || 0);
+  }
 
   // Streak: consecutive days back from today (or yesterday) with a logged value.
   let streak = 0;
@@ -199,10 +234,11 @@ function habitStats(history, metric, now) {
   // Trend: 7d vs 30d average. up if recent beats baseline.
   const trend = avg30 === 0 ? 0 : (avg7 - avg30) / avg30;
   return {
-    metric, open, today: todayVal, avg7, streak,
+    metric, open, today: todayVal, avg3, avg3Closed, avg7, streak, spark7,
+    yesterday: yesterdayVal, prevDay: prevVal,
     min: Math.min(...vals), max: Math.max(...vals),
     mean: vals.reduce((a, b) => a + b, 0) / vals.length,
-    days: byDay.size, trend,
+    days: byDay.size, trend, deltaYday: yesterdayVal - prevVal, deltaMu3: yesterdayVal - avg3Closed,
   };
 }
 
@@ -223,7 +259,9 @@ async function renderHabitPad(plugin, source, el, ctx) {
 
   const draw = async () => {
     el.empty();
-    const cardsByCol = await scanKanbanTasks(plugin.app, config);
+    const cardsByCol = await scanKanbanTasks(plugin.app, config, {
+      cacheFilter: (cache) => cache?.frontmatter?.metric != null,
+    });
     const now = new Date();
     const items = [];
     for (const [colKey, list] of cardsByCol) {
@@ -239,22 +277,75 @@ async function renderHabitPad(plugin, source, el, ctx) {
     for (const { card, colKey, fm } of items) {
       const metric = fm.metric === 'count' ? 'count' : 'sum';
       const doing = colKey === liveCol?.key;
+      const st = habitStats(card.history, metric, now);
       const color = card.color || fm.kbcolor || null;
       const btn = grid.createDiv({ cls: 'bdb-pad-card' + (doing ? ' bdb-pad-on' : '') });
       if (color) btn.style.setProperty('--kb-card-color', color);
-      btn.createDiv({ cls: 'bdb-pad-name', text: cleanText(card.body) });
+      const head = btn.createDiv({ cls: 'bdb-pad-head' });
+      renderPadTitle(head, cleanText(card.body));
+      const openBtn = head.createSpan({ cls: 'bdb-pad-open', attr: { 'aria-label': 'Open habit note' } });
+      setIcon(openBtn, 'external-link');
 
-      let sub;
+      let sub = [];
       if (doing) {
         const sp = spans(card.history);
         const open = sp[sp.length - 1];
         const elapsed = open && open.end === null ? (now - open.start) / 3600000 : 0;
-        sub = `▶ ${fmtHours(elapsed)}`;          // ▶ running time
+        sub = [{ text: `▶ ${fmtHours(elapsed)}` }, { text: 'live now' }];          // running time
       } else {
-        const st = habitStats(card.history, metric, now);
-        sub = st ? `${st.streak}d · ${metric === 'count' ? st.today + 'x' : fmtHours(st.today)}` : 'tap to start';
+        if (st) {
+          const f = (v) => metric === 'count' ? `${Number(v.toFixed(1)).toString()}x` : fmtHours(v);
+          const trendCls = st.deltaYday > 0.05 ? 'up' : st.deltaYday < -0.05 ? 'down' : 'flat';
+          const muCls = st.deltaMu3 > 0.05 ? 'up' : st.deltaMu3 < -0.05 ? 'down' : 'flat';
+          const arrow = trendCls === 'up' ? '↑' : trendCls === 'down' ? '↓' : '→';
+          const muArrow = muCls === 'up' ? '↑' : muCls === 'down' ? '↓' : '→';
+          sub = [
+            { text: `${st.streak}d · ${f(st.today)}` },
+            {
+              chunks: [
+                { text: `y ${f(st.yesterday)} ` },
+                { trend: { text: arrow, cls: trendCls } },
+              ],
+            },
+            {
+              chunks: [
+                { text: `μ3 ${f(st.avg3Closed)} ` },
+                { trend: { text: muArrow, cls: muCls } },
+              ],
+            }
+          ];
+        } else sub = [{ text: 'tap to start' }];
       }
-      btn.createDiv({ cls: 'bdb-pad-sub', text: sub });
+      const subEl = btn.createDiv({ cls: 'bdb-pad-sub' });
+      for (const line of sub) {
+        const lineEl = subEl.createDiv({ cls: 'bdb-pad-subline' });
+        if (line.chunks) {
+          for (const chunk of line.chunks) {
+            if (chunk.text) lineEl.appendText(chunk.text);
+            if (chunk.trend) lineEl.createSpan({ cls: `bdb-pad-trend bdb-pad-trend-${chunk.trend.cls}`, text: chunk.trend.text });
+          }
+        } else {
+          lineEl.appendText(line.text);
+          if (line.trend) lineEl.createSpan({ cls: `bdb-pad-trend bdb-pad-trend-${line.trend.cls}`, text: line.trend.text });
+        }
+      }
+      if (st?.spark7?.some(v => v > 0)) {
+        const sparkEl = btn.createDiv({ cls: 'bdb-pad-spark', attr: { 'aria-label': 'Last 7 days activity' } });
+        const sparkMax = Math.max(1, ...st.spark7);
+        for (const v of st.spark7) {
+          const bar = sparkEl.createDiv({ cls: 'bdb-pad-spark-bar' + (!v ? ' is-zero' : '') });
+          bar.style.setProperty('--bdb-bar-h', `${Math.max(2, Math.round((v / sparkMax) * 18))}px`);
+          const label = fmtVal(v, metric);
+          bar.setAttribute('title', label);
+          bar.setAttribute('aria-label', label);
+        }
+      }
+
+      openBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
+      });
 
       btn.addEventListener('click', async () => {
         const cur = config.columns.find(c => c.key === colKey);

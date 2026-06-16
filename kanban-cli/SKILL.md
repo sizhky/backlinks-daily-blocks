@@ -64,6 +64,33 @@ per-stint segments + total: `(HH:MM->HH:MM :: dur), (...) = total`. A `~` on a
 segment's end time means it was still in the column at end of day (segment closed at 23:59).
 `opts.paths` — folder filter.
 
+**`fm` opt (active / getDone / getReport):** pass `fm:"projects,org"` to append those
+frontmatter keys to each row as a trailing `\tkey=a|b; key2=c` field (missing value = `·`).
+Saves grepping note frontmatter by hand. E.g. `kb.getDone(20260614,{fm:"projects,org"})`.
+
+### `kb.chronicle(...)` — day chronicle of what sat in Doing
+Arg forms mirror `getReport`: `chronicle(date)` | `chronicle(date, opts)` |
+`chronicle(from,to)` | `chronicle({days:N, ...opts})`.
+Default column is `Doing`; override with `opts.col`.
+Single-day lines: `HHMM:HHMM[~]<TAB>dur<TAB>body`
+Example:
+```
+0000:0820	8h20m	Sleep
+1400:1435	35m	eat
+1445:1600	1h15m	sleep
+```
+`~` means the stint is still open now.
+
+### `kb.summary(...)` — done counts grouped by a frontmatter key
+Rolls up terminal-column moves ("done") over a date range, grouped by `by` (default
+`projects`). The one command behind "what did I ship, by project". Arg forms mirror
+`getReport`: `summary(date)` | `summary(from,to)` | `summary({days:N, ...opts})`.
+`opts`: `by` (fm key), `col` (terminal-col filter), `paths`, `sample` (max sample bodies
+per group, default 3). Output: a `# done by <key> — <span> — N cards` header then
+`groupVal<TAB>count<TAB>sample, bodies`, sorted by count desc. Cards with no value for
+`by` pool under `(none)`; multi-valued cards count once per value.
+Example: `kb.summary({days:3, by:"projects"})`.
+
 ### `kb.props(opts?)` — discover frontmatter schema (no hardcoded keys)
 Scans every note's frontmatter (Obsidian properties) and reports what exists.
 Use this FIRST to learn a vault's vocabulary before querying.

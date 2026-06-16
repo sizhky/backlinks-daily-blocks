@@ -116,6 +116,16 @@ function matchVal(vals, want, contains) {
   });
 }
 
+// trailing "\tkey=a|b; key2=c" of selected frontmatter keys for a file path.
+// keys = comma-sep string (opts.fm). Missing value renders "·". "" when no keys.
+function fmSuffix(app, path, keys) {
+  if (!keys) return '';
+  const fm = app.metadataCache.getCache(path)?.frontmatter;
+  const list = String(keys).split(',').map(s => s.trim()).filter(Boolean);
+  if (!list.length) return '';
+  return '\t' + list.map(k => `${k}=${(fmVals(fm, k) || []).join('|') || '·'}`).join('; ');
+}
+
 function relAge(iso) {
   if (!iso) return '?';
   const ms = Date.now() - new Date(iso).getTime();
@@ -134,6 +144,34 @@ function dur(ms) {
   const m = Math.round(ms / 6e4);
   if (m < 60) return m + 'm';
   return Math.floor(m / 60) + 'h' + (m % 60 ? ' ' + (m % 60) + 'm' : '');
+}
+
+function durCompact(ms) {
+  const m = Math.round(ms / 6e4);
+  if (m < 60) return m + 'm';
+  return Math.floor(m / 60) + 'h' + (m % 60 ? (m % 60) + 'm' : '');
+}
+
+// ms overlap of interval [s,e] with window [lo,hi]; 0 if disjoint.
+function overlap(s, e, lo, hi) {
+  const a = Math.max(s, lo), b = Math.min(e, hi);
+  return b > a ? b - a : 0;
+}
+
+// 23:59:59.999 of the day containing ms.
+function endOfDayMs(ms) { const d = new Date(ms); d.setHours(23, 59, 59, 999); return d.getTime(); }
+
+// total ms covered by the UNION of [s,e] intervals (overlaps counted once).
+function unionMs(ivals) {
+  if (!ivals.length) return 0;
+  const s = ivals.slice().sort((a, b) => a[0] - b[0]);
+  let total = 0, cs = s[0][0], ce = s[0][1];
+  for (let i = 1; i < s.length; i++) {
+    const [a, b] = s[i];
+    if (a <= ce) { if (b > ce) ce = b; }
+    else { total += ce - cs; cs = a; ce = b; }
+  }
+  return total + (ce - cs);
 }
 
 function ymd(d) {
@@ -162,6 +200,11 @@ function resolveDates(a, b, c) {
 function hhmmMs(ms) {
   const d = new Date(ms);
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function hhmmBare(ms) {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0');
 }
 
 // segments a task sat in column `want` on dateStr, as "HH:MM->HH:MM :: dur" joined.
@@ -217,7 +260,7 @@ function buildApi(plugin) {
         rows = rows.filter(r => r.since && new Date(r.since).getTime() <= cut);
       }
       if (opts.limit) rows = rows.slice(0, opts.limit);
-      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}`).join('\n');
+      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${fmSuffix(plugin.app, r.file, opts.fm)}`).join('\n');
     },
 
     // Tasks moved to a terminal column on a date — "what I did"
@@ -232,7 +275,7 @@ function buildApi(plugin) {
         .flatMap(col => (byCol.get(col.key) || [])
           .map(card => ({ card, move: card.history.find(h => h.stamp.startsWith(dateStr) && h.to === col.name) }))
           .filter(({ move }) => move)
-          .map(({ card, move }) => `${col.name}\t${card.file.path}:${card.line}\t${card.body}\t${hhmm(move.stamp)}`)
+          .map(({ card, move }) => `${col.name}\t${card.file.path}:${card.line}\t${card.body}\t${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm)}`)
         );
       return '\n' + rows.join('\n');
     },
@@ -249,10 +292,128 @@ function buildApi(plugin) {
         let tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
         if (want) tasks = tasks.filter(t => t.history.some(h => h.to.toLowerCase() === want));
         const rows = tasks.map(t => {
-          if (want) return `${t.file.path}:${t.line}\t${t.body}\t${colSegments(t.history, want, dateStr)}`;
+          const suf = fmSuffix(plugin.app, t.file.path, opts.fm);
+          if (want) return `${t.file.path}:${t.line}\t${t.body}\t${colSegments(t.history, want, dateStr)}${suf}`;
           const moves = t.history.map(h => `${hhmm(h.stamp)} ${h.from || '·'}>${h.to}`).join('  ');
-          return `${t.file.path}:${t.line}\t${t.body}\t${moves}`;
+          return `${t.file.path}:${t.line}\t${t.body}\t${moves}${suf}`;
         });
+        if (multi) out.push(`== ${dateStr} ==`, ...(rows.length ? rows : ['(none)']));
+        else out.push(...rows);
+      }
+      return '\n' + out.join('\n');
+    },
+
+    // Roll up terminal-column moves (i.e. "done") over a date range, grouped by a
+    // frontmatter key. The single command behind "what did I ship, by project".
+    // Arg forms mirror getReport: (date) | (from,to) | ({days:N, ...opts}).
+    // opts: { by (fm key, default "projects"), col (terminal-col filter), paths,
+    //         sample (max sample bodies per group, default 3) }
+    // Lines: groupVal<TAB>doneCount<TAB>sample, bodies (capped)
+    async summary(a, b, c) {
+      const { dates, opts } = resolveDates(a, b, c);
+      const by = opts.by || 'projects';
+      const cap = opts.sample || 3;
+      const want = opts.col && String(opts.col).toLowerCase();
+      const config = makeConfig(opts);
+      const byCol = await scanKanbanTasks(plugin.app, config);
+      const dateSet = new Set(dates);
+      const groups = new Map(); // groupVal -> { n, bodies:[] }
+      for (const col of config.columns) {
+        if (!col.state || (want && col.name.toLowerCase() !== want)) continue;
+        for (const card of (byCol.get(col.key) || [])) {
+          if (!card.history.some(h => h.to === col.name && dateSet.has(h.stamp.slice(0, 8)))) continue;
+          const vals = fmVals(plugin.app.metadataCache.getCache(card.file.path)?.frontmatter, by);
+          for (const g of (vals && vals.length ? vals : ['(none)'])) {
+            const e = groups.get(g) || { n: 0, bodies: [] };
+            e.n++; if (e.bodies.length < cap) e.bodies.push(cleanText(card.body));
+            groups.set(g, e);
+          }
+        }
+      }
+      const total = [...groups.values()].reduce((a, e) => a + e.n, 0);
+      const rows = [...groups.entries()].sort((a, b) => b[1].n - a[1].n)
+        .map(([g, e]) => `${g}\t${e.n}\t${e.bodies.join(', ')}`);
+      const span = dates.length > 1 ? `${dates[0]}..${dates[dates.length - 1]}` : dates[0];
+      return `\n# done by ${by} — ${span} — ${total} cards\n` + rows.join('\n');
+    },
+
+    // Actual TIME cards spent in a column (default Doing) over a date range, grouped by a
+    // frontmatter key — the "hours per project" measure (vs summary's card COUNT).
+    // Walks each card's full history, pairs enter>exit for the column, clips overlap to the
+    // window; an unclosed span counts up to now. Arg forms mirror getReport.
+    // opts: { by (default "projects"), col (default "Doing"), paths, sample (default 3) }
+    // Lines: groupVal<TAB>Xh Ym<TAB>N cards<TAB>sample, bodies
+    async time(a, b, c) {
+      const { dates, opts } = resolveDates(a, b, c);
+      const by = opts.by || 'projects';
+      const want = String(opts.col || 'Doing').toLowerCase();
+      const cap = opts.sample || 3;
+      const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
+      const mk = s => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+      const lo = mk(dates[0]).getTime();
+      const hiD = mk(dates[dates.length - 1]); hiD.setHours(23, 59, 59, 999);
+      const hi = hiD.getTime();
+      const groups = new Map(); // g -> { ivals:[[s,e]], cards:Set, bodies:[] }
+      const allIvals = [];      // every interval, for the wall-clock grand total
+      for (const [, list] of byCol) {
+        for (const card of list) {
+          const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+          const ivals = [];
+          for (let i = 0; i < chrono.length; i++) {
+            if (chrono[i].to.toLowerCase() !== want) continue;
+            const s = stampToDate(chrono[i].stamp).getTime();
+            // close at the NEXT move; if none (off-board [x] tick left it open) clamp to end of that day
+            const e = chrono[i + 1] ? stampToDate(chrono[i + 1].stamp).getTime() : endOfDayMs(s);
+            const cs = Math.max(s, lo), ce = Math.min(e, hi);
+            if (ce > cs) ivals.push([cs, ce]);
+          }
+          if (!ivals.length) continue;
+          allIvals.push(...ivals);
+          const vals = fmVals(plugin.app.metadataCache.getCache(card.file.path)?.frontmatter, by);
+          for (const g of (vals && vals.length ? vals : ['(none)'])) {
+            const e = groups.get(g) || { ivals: [], cards: new Set(), bodies: [] };
+            e.ivals.push(...ivals); e.cards.add(card.file.path + ':' + card.line);
+            if (e.bodies.length < cap) e.bodies.push(cleanText(card.body));
+            groups.set(g, e);
+          }
+        }
+      }
+      const span = dates.length > 1 ? `${dates[0]}..${dates[dates.length - 1]}` : dates[0];
+      const rows = [...groups.entries()]
+        .map(([g, e]) => [g, unionMs(e.ivals), e])
+        .sort((a, b) => b[1] - a[1])
+        .map(([g, ms, e]) => `${g}\t${dur(ms)}\t${e.cards.size} cards\t${e.bodies.join(', ')}`);
+      return `\n# ${want} time (union) by ${by} — ${span} — ${dur(unionMs(allIvals))} total\n` + rows.join('\n');
+    },
+
+    // Chronicle of time spent in a column (default Doing), sorted by stint start.
+    // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body
+    async chronicle(a, b, c) {
+      const { dates, opts } = resolveDates(a, b, c);
+      const want = String(opts.col || 'Doing').toLowerCase();
+      const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
+      const multi = dates.length > 1;
+      const out = [];
+      for (const dateStr of dates) {
+        const lo = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8)).getTime();
+        const hi = endOfDayMs(lo);
+        const today = ymd(new Date()) === dateStr;
+        const segs = [];
+        for (const [, list] of byCol) for (const card of list) {
+          const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+          for (let i = 0; i < chrono.length; i++) {
+            if (chrono[i].to.toLowerCase() !== want) continue;
+            const s = stampToDate(chrono[i].stamp).getTime();
+            const rawEnd = chrono[i + 1]
+              ? stampToDate(chrono[i + 1].stamp).getTime()
+              : (today ? Date.now() : endOfDayMs(s));
+            const cs = Math.max(s, lo), ce = Math.min(rawEnd, hi);
+            if (ce <= cs) continue;
+            segs.push({ s: cs, e: ce, open: !chrono[i + 1] && today, body: cleanText(card.body) });
+          }
+        }
+        const rows = segs.sort((a, b) => a.s - b.s)
+          .map(x => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? '~' : ''}\t${durCompact(x.e - x.s)}\t${x.body}`);
         if (multi) out.push(`== ${dateStr} ==`, ...(rows.length ? rows : ['(none)']));
         else out.push(...rows);
       }
@@ -265,6 +426,9 @@ function buildApi(plugin) {
         'active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit',
         'getDone(date,opts?)      tasks moved to terminal col on a date',
         'getReport(...)           move timeline; day | from,to | {days:N}',
+        'chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}',
+        'summary(...)             done counts grouped by fm key; opts: by,col,sample,paths',
+        '   note: active/getDone/getReport take opts.fm="projects,org" to append fm cols',
         'plate(project,opts?)     a project\'s live tasks (incl Backlog); opts: prop,col,paths,since,limit',
         'moveTask(file,line,col)  move a task to a column',
         'habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths',

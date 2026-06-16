@@ -252,8 +252,9 @@ var require_render = __commonJS({
 // src/habits.js
 var require_habits = __commonJS({
   "src/habits.js"(exports2, module2) {
-    var { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard } = require_kanban();
-    var { MarkdownRenderChild } = require("obsidian");
+    var { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, addTitleCopy } = require_kanban();
+    var { MarkdownRenderChild, setIcon } = require("obsidian");
+    var { openFileAtLine } = require_render();
     var HABIT_COLS = "columns: Idle~, Doing!";
     function spans(history) {
       const h = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
@@ -287,9 +288,11 @@ var require_habits = __commonJS({
     async function collectHabits(app2, paths2, year) {
       const config = parseKanbanConfig(`${HABIT_COLS}
 paths: ${paths2.join(", ")}`);
-      const cards = await scanKanbanTasks(app2, config);
+      const cards = await scanKanbanTasks(app2, config, {
+        cacheFilter: (cache) => cache?.frontmatter?.metric != null
+      });
       const all = [].concat(...cards.values());
-      return all.filter((card) => app2.metadataCache.getFileCache(card.file)?.frontmatter?.metric != null).map((card) => {
+      return all.map((card) => {
         const fm = app2.metadataCache.getFileCache(card.file).frontmatter;
         const metric = fm.metric === "count" ? "count" : "sum";
         return {
@@ -303,12 +306,27 @@ paths: ${paths2.join(", ")}`);
     function fmtHours(h) {
       const min = Math.round((h || 0) * 60);
       const hh = Math.floor(min / 60), mm = min % 60;
-      if (hh && mm) return `${hh}h ${mm}m`;
+      if (hh && mm) return `${hh}h${mm}m`;
       return hh ? `${hh}h` : `${mm}m`;
     }
     function fmtVal(v, metric) {
       if (metric === "count") return `${v}x`;
       return fmtHours(v);
+    }
+    function renderPadTitle(parent, text) {
+      const nameEl = parent.createDiv({ cls: "bdb-pad-name" });
+      const track = nameEl.createDiv({ cls: "bdb-pad-name-track" });
+      const first = track.createSpan({ cls: "bdb-pad-name-copy", text });
+      window.requestAnimationFrame(() => {
+        const overflow = first.scrollWidth - nameEl.clientWidth;
+        if (overflow <= 8) return;
+        const gap = 56;
+        track.createSpan({ cls: "bdb-pad-name-copy bdb-pad-name-copy-ghost", text });
+        nameEl.addClass("is-ticker");
+        nameEl.style.setProperty("--bdb-ticker-gap", `${gap}px`);
+        nameEl.style.setProperty("--bdb-ticker-shift", `${first.scrollWidth + gap}px`);
+        nameEl.style.setProperty("--bdb-ticker-duration", `${Math.max(7, Math.round((first.scrollWidth + gap) / 18))}s`);
+      });
     }
     function dayKey(d) {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -318,7 +336,8 @@ paths: ${paths2.join(", ")}`);
       const row = parent.createDiv({ cls: "bdb-habit-row" });
       if (habit.color) row.style.setProperty("--kb-habit-color", habit.color);
       const head = row.createDiv({ cls: "bdb-habit-head" });
-      head.createDiv({ cls: "bdb-habit-name", text: habit.name });
+      const nameEl = head.createDiv({ cls: "bdb-habit-name", text: habit.name });
+      addTitleCopy(nameEl, habit.name);
       const max = Math.max(0, ...[...habit.days.values()].map((d) => d.value));
       const total = [...habit.days.values()].reduce((a, d) => a + d.value, 0);
       const active = [...habit.days.values()].filter((d) => d.value > 0 || d.open).length;
@@ -401,6 +420,14 @@ paths: ${paths2.join(", ")}`);
       if (!byDay.size && !open) return null;
       const vals = [...byDay.values()];
       const todayVal = byDay.get(today) || 0;
+      const dayVal = (offset) => {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+        const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return byDay.get(k) || 0;
+      };
+      const yesterdayVal = dayVal(1);
+      const prevVal = dayVal(2);
+      const prev2Val = dayVal(3);
       const lastN = (n) => {
         let sum = 0;
         for (let i = 0; i < n; i++) {
@@ -410,8 +437,16 @@ paths: ${paths2.join(", ")}`);
         }
         return sum / n;
       };
+      const avg3 = lastN(3);
       const avg7 = lastN(7);
       const avg30 = lastN(30);
+      const avg3Closed = (yesterdayVal + prevVal + prev2Val) / 3;
+      const spark7 = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        spark7.push(byDay.get(k) || 0);
+      }
       let streak = 0;
       for (let i = 0; i < 366; i++) {
         const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
@@ -424,13 +459,20 @@ paths: ${paths2.join(", ")}`);
         metric,
         open,
         today: todayVal,
+        avg3,
+        avg3Closed,
         avg7,
         streak,
+        spark7,
+        yesterday: yesterdayVal,
+        prevDay: prevVal,
         min: Math.min(...vals),
         max: Math.max(...vals),
         mean: vals.reduce((a, b) => a + b, 0) / vals.length,
         days: byDay.size,
-        trend
+        trend,
+        deltaYday: yesterdayVal - prevVal,
+        deltaMu3: yesterdayVal - avg3Closed
       };
     }
     async function renderHabitPad2(plugin, source, el, ctx) {
@@ -443,7 +485,9 @@ paths: ${paths2.join(", ")}`);
       const idleCol = config.columns.find((c) => !c.state && c.paused) || config.columns.find((c) => !c.state);
       const draw = async () => {
         el.empty();
-        const cardsByCol = await scanKanbanTasks(plugin.app, config);
+        const cardsByCol = await scanKanbanTasks(plugin.app, config, {
+          cacheFilter: (cache) => cache?.frontmatter?.metric != null
+        });
         const now = /* @__PURE__ */ new Date();
         const items = [];
         for (const [colKey, list] of cardsByCol) {
@@ -458,21 +502,73 @@ paths: ${paths2.join(", ")}`);
         for (const { card, colKey, fm } of items) {
           const metric = fm.metric === "count" ? "count" : "sum";
           const doing = colKey === liveCol?.key;
+          const st = habitStats(card.history, metric, now);
           const color = card.color || fm.kbcolor || null;
           const btn = grid.createDiv({ cls: "bdb-pad-card" + (doing ? " bdb-pad-on" : "") });
           if (color) btn.style.setProperty("--kb-card-color", color);
-          btn.createDiv({ cls: "bdb-pad-name", text: cleanText(card.body) });
-          let sub;
+          const head = btn.createDiv({ cls: "bdb-pad-head" });
+          renderPadTitle(head, cleanText(card.body));
+          const openBtn = head.createSpan({ cls: "bdb-pad-open", attr: { "aria-label": "Open habit note" } });
+          setIcon(openBtn, "external-link");
+          let sub = [];
           if (doing) {
             const sp = spans(card.history);
             const open = sp[sp.length - 1];
             const elapsed = open && open.end === null ? (now - open.start) / 36e5 : 0;
-            sub = `\u25B6 ${fmtHours(elapsed)}`;
+            sub = [{ text: `\u25B6 ${fmtHours(elapsed)}` }, { text: "live now" }];
           } else {
-            const st = habitStats(card.history, metric, now);
-            sub = st ? `${st.streak}d \xB7 ${metric === "count" ? st.today + "x" : fmtHours(st.today)}` : "tap to start";
+            if (st) {
+              const f = (v) => metric === "count" ? `${Number(v.toFixed(1)).toString()}x` : fmtHours(v);
+              const trendCls = st.deltaYday > 0.05 ? "up" : st.deltaYday < -0.05 ? "down" : "flat";
+              const muCls = st.deltaMu3 > 0.05 ? "up" : st.deltaMu3 < -0.05 ? "down" : "flat";
+              const arrow = trendCls === "up" ? "\u2191" : trendCls === "down" ? "\u2193" : "\u2192";
+              const muArrow = muCls === "up" ? "\u2191" : muCls === "down" ? "\u2193" : "\u2192";
+              sub = [
+                { text: `${st.streak}d \xB7 ${f(st.today)}` },
+                {
+                  chunks: [
+                    { text: `y ${f(st.yesterday)} ` },
+                    { trend: { text: arrow, cls: trendCls } }
+                  ]
+                },
+                {
+                  chunks: [
+                    { text: `\u03BC3 ${f(st.avg3Closed)} ` },
+                    { trend: { text: muArrow, cls: muCls } }
+                  ]
+                }
+              ];
+            } else sub = [{ text: "tap to start" }];
           }
-          btn.createDiv({ cls: "bdb-pad-sub", text: sub });
+          const subEl = btn.createDiv({ cls: "bdb-pad-sub" });
+          for (const line of sub) {
+            const lineEl = subEl.createDiv({ cls: "bdb-pad-subline" });
+            if (line.chunks) {
+              for (const chunk of line.chunks) {
+                if (chunk.text) lineEl.appendText(chunk.text);
+                if (chunk.trend) lineEl.createSpan({ cls: `bdb-pad-trend bdb-pad-trend-${chunk.trend.cls}`, text: chunk.trend.text });
+              }
+            } else {
+              lineEl.appendText(line.text);
+              if (line.trend) lineEl.createSpan({ cls: `bdb-pad-trend bdb-pad-trend-${line.trend.cls}`, text: line.trend.text });
+            }
+          }
+          if (st?.spark7?.some((v) => v > 0)) {
+            const sparkEl = btn.createDiv({ cls: "bdb-pad-spark", attr: { "aria-label": "Last 7 days activity" } });
+            const sparkMax = Math.max(1, ...st.spark7);
+            for (const v of st.spark7) {
+              const bar = sparkEl.createDiv({ cls: "bdb-pad-spark-bar" + (!v ? " is-zero" : "") });
+              bar.style.setProperty("--bdb-bar-h", `${Math.max(2, Math.round(v / sparkMax * 18))}px`);
+              const label = fmtVal(v, metric);
+              bar.setAttribute("title", label);
+              bar.setAttribute("aria-label", label);
+            }
+          }
+          openBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
+          });
           btn.addEventListener("click", async () => {
             const cur = config.columns.find((c) => c.key === colKey);
             const target = doing ? idleCol : liveCol;
@@ -541,14 +637,14 @@ var require_kanban = __commonJS({
       }
       return out;
     }
-    function fmValues(app2, file, key) {
-      let v = app2.metadataCache.getFileCache(file)?.frontmatter?.[key];
+    function fmValues(cache, key) {
+      let v = cache?.frontmatter?.[key];
       if (v == null) return [];
       if (!Array.isArray(v)) v = [v];
       return v.filter((x) => x != null).map((x) => String(x).replace(/^\[\[|\]\]$/g, "").trim()).filter(Boolean);
     }
-    function passesFilter(app2, file, f) {
-      const vals = fmValues(app2, file, f.key);
+    function passesFilter(cache, f) {
+      const vals = fmValues(cache, f.key);
       if (f.absent) return !vals.length;
       if (!f.values.length) return vals.length > 0;
       const hit = vals.some((v) => f.values.includes(v.toLowerCase()));
@@ -563,12 +659,12 @@ var require_kanban = __commonJS({
       return out;
     }
     function parseKanbanConfig(src) {
-      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null, mode: null };
+      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null, mode: null, only: [] };
       let lastKey = null;
       for (const rawLine of (src || "").split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
-        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort|mode)\s*:\s*(.*)$/);
+        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort|mode|only)\s*:\s*(.*)$/);
         const key = m ? m[1] : lastKey;
         const value = m ? m[2].trim() : line;
         lastKey = key;
@@ -585,6 +681,8 @@ var require_kanban = __commonJS({
           config.filters.push(...parseFilters(value));
         } else if (key === "lane") {
           config.lane = value;
+        } else if (key === "only") {
+          config.only.push(...value.split(",").map((s) => colKey(s.trim())).filter(Boolean));
         } else if (key === "sweep") {
           config.sweeps.push(...parseSweeps(value));
         } else if (key === "colors") {
@@ -613,15 +711,22 @@ var require_kanban = __commonJS({
       }
       return config;
     }
-    async function scanKanbanTasks(app2, config) {
+    async function scanKanbanTasks(app2, config, opts = {}) {
       const open = config.columns.filter((c) => !c.state);
       const byState = new Map(config.columns.filter((c) => c.state).map((c) => [c.state, c]));
       const byTag = new Map(open.map((c) => [c.key, c]));
       const cards = new Map(config.columns.map((c) => [c.key, []]));
       const cutoff = config.maxage ? stampNow(new Date(Date.now() - config.maxage * 864e5)) : null;
-      const files = app2.vault.getMarkdownFiles().filter((f) => (!config.paths.length || config.paths.some((p) => f.path.startsWith(p))) && config.filters.every((fl) => passesFilter(app2, f, fl)));
+      const files = app2.vault.getMarkdownFiles().filter((f) => {
+        if (config.paths.length && !config.paths.some((p) => f.path.startsWith(p))) return false;
+        const cache = app2.metadataCache.getFileCache(f);
+        if (!cache?.listItems?.some((it) => it.task != null)) return false;
+        if (opts.cacheFilter && !opts.cacheFilter(cache, f)) return false;
+        return config.filters.every((fl) => passesFilter(cache, fl));
+      });
       for (const file of files) {
-        const lane = config.lane ? fmValues(app2, file, config.lane)[0] || null : null;
+        const cache = app2.metadataCache.getFileCache(file);
+        const lane = config.lane ? fmValues(cache, config.lane)[0] || null : null;
         const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
         const fileCards = [];
         const stack = [];
@@ -716,19 +821,31 @@ var require_kanban = __commonJS({
       else if (at != null) lines[at] = indent + out.join(" ");
       else if (out.length) lines.splice(line + 1, 0, indent + out.join(" "));
     }
-    function commentInsertAt(lines, line) {
+    function normalizeTaskMeta(lines, line) {
       const base = indentWidth(lines[line]);
       let i = line + 1;
       while (i < lines.length) {
         const t = lines[i];
         if (!t.trim() || indentWidth(t) <= base) break;
-        if (TAGLINE_RE.test(t) || COLOR_RE.test(t)) {
-          i++;
-          continue;
-        }
-        break;
+        i++;
       }
-      return i;
+      const end = i;
+      const prefix = [], notes = [], logs = [];
+      let restAt = end;
+      for (i = line + 1; i < end; i++) {
+        const t = lines[i];
+        if (TAGLINE_RE.test(t) || COLOR_RE.test(t)) prefix.push(t);
+        else if (HIST_RE.test(t) || EI_HIST_RE.test(t)) logs.push(t);
+        else if (TASK_RE.test(t)) {
+          restAt = i;
+          break;
+        } else notes.push(t);
+      }
+      lines.splice(line + 1, end - (line + 1), ...prefix, ...notes, ...logs, ...lines.slice(restAt, end));
+      return line + 1 + prefix.length + notes.length;
+    }
+    function commentInsertAt(lines, line) {
+      return normalizeTaskMeta(lines, line);
     }
     function pct(values, q) {
       const s = values.slice().sort((a, b) => a - b);
@@ -753,6 +870,22 @@ var require_kanban = __commonJS({
     function cleanText(body) {
       return body.replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
     }
+    function addTitleCopy(titleEl, text) {
+      const btn = titleEl.createSpan({ cls: "bdb-title-copy", attr: { "aria-label": "Copy title" } });
+      setIcon(btn, "copy");
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        await navigator.clipboard.writeText(text);
+        setIcon(btn, "check");
+        btn.classList.add("bdb-title-copied");
+        window.setTimeout(() => {
+          setIcon(btn, "copy");
+          btn.classList.remove("bdb-title-copied");
+        }, 1200);
+      });
+      return btn;
+    }
     function stampNow(d = /* @__PURE__ */ new Date()) {
       const p = (n) => String(n).padStart(2, "0");
       return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`;
@@ -760,12 +893,22 @@ var require_kanban = __commonJS({
     function stampToDate(s) {
       return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12));
     }
+    function hhmmMs(ms) {
+      const d = new Date(ms);
+      return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    }
     function fmtDur(ms) {
       const m = Math.floor(ms / 6e4);
       if (m < 60) return `${m}m`;
       const h = Math.floor(m / 60);
       if (h < 24) return `${h}h`;
       return `${Math.floor(h / 24)}d${h % 24 ? `${h % 24}h` : ""}`;
+    }
+    function fmtDurCompact(ms) {
+      const m = Math.floor(ms / 6e4);
+      if (m < 60) return `${m}m`;
+      const h = Math.floor(m / 60);
+      return `${h}h${m % 60 ? `${m % 60}m` : ""}`;
     }
     async function sweepColumn(app2, config, fromCol, toCol, colCards) {
       const ordered = colCards.slice().sort((a, b) => a.file.path === b.file.path ? b.line - a.line : a.file.path.localeCompare(b.file.path));
@@ -789,7 +932,7 @@ var require_kanban = __commonJS({
       const body = m[4].replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").replace(/\s{2,}/g, " ").trim();
       const firstOpen = config.columns.find((c) => !c.state);
       if (targetCol.state) {
-        lines[line] = `${pre}${targetCol.state}${close}${body} ${stampNow()}`;
+        lines[line] = `${pre}${targetCol.state}${close}${body}`;
       } else {
         lines[line] = `${pre} ${close}${body}`;
       }
@@ -799,7 +942,7 @@ var require_kanban = __commonJS({
         return tag ? [tag, ...rest] : rest;
       });
       const indent = lines[line].match(/^\s*/)[0];
-      lines.splice(commentInsertAt(lines, line), 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
+      lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
       await app2.vault.modify(file, lines.join("\n"));
       return true;
     }
@@ -881,8 +1024,8 @@ var require_kanban = __commonJS({
       });
     }
     async function drawBoard(plugin, board, config, state = { dragging: false }) {
-      board.empty();
       const cards = await scanKanbanTasks(plugin.app, config);
+      board.empty();
       const cardEls = /* @__PURE__ */ new Map();
       state.timeUpdaters = [];
       state.folded ??= /* @__PURE__ */ new Set();
@@ -936,10 +1079,12 @@ var require_kanban = __commonJS({
             if (laneEl.open) state.folded.delete(lane.name);
             else state.folded.add(lane.name);
           });
-          laneEl.createEl("summary", { cls: "bdb-kanban-lane-title", text: `${lane.name} (${lane.open}/${lane.n})` });
+          const laneTitle = laneEl.createEl("summary", { cls: "bdb-kanban-lane-title", text: `${lane.name} (${lane.open}/${lane.n})` });
+          addTitleCopy(laneTitle, lane.name);
           host = laneEl.createDiv({ cls: "bdb-kanban-lane-row" });
         }
         for (const [index, col] of config.columns.entries()) {
+          if (config.only.length && !config.only.includes(col.key)) continue;
           const colCards = lane.cards.get(col.key);
           const colEl = host.createDiv({ cls: "bdb-kanban-col" });
           if (col.live) colEl.classList.add("bdb-kanban-col-live");
@@ -1072,12 +1217,17 @@ var require_kanban = __commonJS({
               const birthM = card.file.name.match(/^(\d{8})-(\d{4})/);
               const birth = birthM ? stampToDate(birthM[1] + birthM[2]) : null;
               const visits = [];
-              if (birth) visits.push({ name: es[0].from, dur: Math.max(stampToDate(es[0].stamp) - birth, 0) });
+              if (birth) {
+                const start = birth.getTime();
+                const end = stampToDate(es[0].stamp).getTime();
+                visits.push({ name: es[0].from, start, end, dur: Math.max(end - start, 0) });
+              }
               for (let i = 0; i < es.length; i++) {
                 const isLast = i === es.length - 1;
                 if (isLast && terminal) break;
-                const dur = (isLast ? /* @__PURE__ */ new Date() : stampToDate(es[i + 1].stamp)) - stampToDate(es[i].stamp);
-                visits.push({ name: es[i].to, dur });
+                const start = stampToDate(es[i].stamp).getTime();
+                const end = (isLast ? /* @__PURE__ */ new Date() : stampToDate(es[i + 1].stamp)).getTime();
+                visits.push({ name: es[i].to, start, end, dur: end - start });
               }
               const active = visits.filter((v) => !idle.has(v.name)).reduce((sum, v) => sum + v.dur, 0);
               const journeyStart = birth || stampToDate(es[0].stamp);
@@ -1095,14 +1245,13 @@ var require_kanban = __commonJS({
               const flow = cardEl.createDiv({ cls: "bdb-kanban-card-flow", attr: { title: parts.join(" \u2192 ") } });
               const liveVisit = !terminal && inSync ? visits[visits.length - 1] : null;
               const bars = flow.createDiv({ cls: "bdb-kanban-card-bars" });
-              for (const subset of [visits, visits.filter((v) => !idle.has(v.name))]) {
-                const bar2 = bars.createDiv({ cls: "bdb-kanban-card-bar" });
-                for (const v of subset) {
-                  const span = bar2.createSpan();
-                  span.style.flexGrow = String(Math.max(v.dur, 1));
-                  span.style.background = colorOf.get(v.name) || "var(--background-modifier-border)";
-                  if (v === liveVisit) span.classList.add("bdb-kanban-live-span");
-                }
+              const bar2 = bars.createDiv({ cls: "bdb-kanban-card-bar" });
+              for (const v of visits) {
+                const span = bar2.createSpan();
+                span.style.flexGrow = String(Math.max(v.dur, 1));
+                span.style.background = colorOf.get(v.name) || "var(--background-modifier-border)";
+                span.setAttribute("title", `${v.name}: ${hhmmMs(v.start)}-${hhmmMs(v.end)} \xB7 ${fmtDurCompact(v.dur)}`);
+                if (v === liveVisit) span.classList.add("bdb-kanban-live-span");
               }
               const nowEl = flow.createSpan({
                 cls: "bdb-kanban-card-now",
@@ -1125,6 +1274,7 @@ var require_kanban = __commonJS({
                   nowEl.textContent = `${col.name} ${fmtDur(ms)} \xB7 ${fmtDur(act)} spent`;
                   for (const sp of cardEl.querySelectorAll(".bdb-kanban-live-span")) {
                     sp.style.flexGrow = String(Math.max(ms, 1));
+                    sp.setAttribute("title", `${col.name}: ${hhmmMs(startMs)}-${hhmmMs(Date.now())} \xB7 ${fmtDurCompact(ms)}`);
                   }
                   applyAge(ms);
                 });
@@ -1202,6 +1352,7 @@ var require_kanban = __commonJS({
       commentInsertAt,
       openDescendants,
       cleanText,
+      addTitleCopy,
       stampNow,
       stampToDate,
       fmtDur,
@@ -1405,9 +1556,9 @@ var require_ei = __commonJS({
 // src/report.js
 var require_report = __commonJS({
   "src/report.js"(exports2, module2) {
-    var { TASK_RE, STAMP_RE, stampToDate, parseKanbanConfig, fmtDur } = require_kanban();
+    var { TASK_RE, STAMP_RE, stampToDate, parseKanbanConfig, fmtDur, addTitleCopy } = require_kanban();
     var { openFileAtLine } = require_render();
-    var { MarkdownRenderChild } = require("obsidian");
+    var { MarkdownRenderChild, Modal, Notice } = require("obsidian");
     var HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
     var COL_PALETTE = {
@@ -1432,15 +1583,18 @@ var require_report = __commonJS({
       for (const ch of text.match(/^\s*/)[0]) w += ch === "	" ? 4 : 1;
       return w;
     }
-    async function collectDayTasks(app2, dateStr, paths2) {
-      const tasks = [];
-      const files = app2.vault.getMarkdownFiles().filter(
-        (f) => !paths2.length || paths2.some((p) => f.path.startsWith(p))
-      );
+    function fmtClock(d) {
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    }
+    async function collectReportData(app2, dateStr, paths2, isActive) {
+      const tasks = [], standing = [];
+      const files = app2.vault.getMarkdownFiles().filter((f) => {
+        if (paths2.length && !paths2.some((p) => f.path.startsWith(p))) return false;
+        return !!app2.metadataCache.getFileCache(f)?.listItems?.some((it) => it.task != null);
+      });
       for (const file of files) {
         const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
-        const stack = [];
-        const fileCards = [];
+        const stack = [], cards = [];
         for (let li = 0; li < lines.length; li++) {
           const text = lines[li];
           const tm = text.match(TASK_RE);
@@ -1449,15 +1603,15 @@ var require_report = __commonJS({
             while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
             const card = { body: tm[4].replace(STAMP_RE, "").trim(), history: [], indent, file, line: li, color: null };
             stack.push({ indent, card });
-            fileCards.push(card);
+            cards.push(card);
             continue;
           }
           const hm = text.match(HIST_RE);
-          if (hm && hm[1].startsWith(dateStr)) {
+          if (hm) {
             const hi = indentWidth(text);
             for (let i = stack.length - 1; i >= 0; i--) {
               if (stack[i].indent < hi) {
-                stack[i].card.history.push({ stamp: hm[1], from: hm[2], to: hm[3] });
+                stack[i].card.history.push({ stamp: hm[1], from: hm[2], to: hm[3], line: li });
                 break;
               }
             }
@@ -1474,58 +1628,110 @@ var require_report = __commonJS({
             }
           }
         }
-        for (const card of fileCards) {
-          if (card.history.length) tasks.push(card);
+        for (const card of cards) {
+          const todayMoves = card.history.filter((h) => h.stamp.startsWith(dateStr));
+          if (todayMoves.length) {
+            tasks.push({ ...card, history: todayMoves });
+            continue;
+          }
+          const upto = card.history.filter((h) => h.stamp.slice(0, 8) <= dateStr);
+          if (!upto.length) continue;
+          const last = upto.reduce((a, b) => b.stamp > a.stamp ? b : a);
+          if (isActive(last.to)) standing.push({ ...card, col: last.to });
         }
       }
-      return tasks;
+      return { tasks, standing };
     }
     function buildSegments(history, rangeStart, rangeEnd) {
       const events = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
       const segs = [];
-      segs.push({ col: events[0].from, start: rangeStart, end: stampToDate(events[0].stamp) });
+      segs.push({ col: events[0].from, start: rangeStart, end: stampToDate(events[0].stamp), startIdx: null, endIdx: 0 });
       for (let i = 0; i < events.length; i++) {
         const end = i + 1 < events.length ? stampToDate(events[i + 1].stamp) : rangeEnd;
-        segs.push({ col: events[i].to, start: stampToDate(events[i].stamp), end });
+        segs.push({ col: events[i].to, start: stampToDate(events[i].stamp), end, startIdx: i, endIdx: i + 1 < events.length ? i + 1 : null });
       }
       return segs.filter((s) => s.end > s.start);
     }
-    async function collectStanding(app2, dateStr, paths2, isActive) {
-      const out = [];
-      const files = app2.vault.getMarkdownFiles().filter((f) => !paths2.length || paths2.some((p) => f.path.startsWith(p)));
-      for (const file of files) {
-        const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
-        const stack = [], cards = [];
-        for (let li = 0; li < lines.length; li++) {
-          const text = lines[li];
-          const tm = text.match(TASK_RE);
-          if (tm) {
-            const indent = indentWidth(text);
-            while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
-            const card = { body: tm[4].replace(STAMP_RE, "").trim(), history: [], indent, file, line: li };
-            stack.push({ indent, card });
-            cards.push(card);
-            continue;
-          }
-          const hm = text.match(HIST_RE);
-          if (hm) {
-            const hi = indentWidth(text);
-            for (let i = stack.length - 1; i >= 0; i--) {
-              if (stack[i].indent < hi) {
-                stack[i].card.history.push({ stamp: hm[1], from: hm[2], to: hm[3] });
-                break;
-              }
-            }
-          }
-        }
-        for (const card of cards) {
-          const upto = card.history.filter((h) => h.stamp.slice(0, 8) <= dateStr);
-          if (!upto.length || card.history.some((h) => h.stamp.startsWith(dateStr))) continue;
-          const last = upto.reduce((a, b) => b.stamp > a.stamp ? b : a);
-          if (isActive(last.to)) out.push({ ...card, col: last.to });
-        }
+    function hhmmInput(d) {
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    }
+    function stampForDateTime(dateStr, hhmm) {
+      const digits = String(hhmm || "").replace(/[^0-9]/g, "");
+      if (digits.length !== 4) return null;
+      return `${dateStr}${digits}`;
+    }
+    async function rewriteReportSegmentTimes(app2, task, seg, dateStr, startVal, endVal) {
+      const startStamp = stampForDateTime(dateStr, startVal);
+      const endStamp = seg.endIdx == null ? null : stampForDateTime(dateStr, endVal);
+      if (!startStamp || seg.endIdx != null && !endStamp) throw new Error("time must be HH:MM");
+      if (seg.endIdx != null && startStamp >= endStamp) throw new Error("start must be before end");
+      if (seg.startIdx == null) throw new Error("segment start is not editable");
+      const events = task.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+      const prev = seg.startIdx > 0 ? events[seg.startIdx - 1].stamp : `${dateStr}0000`;
+      const next = seg.endIdx == null ? null : seg.endIdx + 1 < events.length ? events[seg.endIdx + 1].stamp : `${dateStr}2359`;
+      if (startStamp <= prev) throw new Error("start would overlap previous segment");
+      if (endStamp && endStamp >= next) throw new Error("end would overlap next segment");
+      const content = await app2.vault.read(task.file);
+      const lines = content.split(/\r?\n/);
+      const refs = [events[seg.startIdx], ...seg.endIdx == null ? [] : [events[seg.endIdx]]];
+      for (const ref of refs) {
+        const li = ref.line;
+        const m = lines[li]?.match(HIST_RE);
+        if (!m) throw new Error("history line not found");
+        const newStamp = ref === refs[0] ? startStamp : endStamp;
+        lines[li] = lines[li].replace(ref.stamp, newStamp);
       }
-      return out;
+      await app2.vault.modify(task.file, lines.join("\n"));
+    }
+    function editSegmentTimes(app2, task, seg, dateStr) {
+      return new Promise((resolve) => {
+        const modal = new Modal(app2);
+        let done = false;
+        modal.titleEl.setText(`Edit ${seg.col}`);
+        const start = modal.contentEl.createEl("input", { type: "time", value: hhmmInput(seg.start) });
+        const end = modal.contentEl.createEl("input", { type: "time", value: hhmmInput(seg.end) });
+        start.style.display = end.style.display = "block";
+        start.style.width = end.style.width = "100%";
+        start.style.marginBottom = "8px";
+        if (seg.endIdx == null) {
+          end.disabled = true;
+          modal.contentEl.createDiv({ text: "Running segment: end stays at now." });
+        }
+        const info = modal.contentEl.createDiv({ text: `${fmtClock(seg.start)}-${fmtClock(seg.end)} \xB7 ${fmtDur(seg.end - seg.start)}` });
+        const actions = modal.contentEl.createDiv();
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
+        actions.style.marginTop = "12px";
+        const save = actions.createEl("button", { text: "Save" });
+        const cancel = actions.createEl("button", { text: "Cancel" });
+        const submit = async () => {
+          try {
+            await rewriteReportSegmentTimes(app2, task, seg, dateStr, start.value, end.value);
+            done = true;
+            modal.close();
+            resolve(true);
+          } catch (err) {
+            new Notice(`report: ${err.message}`);
+          }
+        };
+        save.addEventListener("click", submit);
+        cancel.addEventListener("click", () => {
+          done = true;
+          modal.close();
+          resolve(false);
+        });
+        end.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") void submit();
+        });
+        start.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") void submit();
+        });
+        modal.onClose = () => {
+          if (!done) resolve(false);
+        };
+        modal.open();
+        window.setTimeout(() => start.focus(), 0);
+      });
     }
     function renderPending(plugin, wrap, standing) {
       if (!standing.length) return;
@@ -1537,7 +1743,7 @@ var require_report = __commonJS({
         lbl.addEventListener("click", (e) => openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey));
       }
     }
-    async function drawReport(plugin, source, el, ctx) {
+    async function drawReport(plugin, source, el, ctx, redraw) {
       let dateStr = (source || "").trim().replace(/[^0-9]/g, "").substring(0, 8);
       if (!dateStr) {
         const m = ctx.sourcePath.match(/(\d{8})/);
@@ -1553,8 +1759,7 @@ var require_report = __commonJS({
       const activeNames = new Set(cols.filter((c) => !c.state && !c.paused).map((c) => c.name.toLowerCase()));
       const pausedNames = new Set(cols.filter((c) => c.paused).map((c) => c.name.toLowerCase()));
       const terminalNames = new Set(cols.filter((c) => c.state).map((c) => c.name.toLowerCase()));
-      const tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
-      const standing = await collectStanding(plugin.app, dateStr, config.paths, (n) => activeNames.has((n || "").toLowerCase()));
+      const { tasks, standing } = await collectReportData(plugin.app, dateStr, config.paths, (n) => activeNames.has((n || "").toLowerCase()));
       if (!tasks.length && !standing.length) {
         el.createEl("div", { text: `report: no task movements on ${dateStr}` });
         return;
@@ -1575,7 +1780,7 @@ var require_report = __commonJS({
       const maxT = Math.min(endOfDay.getTime(), dateStr === todayStr ? Math.max(maxEvent, now.getTime()) : maxEvent);
       const rangeMs = maxT - minT || 1;
       const pct = (t) => Math.max(0, Math.min(100, (t.getTime() - minT) / rangeMs * 100)).toFixed(2);
-      const fmt = (d2) => `${String(d2.getHours()).padStart(2, "0")}:${String(d2.getMinutes()).padStart(2, "0")}`;
+      const fmt = fmtClock;
       const wrap = el.createEl("div", { cls: "bdb-report" });
       wrap.createEl("div", { cls: "bdb-report-title", text: `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}` });
       const rulerBar = wrap.createEl("div", { cls: "bdb-report-ruler" });
@@ -1608,7 +1813,14 @@ var require_report = __commonJS({
           }
           const s = bar.createEl("div", { cls: "bdb-report-seg" });
           s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
-          s.title = `${seg.col}: ${fmt(seg.start)}\u2013${fmt(seg.end)}`;
+          s.title = `${seg.col}: ${fmt(seg.start)}\u2013${fmt(seg.end)} \xB7 ${fmtDur(seg.end - seg.start)}`;
+          if (seg.startIdx != null) {
+            s.addEventListener("click", async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (await editSegmentTimes(plugin.app, task, seg, dateStr)) await redraw();
+            });
+          }
         }
       };
       const rollup = (list) => {
@@ -1635,7 +1847,8 @@ var require_report = __commonJS({
         const entries = [...groups.entries()].sort((a, b) => (a[0] === "(none)") - (b[0] === "(none)") || b[1].length - a[1].length || a[0].localeCompare(b[0]));
         for (const [name, list] of entries) {
           const head = wrap.createEl("div", { cls: "bdb-report-group" });
-          head.createEl("span", { cls: "bdb-report-group-name", text: name });
+          const nameEl = head.createEl("span", { cls: "bdb-report-group-name", text: name });
+          addTitleCopy(nameEl, name);
           head.createEl("span", { cls: "bdb-report-group-stat", text: rollup(list) });
           for (const task of list) renderRow(wrap, task);
         }
@@ -1655,7 +1868,7 @@ var require_report = __commonJS({
       const draw = async () => {
         el.empty();
         try {
-          await drawReport(plugin, source, el, ctx);
+          await drawReport(plugin, source, el, ctx, draw);
         } catch (e) {
           console.error("bdb report", e);
         }
@@ -1663,7 +1876,7 @@ var require_report = __commonJS({
       child.registerInterval(window.setInterval(draw, 6e4));
       await draw();
     }
-    module2.exports = { renderReportBlock: renderReportBlock2, collectDayTasks };
+    module2.exports = { renderReportBlock: renderReportBlock2, collectDayTasks: async (app2, dateStr, paths2) => (await collectReportData(app2, dateStr, paths2, () => false)).tasks };
   }
 });
 
@@ -1764,6 +1977,13 @@ var require_api = __commonJS({
         return contains ? x.includes(w) : x === w;
       });
     }
+    function fmSuffix(app2, path, keys) {
+      if (!keys) return "";
+      const fm = app2.metadataCache.getCache(path)?.frontmatter;
+      const list = String(keys).split(",").map((s) => s.trim()).filter(Boolean);
+      if (!list.length) return "";
+      return "	" + list.map((k) => `${k}=${(fmVals(fm, k) || []).join("|") || "\xB7"}`).join("; ");
+    }
     function relAge(iso) {
       if (!iso) return "?";
       const ms = Date.now() - new Date(iso).getTime();
@@ -1780,6 +2000,32 @@ var require_api = __commonJS({
       const m = Math.round(ms / 6e4);
       if (m < 60) return m + "m";
       return Math.floor(m / 60) + "h" + (m % 60 ? " " + m % 60 + "m" : "");
+    }
+    function durCompact(ms) {
+      const m = Math.round(ms / 6e4);
+      if (m < 60) return m + "m";
+      return Math.floor(m / 60) + "h" + (m % 60 ? m % 60 + "m" : "");
+    }
+    function endOfDayMs(ms) {
+      const d = new Date(ms);
+      d.setHours(23, 59, 59, 999);
+      return d.getTime();
+    }
+    function unionMs(ivals) {
+      if (!ivals.length) return 0;
+      const s = ivals.slice().sort((a, b) => a[0] - b[0]);
+      let total = 0, cs = s[0][0], ce = s[0][1];
+      for (let i = 1; i < s.length; i++) {
+        const [a, b] = s[i];
+        if (a <= ce) {
+          if (b > ce) ce = b;
+        } else {
+          total += ce - cs;
+          cs = a;
+          ce = b;
+        }
+      }
+      return total + (ce - cs);
     }
     function ymd(d) {
       return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
@@ -1807,6 +2053,10 @@ var require_api = __commonJS({
     function hhmmMs(ms) {
       const d = new Date(ms);
       return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    }
+    function hhmmBare(ms) {
+      const d = new Date(ms);
+      return String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
     }
     function colSegments(history, want, dateStr) {
       const chrono = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
@@ -1858,7 +2108,7 @@ var require_api = __commonJS({
             rows = rows.filter((r) => r.since && new Date(r.since).getTime() <= cut);
           }
           if (opts.limit) rows = rows.slice(0, opts.limit);
-          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}`).join("\n");
+          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
         },
         // Tasks moved to a terminal column on a date — "what I did"
         // Tab-lines: col<TAB>file:line<TAB>body<TAB>HH:MM
@@ -1868,7 +2118,7 @@ var require_api = __commonJS({
           const config = makeConfig(opts);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const rows = config.columns.filter((c) => c.state && (!want || c.name.toLowerCase() === want)).flatMap(
-            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}`)
+            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm)}`)
           );
           return "\n" + rows.join("\n");
         },
@@ -1884,10 +2134,124 @@ var require_api = __commonJS({
             let tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
             if (want) tasks = tasks.filter((t) => t.history.some((h) => h.to.toLowerCase() === want));
             const rows = tasks.map((t) => {
-              if (want) return `${t.file.path}:${t.line}	${t.body}	${colSegments(t.history, want, dateStr)}`;
+              const suf = fmSuffix(plugin.app, t.file.path, opts.fm);
+              if (want) return `${t.file.path}:${t.line}	${t.body}	${colSegments(t.history, want, dateStr)}${suf}`;
               const moves = t.history.map((h) => `${hhmm(h.stamp)} ${h.from || "\xB7"}>${h.to}`).join("  ");
-              return `${t.file.path}:${t.line}	${t.body}	${moves}`;
+              return `${t.file.path}:${t.line}	${t.body}	${moves}${suf}`;
             });
+            if (multi) out.push(`== ${dateStr} ==`, ...rows.length ? rows : ["(none)"]);
+            else out.push(...rows);
+          }
+          return "\n" + out.join("\n");
+        },
+        // Roll up terminal-column moves (i.e. "done") over a date range, grouped by a
+        // frontmatter key. The single command behind "what did I ship, by project".
+        // Arg forms mirror getReport: (date) | (from,to) | ({days:N, ...opts}).
+        // opts: { by (fm key, default "projects"), col (terminal-col filter), paths,
+        //         sample (max sample bodies per group, default 3) }
+        // Lines: groupVal<TAB>doneCount<TAB>sample, bodies (capped)
+        async summary(a, b, c) {
+          const { dates, opts } = resolveDates(a, b, c);
+          const by = opts.by || "projects";
+          const cap = opts.sample || 3;
+          const want = opts.col && String(opts.col).toLowerCase();
+          const config = makeConfig(opts);
+          const byCol = await scanKanbanTasks(plugin.app, config);
+          const dateSet = new Set(dates);
+          const groups = /* @__PURE__ */ new Map();
+          for (const col of config.columns) {
+            if (!col.state || want && col.name.toLowerCase() !== want) continue;
+            for (const card of byCol.get(col.key) || []) {
+              if (!card.history.some((h) => h.to === col.name && dateSet.has(h.stamp.slice(0, 8)))) continue;
+              const vals = fmVals(plugin.app.metadataCache.getCache(card.file.path)?.frontmatter, by);
+              for (const g of vals && vals.length ? vals : ["(none)"]) {
+                const e = groups.get(g) || { n: 0, bodies: [] };
+                e.n++;
+                if (e.bodies.length < cap) e.bodies.push(cleanText(card.body));
+                groups.set(g, e);
+              }
+            }
+          }
+          const total = [...groups.values()].reduce((a2, e) => a2 + e.n, 0);
+          const rows = [...groups.entries()].sort((a2, b2) => b2[1].n - a2[1].n).map(([g, e]) => `${g}	${e.n}	${e.bodies.join(", ")}`);
+          const span = dates.length > 1 ? `${dates[0]}..${dates[dates.length - 1]}` : dates[0];
+          return `
+# done by ${by} \u2014 ${span} \u2014 ${total} cards
+` + rows.join("\n");
+        },
+        // Actual TIME cards spent in a column (default Doing) over a date range, grouped by a
+        // frontmatter key — the "hours per project" measure (vs summary's card COUNT).
+        // Walks each card's full history, pairs enter>exit for the column, clips overlap to the
+        // window; an unclosed span counts up to now. Arg forms mirror getReport.
+        // opts: { by (default "projects"), col (default "Doing"), paths, sample (default 3) }
+        // Lines: groupVal<TAB>Xh Ym<TAB>N cards<TAB>sample, bodies
+        async time(a, b, c) {
+          const { dates, opts } = resolveDates(a, b, c);
+          const by = opts.by || "projects";
+          const want = String(opts.col || "Doing").toLowerCase();
+          const cap = opts.sample || 3;
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
+          const mk = (s) => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+          const lo = mk(dates[0]).getTime();
+          const hiD = mk(dates[dates.length - 1]);
+          hiD.setHours(23, 59, 59, 999);
+          const hi = hiD.getTime();
+          const groups = /* @__PURE__ */ new Map();
+          const allIvals = [];
+          for (const [, list] of byCol) {
+            for (const card of list) {
+              const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+              const ivals = [];
+              for (let i = 0; i < chrono.length; i++) {
+                if (chrono[i].to.toLowerCase() !== want) continue;
+                const s = stampToDate(chrono[i].stamp).getTime();
+                const e = chrono[i + 1] ? stampToDate(chrono[i + 1].stamp).getTime() : endOfDayMs(s);
+                const cs = Math.max(s, lo), ce = Math.min(e, hi);
+                if (ce > cs) ivals.push([cs, ce]);
+              }
+              if (!ivals.length) continue;
+              allIvals.push(...ivals);
+              const vals = fmVals(plugin.app.metadataCache.getCache(card.file.path)?.frontmatter, by);
+              for (const g of vals && vals.length ? vals : ["(none)"]) {
+                const e = groups.get(g) || { ivals: [], cards: /* @__PURE__ */ new Set(), bodies: [] };
+                e.ivals.push(...ivals);
+                e.cards.add(card.file.path + ":" + card.line);
+                if (e.bodies.length < cap) e.bodies.push(cleanText(card.body));
+                groups.set(g, e);
+              }
+            }
+          }
+          const span = dates.length > 1 ? `${dates[0]}..${dates[dates.length - 1]}` : dates[0];
+          const rows = [...groups.entries()].map(([g, e]) => [g, unionMs(e.ivals), e]).sort((a2, b2) => b2[1] - a2[1]).map(([g, ms, e]) => `${g}	${dur(ms)}	${e.cards.size} cards	${e.bodies.join(", ")}`);
+          return `
+# ${want} time (union) by ${by} \u2014 ${span} \u2014 ${dur(unionMs(allIvals))} total
+` + rows.join("\n");
+        },
+        // Chronicle of time spent in a column (default Doing), sorted by stint start.
+        // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body
+        async chronicle(a, b, c) {
+          const { dates, opts } = resolveDates(a, b, c);
+          const want = String(opts.col || "Doing").toLowerCase();
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
+          const multi = dates.length > 1;
+          const out = [];
+          for (const dateStr of dates) {
+            const lo = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8)).getTime();
+            const hi = endOfDayMs(lo);
+            const today = ymd(/* @__PURE__ */ new Date()) === dateStr;
+            const segs = [];
+            for (const [, list] of byCol) for (const card of list) {
+              const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+              for (let i = 0; i < chrono.length; i++) {
+                if (chrono[i].to.toLowerCase() !== want) continue;
+                const s = stampToDate(chrono[i].stamp).getTime();
+                const rawEnd = chrono[i + 1] ? stampToDate(chrono[i + 1].stamp).getTime() : today ? Date.now() : endOfDayMs(s);
+                const cs = Math.max(s, lo), ce = Math.min(rawEnd, hi);
+                if (ce <= cs) continue;
+                segs.push({ s: cs, e: ce, open: !chrono[i + 1] && today, body: cleanText(card.body) });
+              }
+            }
+            const rows = segs.sort((a2, b2) => a2.s - b2.s).map((x) => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? "~" : ""}	${durCompact(x.e - x.s)}	${x.body}`);
             if (multi) out.push(`== ${dateStr} ==`, ...rows.length ? rows : ["(none)"]);
             else out.push(...rows);
           }
@@ -1899,6 +2263,9 @@ var require_api = __commonJS({
             "active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit",
             "getDone(date,opts?)      tasks moved to terminal col on a date",
             "getReport(...)           move timeline; day | from,to | {days:N}",
+            "chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}",
+            "summary(...)             done counts grouped by fm key; opts: by,col,sample,paths",
+            '   note: active/getDone/getReport take opts.fm="projects,org" to append fm cols',
             "plate(project,opts?)     a project's live tasks (incl Backlog); opts: prop,col,paths,since,limit",
             "moveTask(file,line,col)  move a task to a column",
             "habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths",
