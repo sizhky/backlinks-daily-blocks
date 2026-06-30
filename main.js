@@ -252,7 +252,7 @@ var require_render = __commonJS({
 // src/habits.js
 var require_habits = __commonJS({
   "src/habits.js"(exports2, module2) {
-    var { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, addTitleCopy } = require_kanban();
+    var { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, logTapSpan, addTitleCopy } = require_kanban();
     var { MarkdownRenderChild, setIcon } = require("obsidian");
     var { openFileAtLine } = require_render();
     var HABIT_COLS = "columns: Idle~, Doing!";
@@ -294,7 +294,7 @@ paths: ${paths2.join(", ")}`);
       const all = [].concat(...cards.values());
       return all.map((card) => {
         const fm = app2.metadataCache.getFileCache(card.file).frontmatter;
-        const metric = fm.metric === "count" ? "count" : "sum";
+        const metric = (card.metric || fm.metric) === "count" ? "count" : "sum";
         return {
           name: cleanText(card.body),
           metric,
@@ -312,6 +312,41 @@ paths: ${paths2.join(", ")}`);
     function fmtVal(v, metric) {
       if (metric === "count") return `${v}x`;
       return fmtHours(v);
+    }
+    function showPadBubble(text, x, y) {
+      let el = document.querySelector(".bdb-report-drag-bubble");
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "bdb-report-drag-bubble";
+        document.body.appendChild(el);
+      }
+      el.textContent = text;
+      const pad = 12;
+      const width = el.offsetWidth || 0;
+      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      const clamped = Math.max(pad + width / 2, Math.min(vw - pad - width / 2, x));
+      const anchor = width ? (x - (clamped - width / 2)) / width * 100 : 50;
+      el.style.left = `${clamped}px`;
+      el.style.top = `${y}px`;
+      el.style.setProperty("--bdb-bubble-anchor", `${Math.max(10, Math.min(90, anchor))}%`);
+      el.classList.add("is-visible");
+    }
+    function hidePadBubble() {
+      document.querySelector(".bdb-report-drag-bubble")?.classList.remove("is-visible");
+    }
+    function renderPadIcon(parent, icon, color) {
+      const box = parent.createDiv({ cls: "bdb-pad-icon", attr: { "aria-hidden": "true" } });
+      const match = String(icon || "").match(/^([a-z0-9]+(?:-[a-z0-9]+)*):([a-z0-9]+(?:-[a-z0-9]+)*)$/i);
+      if (!match) {
+        setIcon(box, "activity");
+        return;
+      }
+      const src = `https://api.iconify.design/${match[1]}/${match[2]}.svg?color=${encodeURIComponent(color || "#8b949e")}`;
+      const img = box.createEl("img", { attr: { src, alt: "", loading: "lazy", decoding: "async" } });
+      img.addEventListener("error", () => {
+        img.remove();
+        setIcon(box, "activity");
+      }, { once: true });
     }
     function renderPadTitle(parent, text) {
       const nameEl = parent.createDiv({ cls: "bdb-pad-name" });
@@ -420,6 +455,9 @@ paths: ${paths2.join(", ")}`);
       if (!byDay.size && !open) return null;
       const vals = [...byDay.values()];
       const todayVal = byDay.get(today) || 0;
+      const loggedDays = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      const latest = loggedDays[loggedDays.length - 1] || null;
+      const latestPrev = loggedDays.length > 1 ? loggedDays[loggedDays.length - 2] : null;
       const dayVal = (offset) => {
         const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
         const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -440,7 +478,12 @@ paths: ${paths2.join(", ")}`);
       const avg3 = lastN(3);
       const avg7 = lastN(7);
       const avg30 = lastN(30);
-      const avg3Closed = (yesterdayVal + prevVal + prev2Val) / 3;
+      const _closedActive = [];
+      for (let i = 1; _closedActive.length < 3 && i <= 90; i++) {
+        const v = dayVal(i);
+        if (v > 0) _closedActive.push(v);
+      }
+      const avg3Closed = _closedActive.length > 0 ? _closedActive.reduce((a, b) => a + b, 0) / _closedActive.length : 0;
       const spark7 = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
@@ -464,6 +507,10 @@ paths: ${paths2.join(", ")}`);
         avg7,
         streak,
         spark7,
+        latestDay: latest?.[0] || null,
+        latestVal: latest?.[1] || 0,
+        latestPrevDay: latestPrev?.[0] || null,
+        latestPrevVal: latestPrev?.[1] || 0,
         yesterday: yesterdayVal,
         prevDay: prevVal,
         min: Math.min(...vals),
@@ -471,8 +518,8 @@ paths: ${paths2.join(", ")}`);
         mean: vals.reduce((a, b) => a + b, 0) / vals.length,
         days: byDay.size,
         trend,
-        deltaYday: yesterdayVal - prevVal,
-        deltaMu3: yesterdayVal - avg3Closed
+        deltaLatest: (latest?.[1] || 0) - (latestPrev?.[1] || 0),
+        deltaMu3: (latest?.[1] || 0) - avg3Closed
       };
     }
     async function renderHabitPad2(plugin, source, el, ctx) {
@@ -500,13 +547,15 @@ paths: ${paths2.join(", ")}`);
         items.sort((a, b) => cleanText(a.card.body).localeCompare(cleanText(b.card.body)));
         const grid = el.createDiv({ cls: "bdb-pad" });
         for (const { card, colKey, fm } of items) {
-          const metric = fm.metric === "count" ? "count" : "sum";
-          const doing = colKey === liveCol?.key;
+          const metric = (card.metric || fm.metric) === "count" ? "count" : "sum";
+          const tap = card.tap === true || fm.tap === true || fm.tap === "true";
+          const doing = !tap && colKey === liveCol?.key;
           const st = habitStats(card.history, metric, now);
           const color = card.color || fm.kbcolor || null;
           const btn = grid.createDiv({ cls: "bdb-pad-card" + (doing ? " bdb-pad-on" : "") });
           if (color) btn.style.setProperty("--kb-card-color", color);
           const head = btn.createDiv({ cls: "bdb-pad-head" });
+          renderPadIcon(head, card.icon || fm.icon, doing ? "#ffffff" : color);
           renderPadTitle(head, cleanText(card.body));
           const openBtn = head.createSpan({ cls: "bdb-pad-open", attr: { "aria-label": "Open habit note" } });
           setIcon(openBtn, "external-link");
@@ -519,7 +568,7 @@ paths: ${paths2.join(", ")}`);
           } else {
             if (st) {
               const f = (v) => metric === "count" ? `${Number(v.toFixed(1)).toString()}x` : fmtHours(v);
-              const trendCls = st.deltaYday > 0.05 ? "up" : st.deltaYday < -0.05 ? "down" : "flat";
+              const trendCls = st.deltaLatest > 0.05 ? "up" : st.deltaLatest < -0.05 ? "down" : "flat";
               const muCls = st.deltaMu3 > 0.05 ? "up" : st.deltaMu3 < -0.05 ? "down" : "flat";
               const arrow = trendCls === "up" ? "\u2191" : trendCls === "down" ? "\u2193" : "\u2192";
               const muArrow = muCls === "up" ? "\u2191" : muCls === "down" ? "\u2193" : "\u2192";
@@ -527,7 +576,7 @@ paths: ${paths2.join(", ")}`);
                 { text: `${st.streak}d \xB7 ${f(st.today)}` },
                 {
                   chunks: [
-                    { text: `y ${f(st.yesterday)} ` },
+                    { text: `last ${f(st.latestVal)} ` },
                     { trend: { text: arrow, cls: trendCls } }
                   ]
                 },
@@ -538,7 +587,7 @@ paths: ${paths2.join(", ")}`);
                   ]
                 }
               ];
-            } else sub = [{ text: "tap to start" }];
+            } else sub = [{ text: tap ? "tap to log" : "tap to start" }];
           }
           const subEl = btn.createDiv({ cls: "bdb-pad-sub" });
           for (const line of sub) {
@@ -556,12 +605,16 @@ paths: ${paths2.join(", ")}`);
           if (st?.spark7?.some((v) => v > 0)) {
             const sparkEl = btn.createDiv({ cls: "bdb-pad-spark", attr: { "aria-label": "Last 7 days activity" } });
             const sparkMax = Math.max(1, ...st.spark7);
-            for (const v of st.spark7) {
+            for (let i = 0; i < st.spark7.length; i++) {
+              const v = st.spark7[i];
               const bar = sparkEl.createDiv({ cls: "bdb-pad-spark-bar" + (!v ? " is-zero" : "") });
               bar.style.setProperty("--bdb-bar-h", `${Math.max(2, Math.round(v / sparkMax * 18))}px`);
-              const label = fmtVal(v, metric);
-              bar.setAttribute("title", label);
+              const day = `${i === st.spark7.length - 1 ? "today" : `${st.spark7.length - 1 - i}d ago`}: ${fmtVal(v, metric)}`;
+              const label = v ? day : `${day} (none)`;
               bar.setAttribute("aria-label", label);
+              bar.addEventListener("pointerenter", (e) => showPadBubble(label, e.clientX, e.clientY - 14));
+              bar.addEventListener("pointermove", (e) => showPadBubble(label, e.clientX, e.clientY - 14));
+              bar.addEventListener("pointerleave", hidePadBubble);
             }
           }
           openBtn.addEventListener("click", (e) => {
@@ -569,8 +622,15 @@ paths: ${paths2.join(", ")}`);
             e.stopPropagation();
             openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
           });
-          btn.addEventListener("click", async () => {
+          btn.addEventListener("click", async (e) => {
             const cur = config.columns.find((c) => c.key === colKey);
+            if (tap) {
+              await logTapSpan(plugin.app, card.file, card.line);
+              showPadBubble("+1", e.clientX, e.clientY - 14);
+              window.setTimeout(hidePadBubble, 800);
+              await draw();
+              return;
+            }
             const target = doing ? idleCol : liveCol;
             if (!target) return;
             await moveCard(plugin.app, card.file, card.line, target, config, { fromCol: cur });
@@ -598,6 +658,9 @@ var require_kanban = __commonJS({
     var HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
     var EI_HIST_RE = /^\s*%%\s?ei (\d{12}) ([\w-]+)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
+    var ICON_RE = /^\s*%%\s?kbicon ([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*)\s?%%\s*$/i;
+    var METRIC_RE = /^\s*%%\s?kbmetric (count|sum)\s?%%\s*$/i;
+    var TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
     var TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -659,12 +722,12 @@ var require_kanban = __commonJS({
       return out;
     }
     function parseKanbanConfig(src) {
-      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, hidedonelanes: false, lanesort: null, mode: null, only: [] };
+      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, lanes: [], hidedonelanes: false, lanesort: null, mode: null, only: [] };
       let lastKey = null;
       for (const rawLine of (src || "").split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
-        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|hidedonelanes|lanesort|mode|only)\s*:\s*(.*)$/);
+        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|lanes|hidedonelanes|lanesort|mode|only)\s*:\s*(.*)$/);
         const key = m ? m[1] : lastKey;
         const value = m ? m[2].trim() : line;
         lastKey = key;
@@ -681,6 +744,8 @@ var require_kanban = __commonJS({
           config.filters.push(...parseFilters(value));
         } else if (key === "lane") {
           config.lane = value;
+        } else if (key === "lanes") {
+          config.lanes.push(...value.split(",").map((s) => s.trim()).filter(Boolean));
         } else if (key === "only") {
           config.only.push(...value.split(",").map((s) => colKey(s.trim())).filter(Boolean));
         } else if (key === "sweep") {
@@ -730,6 +795,7 @@ var require_kanban = __commonJS({
         const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
         const fileCards = [];
         const stack = [];
+        let group = null;
         const owner = (text) => {
           const indent = indentWidth(text);
           for (let s = stack.length - 1; s >= 0; s--) {
@@ -743,7 +809,9 @@ var require_kanban = __commonJS({
           if (tm) {
             const indent = indentWidth(text);
             while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
-            const parent = stack.length ? stack[stack.length - 1].card : null;
+            let parent = stack.length ? stack[stack.length - 1].card : null;
+            const isGroup = tm[2] === "!";
+            if (!parent && !isGroup && group) parent = group;
             const card = {
               file,
               line: i,
@@ -751,16 +819,19 @@ var require_kanban = __commonJS({
               state: tm[2],
               parent,
               lane,
+              isGroup,
               children: [],
               history: [],
               eiHistory: [],
               tags: [],
               who: [],
-              color: null
+              color: null,
+              icon: null
             };
             if (parent) parent.children.push(card);
             stack.push({ indent, card });
             fileCards.push(card);
+            if (isGroup) group = card;
             continue;
           }
           const hm = text.match(HIST_RE);
@@ -779,6 +850,24 @@ var require_kanban = __commonJS({
             if (card) card.color = cm[1];
             continue;
           }
+          const im = text.match(ICON_RE);
+          if (im) {
+            const card = owner(text);
+            if (card) card.icon = im[1];
+            continue;
+          }
+          const mm = text.match(METRIC_RE);
+          if (mm) {
+            const card = owner(text);
+            if (card) card.metric = mm[1].toLowerCase();
+            continue;
+          }
+          const tpm = text.match(TAP_RE);
+          if (tpm) {
+            const card = owner(text);
+            if (card) card.tap = true;
+            continue;
+          }
           const gm = text.match(TAGLINE_RE);
           if (gm) {
             const card = owner(text);
@@ -794,7 +883,7 @@ var require_kanban = __commonJS({
         }
         for (const card of fileCards) {
           let col;
-          if (card.state === " ") {
+          if (card.state === " " || card.state === "!") {
             const key = card.tags.find((t) => t.startsWith("#kb/"))?.match(KB_TAG_RE)?.[1] || card.body.match(KB_TAG_RE)?.[1];
             col = byTag.get(key) || open[0];
           } else {
@@ -834,7 +923,7 @@ var require_kanban = __commonJS({
       let restAt = end;
       for (i = line + 1; i < end; i++) {
         const t = lines[i];
-        if (TAGLINE_RE.test(t) || COLOR_RE.test(t)) prefix.push(t);
+        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t)) prefix.push(t);
         else if (HIST_RE.test(t) || EI_HIST_RE.test(t)) logs.push(t);
         else if (TASK_RE.test(t)) {
           restAt = i;
@@ -934,7 +1023,7 @@ var require_kanban = __commonJS({
       if (targetCol.state) {
         lines[line] = `${pre}${targetCol.state}${close}${body}`;
       } else {
-        lines[line] = `${pre} ${close}${body}`;
+        lines[line] = `${pre}${m[2] === "!" ? "!" : " "}${close}${body}`;
       }
       const tag = !targetCol.state && targetCol !== firstOpen ? `#kb/${targetCol.key}` : null;
       editTags(lines, line, (tokens) => {
@@ -946,7 +1035,36 @@ var require_kanban = __commonJS({
       await app2.vault.modify(file, lines.join("\n"));
       return true;
     }
-    function resolveKanbanConfig(plugin, src) {
+    async function logTapSpan(app2, file, line) {
+      const content = await app2.vault.read(file);
+      const lines = content.split(/\r?\n/);
+      if (!TASK_RE.test(lines[line] || "")) return false;
+      const base = indentWidth(lines[line]);
+      let maxMs = 0;
+      for (let i = line + 1; i < lines.length; i++) {
+        if (lines[i].trim() && indentWidth(lines[i]) <= base) break;
+        const h = lines[i].match(HIST_RE);
+        if (h) maxMs = Math.max(maxMs, stampToDate(h[1]).getTime());
+      }
+      const startMs = Math.max(Date.now(), maxMs + 6e4);
+      const start = stampNow(new Date(startMs));
+      const end = stampNow(new Date(startMs + 6e4));
+      const indent = lines[line].match(/^\s*/)[0];
+      lines.splice(
+        normalizeTaskMeta(lines, line),
+        0,
+        `${indent}  %% kb ${end} Doing > Idle %%`,
+        `${indent}  %% kb ${start} Idle > Doing %%`
+      );
+      await app2.vault.modify(file, lines.join("\n"));
+      return true;
+    }
+    function fileHasTask(app2, path) {
+      const f = path && app2.vault.getAbstractFileByPath(path);
+      const li = f && app2.metadataCache.getFileCache(f)?.listItems;
+      return !!li && li.some((it) => it.task != null);
+    }
+    function resolveKanbanConfig(plugin, src, sourcePath) {
       const config = parseKanbanConfig(src);
       const defaults = plugin.settings?.kanban || {};
       if (!config.columns.length) {
@@ -957,7 +1075,9 @@ var require_kanban = __commonJS({
       if (!Object.keys(config.colors).length && defaults.colors) {
         config.colors = parseColors(defaults.colors);
       }
-      if (!config.paths.length && defaults.paths) {
+      if (!config.paths.length && sourcePath) {
+        if (fileHasTask(plugin.app, sourcePath)) config.paths = [sourcePath];
+      } else if (!config.paths.length && defaults.paths) {
         config.paths = defaults.paths.split(",").map((s) => s.trim()).filter(Boolean);
       }
       if (config.maxage == null) config.maxage = defaults.maxage != null ? defaults.maxage : 7;
@@ -967,9 +1087,30 @@ var require_kanban = __commonJS({
       if (config.lanesort == null && defaults.lanesort) config.lanesort = defaults.lanesort;
       return config;
     }
+    async function persistLanes(plugin, ctx, el, names, state) {
+      const info = ctx.getSectionInfo?.(el);
+      if (!info) return;
+      const file = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
+      if (!file) return;
+      const lines = (await plugin.app.vault.read(file)).split("\n");
+      const bodyStart = info.lineStart + 1;
+      const body = lines.slice(bodyStart, info.lineEnd);
+      const out = [];
+      for (let i = 0; i < body.length; i++) {
+        if (/^\s*lanes\s*:/.test(body[i])) {
+          while (i + 1 < body.length && /^\s+\S/.test(body[i + 1])) i++;
+          continue;
+        }
+        out.push(body[i]);
+      }
+      if (names.length) out.push(`lanes: ${names.join(", ")}`);
+      state.selfWriteAt = Date.now();
+      lines.splice(bodyStart, info.lineEnd - bodyStart, ...out);
+      await plugin.app.vault.modify(file, lines.join("\n"));
+    }
     async function renderKanbanBlock2(plugin, src, el, ctx) {
       el.empty();
-      const config = resolveKanbanConfig(plugin, src);
+      const config = resolveKanbanConfig(plugin, src, ctx.sourcePath);
       const states = config.columns.filter((c) => c.state).map((c) => c.state);
       if (new Set(states).size !== states.length) {
         el.createDiv({ text: "kanban: two columns share the same state char" });
@@ -977,8 +1118,14 @@ var require_kanban = __commonJS({
       }
       const board = el.createDiv({ cls: "bdb-kanban" });
       const state = { dragging: false };
+      state.selectedLanes = config.lanes.length ? new Set(config.lanes.map((n) => n.toLowerCase())) : null;
+      let persistTimer = null;
+      state.persistLanes = (names) => {
+        window.clearTimeout(persistTimer);
+        persistTimer = window.setTimeout(() => persistLanes(plugin, ctx, el, names, state), 400);
+      };
       const redraw = () => {
-        if (!state.dragging) drawBoard(plugin, board, resolveKanbanConfig(plugin, src), state);
+        if (!state.dragging) drawBoard(plugin, board, resolveKanbanConfig(plugin, src, ctx.sourcePath), state);
       };
       const tick = () => {
         if (!state.dragging) (state.timeUpdaters || []).forEach((fn) => fn());
@@ -1007,13 +1154,15 @@ var require_kanban = __commonJS({
       }
       const openKeys = config.columns.filter((c) => !c.state).map((c) => c.key);
       const termKeys = config.columns.filter((c) => c.state).map((c) => c.key);
+      const actKeys = config.columns.filter((c, i) => !c.state && !c.paused && i !== 0).map((c) => c.key);
       return [...lanes.entries()].map(([name, m]) => ({
         name,
         cards: m,
         n: [...m.values()].flat().length,
         done: termKeys.reduce((s, k) => s + m.get(k).length, 0),
         // closed = terminal cards
-        open: openKeys.reduce((s, k) => s + m.get(k).length, 0)
+        open: openKeys.reduce((s, k) => s + m.get(k).length, 0),
+        actionable: actKeys.reduce((s, k) => s + m.get(k).length, 0)
       })).filter((l) => !config.hidedonelanes || openKeys.some((k) => l.cards.get(k).length)).sort((a, b) => {
         const [skey, dir = "desc"] = (config.lanesort || "total").split("-");
         const sign = dir === "asc" ? 1 : -1;
@@ -1048,6 +1197,36 @@ var require_kanban = __commonJS({
         if (e.shiftKey) window.dispatchEvent(new CustomEvent("bdb-kanban-collapse-all"));
         else collapse();
       });
+      const norm = (n) => n.toLowerCase();
+      const visible = state.selectedLanes ? lanes.filter((l) => state.selectedLanes.has(norm(l.name))) : lanes;
+      if (config.lane && lanes.length > 1) {
+        const apply = (set) => {
+          state.selectedLanes = set;
+          const ordered = lanes.filter((l) => set.has(norm(l.name))).map((l) => l.name);
+          state.persistLanes?.(set.size === lanes.length ? [] : ordered);
+          drawBoard(plugin, board, config, state);
+        };
+        const picker = board.createDiv({ cls: "bdb-kanban-picker" });
+        const ctrls = picker.createDiv({ cls: "bdb-kanban-picker-ctrls" });
+        ctrls.createEl("button", { cls: "bdb-kanban-tool", text: "All" }).addEventListener("click", () => apply(new Set(lanes.map((l) => norm(l.name)))));
+        ctrls.createEl("button", { cls: "bdb-kanban-tool", text: "None" }).addEventListener("click", () => apply(/* @__PURE__ */ new Set()));
+        for (const lane of lanes) {
+          const on = state.selectedLanes ? state.selectedLanes.has(norm(lane.name)) : true;
+          const stalled = lane.open > 0 && lane.actionable === 0;
+          const item = picker.createEl("label", { cls: "bdb-kanban-picker-item" });
+          if (stalled) item.classList.add("bdb-kanban-picker-stalled");
+          const cb = item.createEl("input", { type: "checkbox" });
+          cb.checked = on;
+          cb.addEventListener("change", () => {
+            const set = state.selectedLanes ? new Set(state.selectedLanes) : new Set(lanes.map((l) => norm(l.name)));
+            cb.checked ? set.add(norm(lane.name)) : set.delete(norm(lane.name));
+            apply(set);
+          });
+          item.createSpan({ cls: "bdb-kanban-picker-name", text: lane.name });
+          item.createSpan({ cls: "bdb-kanban-picker-count", text: `${lane.actionable}/${lane.open}` });
+          if (stalled) item.createSpan({ cls: "bdb-kanban-picker-warn", text: "stalled", attr: { "aria-label": "open cards but no next action" } });
+        }
+      }
       const body = board.createDiv({ cls: "bdb-kanban-body" });
       body.classList.toggle("bdb-kanban-stacked", !!config.lane);
       const tryDrop = async (path, lineStr, fromKey, col, foldKey) => {
@@ -1070,7 +1249,7 @@ var require_kanban = __commonJS({
         state.colFold.delete(foldKey);
         return true;
       };
-      for (const lane of lanes) {
+      for (const lane of visible) {
         let host = body;
         if (lane.name != null) {
           const laneEl = body.createEl("details", { cls: "bdb-kanban-lane" });
@@ -1345,6 +1524,7 @@ var require_kanban = __commonJS({
       parseKanbanConfig,
       scanKanbanTasks,
       moveCard,
+      logTapSpan,
       renderKanbanBlock: renderKanbanBlock2,
       resolveKanbanConfig,
       editTags,
@@ -1358,6 +1538,10 @@ var require_kanban = __commonJS({
       fmtDur,
       TASK_RE,
       STAMP_RE,
+      TAGLINE_RE,
+      COLOR_RE,
+      HIST_RE,
+      EI_HIST_RE,
       columnColor,
       colKey
     };
@@ -2251,11 +2435,141 @@ var require_report = __commonJS({
   }
 });
 
+// src/templates.js
+var require_templates = __commonJS({
+  "src/templates.js"(exports2, module2) {
+    var { stringifyYaml, normalizePath, Modal, Setting } = require("obsidian");
+    var TEMPLATE_DIR = "90-99 Obsidian Meta/Templates";
+    var PROVENANCE_KEYS = ["template", "template-version"];
+    function extractProps(plugin, file) {
+      const fm = plugin.app.metadataCache.getFileCache(file)?.frontmatter || {};
+      const { position, ...props } = fm;
+      return props;
+    }
+    function selectProps(props) {
+      return props;
+    }
+    function serializeTemplate(props, { name, version }) {
+      const rest = { ...props };
+      for (const k of PROVENANCE_KEYS) delete rest[k];
+      const body = { ...rest, template: name, "template-version": version };
+      return `---
+${stringifyYaml(body)}---
+`;
+    }
+    async function ensureDir(plugin, dir) {
+      const norm = normalizePath(dir);
+      if (!plugin.app.vault.getAbstractFileByPath(norm)) {
+        await plugin.app.vault.createFolder(norm).catch(() => {
+        });
+      }
+    }
+    function templateDir(plugin) {
+      let dir = plugin.settings?.templates?.dir || TEMPLATE_DIR;
+      const base = plugin.app.vault.adapter?.basePath;
+      if (base && dir.startsWith(base)) dir = dir.slice(base.length);
+      return normalizePath(dir.replace(/^\/+/, ""));
+    }
+    async function writeTemplate(plugin, name, content) {
+      const dir = templateDir(plugin);
+      const path = normalizePath(`${dir}/${name}.md`);
+      if (plugin.app.vault.getAbstractFileByPath(path)) {
+        throw new Error(`template exists: ${path} (rename or delete it first)`);
+      }
+      await ensureDir(plugin, dir);
+      await plugin.app.vault.create(path, content);
+      return path;
+    }
+    async function saveTemplate(plugin, name) {
+      const clean = String(name || "").trim();
+      if (!clean) throw new Error('template name required: kb.saveTemplate("Project ABC")');
+      const file = plugin.app.workspace.getActiveFile();
+      if (!file) throw new Error("no active note");
+      const props = selectProps(extractProps(plugin, file));
+      const content = serializeTemplate(props, { name: clean, version: 1 });
+      const path = await writeTemplate(plugin, clean, content);
+      return `ok template -> ${path}`;
+    }
+    var NameModal = class extends Modal {
+      constructor(app2, defaultName, onSubmit) {
+        super(app2);
+        this.value = defaultName || "";
+        this.onSubmit = onSubmit;
+        this.done = false;
+      }
+      onOpen() {
+        this.titleEl.setText("Save properties as template");
+        new Setting(this.contentEl).setName("Template name").addText((t) => {
+          t.setValue(this.value).onChange((v) => {
+            this.value = v;
+          });
+          t.inputEl.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") this.submit();
+          });
+          setTimeout(() => {
+            t.inputEl.focus();
+            t.inputEl.select();
+          }, 0);
+        });
+        new Setting(this.contentEl).addButton((b) => b.setButtonText("Save").setCta().onClick(() => this.submit()));
+      }
+      submit() {
+        this.done = true;
+        this.close();
+        this.onSubmit(this.value.trim() || null);
+      }
+      onClose() {
+        this.contentEl.empty();
+        if (!this.done) this.onSubmit(null);
+      }
+    };
+    async function saveTemplateCommand2(plugin) {
+      const { Notice } = require("obsidian");
+      const file = plugin.app.workspace.getActiveFile();
+      if (!file) {
+        new Notice("No active note");
+        return;
+      }
+      new NameModal(plugin.app, file.basename, async (name) => {
+        if (!name) return;
+        try {
+          new Notice(await saveTemplate(plugin, name));
+        } catch (e) {
+          new Notice("Template failed: " + e.message);
+        }
+      }).open();
+    }
+    module2.exports = {
+      saveTemplate,
+      saveTemplateCommand: saveTemplateCommand2,
+      extractProps,
+      selectProps,
+      serializeTemplate,
+      writeTemplate,
+      NameModal,
+      TEMPLATE_DIR,
+      PROVENANCE_KEYS
+    };
+  }
+});
+
 // src/api.js
 var require_api = __commonJS({
   "src/api.js"(exports2, module2) {
-    var { scanKanbanTasks, moveCard, parseKanbanConfig, stampToDate, cleanText } = require_kanban();
+    var {
+      scanKanbanTasks,
+      moveCard,
+      parseKanbanConfig,
+      stampToDate,
+      cleanText,
+      TASK_RE,
+      TAGLINE_RE,
+      COLOR_RE,
+      HIST_RE,
+      EI_HIST_RE
+    } = require_kanban();
     var { collectDayTasks } = require_report();
+    var { saveTemplate } = require_templates();
     var DEFAULT_COLS = "columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-";
     var HABIT_COLS = "columns: Idle~, Doing!";
     function makeConfig(opts = {}) {
@@ -2377,6 +2691,12 @@ var require_api = __commonJS({
       if (m < 60) return m + "m";
       return Math.floor(m / 60) + "h" + (m % 60 ? m % 60 + "m" : "");
     }
+    function pct(n, d) {
+      if (!d) return "0%";
+      const v = n * 100 / d;
+      const decimals = v < 10 && !Number.isInteger(v) ? 1 : 0;
+      return (Math.round(v * 10) / 10).toFixed(decimals) + "%";
+    }
     function endOfDayMs(ms) {
       const d = new Date(ms);
       d.setHours(23, 59, 59, 999);
@@ -2480,6 +2800,28 @@ var require_api = __commonJS({
           }
           if (opts.limit) rows = rows.slice(0, opts.limit);
           return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
+        },
+        // Freeform notes for one task: every line between the task and the next task
+        // line (any indent), minus the metadata block (tag/color/%%kb%%/%%ei%%).
+        // arg = "file:line" (the file:line other reads emit) or (filePath, line).
+        // Returns the trimmed prose, "" when the task has no notes.
+        async note(arg, line) {
+          let path = arg;
+          if (line == null && typeof arg === "string" && arg.includes(":")) {
+            const i = arg.lastIndexOf(":");
+            path = arg.slice(0, i);
+            line = +arg.slice(i + 1);
+          }
+          const file = plugin.app.vault.getAbstractFileByPath(path);
+          if (!file) throw new Error("file not found: " + path);
+          const lines = (await plugin.app.vault.cachedRead(file)).split(/\r?\n/);
+          if (!TASK_RE.test(lines[line] || "")) throw new Error(`no task at ${path}:${line}`);
+          const meta = (t) => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE.test(t) || EI_HIST_RE.test(t);
+          const out = [];
+          for (let i = line + 1; i < lines.length && !TASK_RE.test(lines[i]); i++) {
+            if (!meta(lines[i])) out.push(lines[i]);
+          }
+          return "\n" + out.join("\n").replace(/^\n+|\n+$/g, "");
         },
         // Tasks moved to a terminal column on a date — "what I did"
         // Tab-lines: col<TAB>file:line<TAB>body<TAB>HH:MM
@@ -2606,10 +2948,13 @@ var require_api = __commonJS({
           const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
           const multi = dates.length > 1;
           const out = [];
+          let grandTracked = 0;
+          let grandElapsed = 0;
           for (const dateStr of dates) {
             const lo = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8)).getTime();
             const hi = endOfDayMs(lo);
             const today = ymd(/* @__PURE__ */ new Date()) === dateStr;
+            const elapsed = Math.max(0, (today ? Date.now() : hi) - lo);
             const segs = [];
             for (const [, list] of byCol) for (const card of list) {
               const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
@@ -2622,9 +2967,16 @@ var require_api = __commonJS({
                 segs.push({ s: cs, e: ce, open: !chrono[i + 1] && today, body: cleanText(card.body) });
               }
             }
+            const tracked = segs.reduce((sum, x) => sum + (x.e - x.s), 0);
+            grandTracked += tracked;
+            grandElapsed += elapsed;
             const rows = segs.sort((a2, b2) => a2.s - b2.s).map((x) => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? "~" : ""}	${durCompact(x.e - x.s)}	${x.body}`);
-            if (multi) out.push(`== ${dateStr} ==`, ...rows.length ? rows : ["(none)"]);
-            else out.push(...rows);
+            const footer = `TOTAL	${dur(tracked)}	${pct(tracked, elapsed)} elapsed`;
+            if (multi) out.push(`== ${dateStr} ==`, ...rows.length ? rows : ["(none)"], footer);
+            else out.push(...rows, footer);
+          }
+          if (multi) {
+            out.push(`== total ==`, `TOTAL	${dur(grandTracked)}	${pct(grandTracked, grandElapsed)} elapsed`);
           }
           return "\n" + out.join("\n");
         },
@@ -2633,6 +2985,7 @@ var require_api = __commonJS({
           return "\n" + [
             "active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit",
             "getDone(date,opts?)      tasks moved to terminal col on a date",
+            'note("file:line")        freeform notes under a task (prose to next task)',
             "getReport(...)           move timeline; day | from,to | {days:N}",
             "chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}",
             "summary(...)             done counts grouped by fm key; opts: by,col,sample,paths",
@@ -2729,7 +3082,7 @@ var require_api = __commonJS({
           const { habitStats, fmtHours } = require_habits();
           const now = /* @__PURE__ */ new Date();
           const rows = (await habitCards(plugin, opts)).map((x) => ({ ...x, label: cleanText(x.card.body) })).sort((a, b) => a.label.localeCompare(b.label)).map(({ card, colKey, fm, label }) => {
-            const metric = fm.metric === "count" ? "count" : "sum";
+            const metric = (card.metric || fm.metric) === "count" ? "count" : "sum";
             const st = habitStats(card.history, metric, now);
             const f = (v) => metric === "count" ? `${Math.round((v || 0) * 10) / 10}x` : fmtHours(v);
             const state = colKey === "doing" ? "DOING" : "idle";
@@ -2753,6 +3106,12 @@ var require_api = __commonJS({
           const target = it.colKey === "doing" ? config.columns.find((c) => !c.state && c.paused) : config.columns.find((c) => c.live);
           await moveCard(plugin.app, it.card.file, it.card.line, target, config, { fromCol: cur });
           return `ok ${it.label}: ${cur.name} -> ${target.name}`;
+        },
+        // Snapshot the ACTIVE note's properties into a reusable, provenance-stamped
+        // template (body dropped). Notes made from it inherit `template`/`template-version`
+        // for a future retroactive "propagate". Usage: kb.saveTemplate("Project ABC").
+        async saveTemplate(name) {
+          return saveTemplate(plugin, name);
         }
       };
     }
@@ -2790,9 +3149,12 @@ var require_settings = __commonJS({
         limit: 0,
         truncate: 800,
         includeCurrent: false
+      },
+      templates: {
+        dir: "90-99 Obsidian Meta/Templates"
       }
     };
-    var TABS = ["Kanban", "Ei", "Backlinks", "Daily", "Views"];
+    var TABS = ["Kanban", "Ei", "Backlinks", "Daily", "Templates", "Views"];
     var BdbSettingTab2 = class extends PluginSettingTab {
       constructor(plugin) {
         super(plugin.app, plugin);
@@ -2934,6 +3296,13 @@ var require_settings = __commonJS({
         this.bind(new Setting(el).setName("Limit").setDesc("Max notes shown; 0 = no limit."), "daily", "limit", { number: true });
         this.bind(new Setting(el).setName("Truncate").setDesc("Characters per note preview."), "daily", "truncate", { number: true });
         this.bind(new Setting(el).setName("Include current note"), "daily", "includeCurrent");
+      }
+      renderTemplates(el) {
+        this.bind(
+          new Setting(el).setName("Templates folder").setDesc('Vault-relative folder where "Save note properties as template" writes. e.g. "90-99 Obsidian Meta/Templates/Categories". Created if missing.'),
+          "templates",
+          "dir"
+        );
       }
       renderViews(el) {
         el.createEl("p", {
@@ -3657,6 +4026,7 @@ var { renderEiBlock } = require_ei();
 var { renderReportBlock } = require_report();
 var { renderHabitsBlock, renderHabitPad } = require_habits();
 var { buildApi } = require_api();
+var { saveTemplateCommand } = require_templates();
 var { BdbSettingTab, mergeSettings } = require_settings();
 var { ChronicleView, CHRONICLE_VIEW_TYPE } = require_chronicle();
 var { AtlasView, ATLAS_VIEW_TYPE } = require_atlas();
@@ -3668,6 +4038,11 @@ var BacklinksDailyBlocksPlugin = class extends Plugin {
     this.api = buildApi(this);
     globalThis.kb = this.api;
     this.addSettingTab(new BdbSettingTab(this));
+    this.addCommand({
+      id: "save-props-as-template",
+      name: "Save note properties as template",
+      callback: () => saveTemplateCommand(this)
+    });
     this.normalizeBaseGroupBy().catch((err) => console.warn("backlinks-daily-blocks: normalize groupBy failed", err));
     this.registerMarkdownCodeBlockProcessor("backlinks", (src, el, ctx) => {
       return renderBacklinksBlock(this, src, el, ctx);

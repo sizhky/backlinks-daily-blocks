@@ -5,6 +5,7 @@ const { renderEiBlock } = require('./ei');
 const { renderReportBlock } = require('./report');
 const { renderHabitsBlock, renderHabitPad } = require('./habits');
 const { buildApi } = require('./api');
+const { saveTemplateCommand } = require('./templates');
 const { BdbSettingTab, mergeSettings } = require('./settings');
 const { ChronicleView, CHRONICLE_VIEW_TYPE } = require('./views/chronicle');
 const { AtlasView, ATLAS_VIEW_TYPE } = require('./views/atlas');
@@ -17,6 +18,12 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     this.api = buildApi(this);
     globalThis.kb = this.api; // CLI shortcut: obsidian eval code='kb.active({limit:3})'
     this.addSettingTab(new BdbSettingTab(this));
+
+    this.addCommand({
+      id: 'save-props-as-template',
+      name: 'Save note properties as template',
+      callback: () => saveTemplateCommand(this),
+    });
 
     // Normalize any groupBy entries stored as strings into object form
     // to avoid Bases parse errors. Runs once on load, rewrites affected .base files.

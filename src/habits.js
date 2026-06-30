@@ -1,7 +1,7 @@
 // Habits heatmap block. Reuses the kanban scan: each habit card cycles
 // Idle <-> Doing; a span = (Idle>Doing , Doing>Idle) pair. The block reads
 // spans, buckets them by end-date, and renders a year grid per habit.
-const { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, addTitleCopy } = require('./kanban');
+const { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, logTapSpan, addTitleCopy } = require('./kanban');
 const { MarkdownRenderChild, setIcon } = require('obsidian');
 const { openFileAtLine } = require('./core/render');
 
@@ -56,7 +56,7 @@ async function collectHabits(app, paths, year) {
   return all
     .map(card => {
       const fm = app.metadataCache.getFileCache(card.file).frontmatter;
-      const metric = (fm.metric === 'count') ? 'count' : 'sum';
+      const metric = (card.metric || fm.metric) === 'count' ? 'count' : 'sum';   // inline %% kbmetric %% beats fm
       return {
         name: cleanText(card.body),
         metric,
@@ -79,6 +79,38 @@ function fmtHours(h) {
 function fmtVal(v, metric) {
   if (metric === 'count') return `${v}x`;
   return fmtHours(v);
+}
+
+function showPadBubble(text, x, y) {
+  let el = document.querySelector('.bdb-report-drag-bubble');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'bdb-report-drag-bubble';
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  const pad = 12;
+  const width = el.offsetWidth || 0;
+  const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+  const clamped = Math.max(pad + width / 2, Math.min(vw - pad - width / 2, x));
+  const anchor = width ? ((x - (clamped - width / 2)) / width) * 100 : 50;
+  el.style.left = `${clamped}px`;
+  el.style.top = `${y}px`;
+  el.style.setProperty('--bdb-bubble-anchor', `${Math.max(10, Math.min(90, anchor))}%`);
+  el.classList.add('is-visible');
+}
+
+function hidePadBubble() {
+  document.querySelector('.bdb-report-drag-bubble')?.classList.remove('is-visible');
+}
+
+function renderPadIcon(parent, icon, color) {
+  const box = parent.createDiv({ cls: 'bdb-pad-icon', attr: { 'aria-hidden': 'true' } });
+  const match = String(icon || '').match(/^([a-z0-9]+(?:-[a-z0-9]+)*):([a-z0-9]+(?:-[a-z0-9]+)*)$/i);
+  if (!match) { setIcon(box, 'activity'); return; }
+  const src = `https://api.iconify.design/${match[1]}/${match[2]}.svg?color=${encodeURIComponent(color || '#8b949e')}`;
+  const img = box.createEl('img', { attr: { src, alt: '', loading: 'lazy', decoding: 'async' } });
+  img.addEventListener('error', () => { img.remove(); setIcon(box, 'activity'); }, { once: true });
 }
 
 function renderPadTitle(parent, text) {
@@ -192,6 +224,9 @@ function habitStats(history, metric, now) {
 
   const vals = [...byDay.values()];
   const todayVal = byDay.get(today) || 0;
+  const loggedDays = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const latest = loggedDays[loggedDays.length - 1] || null;
+  const latestPrev = loggedDays.length > 1 ? loggedDays[loggedDays.length - 2] : null;
   const dayVal = (offset) => {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -214,7 +249,14 @@ function habitStats(history, metric, now) {
   const avg3 = lastN(3);
   const avg7 = lastN(7);
   const avg30 = lastN(30);
-  const avg3Closed = (yesterdayVal + prevVal + prev2Val) / 3;
+  const _closedActive = [];
+  for (let i = 1; _closedActive.length < 3 && i <= 90; i++) {
+    const v = dayVal(i);
+    if (v > 0) _closedActive.push(v);
+  }
+  const avg3Closed = _closedActive.length > 0
+    ? _closedActive.reduce((a, b) => a + b, 0) / _closedActive.length
+    : 0;
   const spark7 = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
@@ -235,10 +277,14 @@ function habitStats(history, metric, now) {
   const trend = avg30 === 0 ? 0 : (avg7 - avg30) / avg30;
   return {
     metric, open, today: todayVal, avg3, avg3Closed, avg7, streak, spark7,
+    latestDay: latest?.[0] || null, latestVal: latest?.[1] || 0,
+    latestPrevDay: latestPrev?.[0] || null, latestPrevVal: latestPrev?.[1] || 0,
     yesterday: yesterdayVal, prevDay: prevVal,
     min: Math.min(...vals), max: Math.max(...vals),
     mean: vals.reduce((a, b) => a + b, 0) / vals.length,
-    days: byDay.size, trend, deltaYday: yesterdayVal - prevVal, deltaMu3: yesterdayVal - avg3Closed,
+    days: byDay.size, trend,
+    deltaLatest: (latest?.[1] || 0) - (latestPrev?.[1] || 0),
+    deltaMu3: (latest?.[1] || 0) - avg3Closed,
   };
 }
 
@@ -275,13 +321,15 @@ async function renderHabitPad(plugin, source, el, ctx) {
 
     const grid = el.createDiv({ cls: 'bdb-pad' });
     for (const { card, colKey, fm } of items) {
-      const metric = fm.metric === 'count' ? 'count' : 'sum';
-      const doing = colKey === liveCol?.key;
+      const metric = (card.metric || fm.metric) === 'count' ? 'count' : 'sum';   // inline %% kbmetric %% beats fm
+      const tap = card.tap === true || fm.tap === true || fm.tap === 'true';      // inline %% kbtap %% or fm.tap
+      const doing = !tap && colKey === liveCol?.key;       // tap habits never sit in Doing
       const st = habitStats(card.history, metric, now);
       const color = card.color || fm.kbcolor || null;
       const btn = grid.createDiv({ cls: 'bdb-pad-card' + (doing ? ' bdb-pad-on' : '') });
       if (color) btn.style.setProperty('--kb-card-color', color);
       const head = btn.createDiv({ cls: 'bdb-pad-head' });
+      renderPadIcon(head, card.icon || fm.icon, doing ? '#ffffff' : color);
       renderPadTitle(head, cleanText(card.body));
       const openBtn = head.createSpan({ cls: 'bdb-pad-open', attr: { 'aria-label': 'Open habit note' } });
       setIcon(openBtn, 'external-link');
@@ -295,7 +343,7 @@ async function renderHabitPad(plugin, source, el, ctx) {
       } else {
         if (st) {
           const f = (v) => metric === 'count' ? `${Number(v.toFixed(1)).toString()}x` : fmtHours(v);
-          const trendCls = st.deltaYday > 0.05 ? 'up' : st.deltaYday < -0.05 ? 'down' : 'flat';
+          const trendCls = st.deltaLatest > 0.05 ? 'up' : st.deltaLatest < -0.05 ? 'down' : 'flat';
           const muCls = st.deltaMu3 > 0.05 ? 'up' : st.deltaMu3 < -0.05 ? 'down' : 'flat';
           const arrow = trendCls === 'up' ? '↑' : trendCls === 'down' ? '↓' : '→';
           const muArrow = muCls === 'up' ? '↑' : muCls === 'down' ? '↓' : '→';
@@ -303,7 +351,7 @@ async function renderHabitPad(plugin, source, el, ctx) {
             { text: `${st.streak}d · ${f(st.today)}` },
             {
               chunks: [
-                { text: `y ${f(st.yesterday)} ` },
+                { text: `last ${f(st.latestVal)} ` },
                 { trend: { text: arrow, cls: trendCls } },
               ],
             },
@@ -314,7 +362,7 @@ async function renderHabitPad(plugin, source, el, ctx) {
               ],
             }
           ];
-        } else sub = [{ text: 'tap to start' }];
+        } else sub = [{ text: tap ? 'tap to log' : 'tap to start' }];
       }
       const subEl = btn.createDiv({ cls: 'bdb-pad-sub' });
       for (const line of sub) {
@@ -332,12 +380,16 @@ async function renderHabitPad(plugin, source, el, ctx) {
       if (st?.spark7?.some(v => v > 0)) {
         const sparkEl = btn.createDiv({ cls: 'bdb-pad-spark', attr: { 'aria-label': 'Last 7 days activity' } });
         const sparkMax = Math.max(1, ...st.spark7);
-        for (const v of st.spark7) {
+        for (let i = 0; i < st.spark7.length; i++) {
+          const v = st.spark7[i];
           const bar = sparkEl.createDiv({ cls: 'bdb-pad-spark-bar' + (!v ? ' is-zero' : '') });
           bar.style.setProperty('--bdb-bar-h', `${Math.max(2, Math.round((v / sparkMax) * 18))}px`);
-          const label = fmtVal(v, metric);
-          bar.setAttribute('title', label);
+          const day = `${i === st.spark7.length - 1 ? 'today' : `${st.spark7.length - 1 - i}d ago`}: ${fmtVal(v, metric)}`;
+          const label = v ? day : `${day} (none)`;
           bar.setAttribute('aria-label', label);
+          bar.addEventListener('pointerenter', (e) => showPadBubble(label, e.clientX, e.clientY - 14));
+          bar.addEventListener('pointermove', (e) => showPadBubble(label, e.clientX, e.clientY - 14));
+          bar.addEventListener('pointerleave', hidePadBubble);
         }
       }
 
@@ -347,8 +399,15 @@ async function renderHabitPad(plugin, source, el, ctx) {
         openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
       });
 
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
         const cur = config.columns.find(c => c.key === colKey);
+        if (tap) {                                          // one click = one closed span, single write
+          await logTapSpan(plugin.app, card.file, card.line);
+          showPadBubble('+1', e.clientX, e.clientY - 14);
+          window.setTimeout(hidePadBubble, 800);
+          await draw();
+          return;
+        }
         const target = doing ? idleCol : liveCol;          // stop -> Idle / start -> Doing
         if (!target) return;
         await moveCard(plugin.app, card.file, card.line, target, config, { fromCol: cur });

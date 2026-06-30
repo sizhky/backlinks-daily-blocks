@@ -1,12 +1,43 @@
 ---
 name: kanban-cli
-description: Query and mutate the backlinks-daily-blocks kanban board from the shell via `obsidian eval`. Use when an LLM needs to read the user's task plate, see what was done on a date, get a day's move timeline, or move a task between columns without opening Obsidian.
+description: Query and mutate the backlinks-daily-blocks kanban board from the shell via `obsidian eval`. Use when an LLM needs to read the user's task plate, see what was done on a date, get a day's move timeline, create a task, or move a task between columns without opening Obsidian.
+metadata:
+  version: "0.2"
 ---
 
 # Kanban CLI
 
 Plugin `backlinks-daily-blocks` exposes a JS api over the `obsidian eval` CLI.
 On plugin load it sets `globalThis.kb = this.api`, so calls are short.
+
+## AXI CLI (preferred for agents)
+
+`kanban-cli/axi.mjs` wraps the `kb` api as an AXI-compliant CLI: gh-style
+subcommands + flags, TOON output on stdout, structured errors, exit codes
+(0 ok / 1 error / 2 usage). It shells out to `obsidian eval` under the hood,
+so the plugin must be loaded. Prefer this over raw `kb.*` eval calls.
+
+```
+node kanban-cli/axi.mjs                       # content-first dashboard (active tasks + next steps)
+node kanban-cli/axi.mjs list --col Todo --limit 5
+node kanban-cli/axi.mjs plate "Obsidian Workflow" --col Backlog
+node kanban-cli/axi.mjs view 20260616-0946.md:0 [--full]
+node kanban-cli/axi.mjs move 20260616-0946.md:0 Done
+node kanban-cli/axi.mjs done 20260620 [--col Done]
+node kanban-cli/axi.mjs report 20260620      # single date = TOON; --days N / from to = grouped raw
+node kanban-cli/axi.mjs chronicle 20260620   # time stints in Doing (or --col)
+node kanban-cli/axi.mjs summary --days 3 --by projects
+node kanban-cli/axi.mjs props 1w             # discover frontmatter schema
+node kanban-cli/axi.mjs notes --where projects="Obsidian Workflow" --limit 10
+node kanban-cli/axi.mjs habits
+node kanban-cli/axi.mjs toggle Cook
+```
+
+- No args = dashboard. Any subcommand takes `--help` for its flags + examples.
+- Output is TOON (`tasks[N]{col,ref,body,age}:` etc.), ~40% leaner than JSON.
+- `ref` is the `file:line` token echoed in list rows; pass it straight to `view`/`move`.
+- Errors print `error: …` / `help: …` on stdout — read and act, don't re-run blindly.
+- The `kb.*` methods below remain the source of truth; the CLI is a thin TSV→TOON skin.
 
 ## Invocation
 
@@ -46,6 +77,16 @@ All read methods return a leading `\n` then tab-separated lines (token-lean, not
 Lines: `col<TAB>file:line<TAB>body<TAB>HH:MM`
 `opts.col` — limit to one terminal column. `opts.paths` — folder filter.
 
+### `kb.note(arg, line?)` — freeform notes attached to one task
+The prose body that lives under a task: every line between the task line and the
+**next task line** (any indent), with the metadata block (tag line, `%% kbcolor %%`,
+`%% kb %%`, `%% ei %%`) stripped out. This is how a task carries notes naturally —
+write prose under it, fetch on demand without opening the file.
+`arg` = `"file:line"` (the exact `file:line` the other reads emit) or `(filePath, line)`.
+Returns the trimmed prose (leading `\n` like other reads), `""` when there are none.
+Throws if the file is missing or the line isn't a task.
+Example: `kb.note("20260616-0946.md:0")`
+
 ### `kb.getReport(...)` — full move timeline, single day or range
 Arg forms:
 - `getReport(20260613)` — one day
@@ -78,8 +119,11 @@ Example:
 0000:0820	8h20m	Sleep
 1400:1435	35m	eat
 1445:1600	1h15m	sleep
+TOTAL	10h10m	42% elapsed
 ```
 `~` means the stint is still open now.
+Chronicle appends `TOTAL<TAB>tracked<TAB>P% elapsed`.
+For today, `% elapsed` uses midnight -> now. For completed days, full day.
 
 ### `kb.summary(...)` — done counts grouped by a frontmatter key
 Rolls up terminal-column moves ("done") over a date range, grouped by `by` (default
@@ -148,6 +192,31 @@ Flips the habit's card `Idle <-> Doing`: idle→Doing starts the clock, Doing→
 the span. Lets an LLM or a UI button log work without opening the board.
 `name` = the habit's task body (case-insensitive); throws if no match or if ambiguous
 (two cards share the name — scope with `opts.paths`). Returns `ok <name>: From -> To`.
+
+## Creating a task
+
+There is no `kb.create` method — a task is a **checkbox line inside a note**, never a standalone file with a `# heading` or `Status::` prop. To add one:
+
+1. New note path: `~/Vault/$(date +%Y%m%d%H%M).md` (a daily note).
+2. Frontmatter carries the project (and org) the board filters on:
+   ```
+   ---
+   org:
+     - "[[Divami]]"
+   projects:
+     - "[[Arka]]"
+   ---
+   ```
+3. The task line + a move stamp comment. Column tag is `#kb/<col-lowercase>`; the stamp records the move with proper-case column names:
+   ```
+   - [ ] Task title #kb/doing
+     %% kb <YYYYMMDDHHmm> Backlog > Doing %%
+
+   Optional freeform prose under the task becomes its note (see kb.note).
+   ```
+4. Verify with `kb.plate("<Project>",{col:"Doing"})` — the row should appear.
+
+To create directly in Backlog, use `#kb/backlog` and stamp `Backlog > Backlog` (or omit the stamp). Move later with `kb.moveTask`.
 
 ## Columns
 

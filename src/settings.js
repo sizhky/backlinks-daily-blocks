@@ -29,9 +29,12 @@ const DEFAULT_SETTINGS = {
     truncate: 800,
     includeCurrent: false,
   },
+  templates: {
+    dir: '90-99 Obsidian Meta/Templates',
+  },
 };
 
-const TABS = ['Kanban', 'Ei', 'Backlinks', 'Daily', 'Views'];
+const TABS = ['Kanban', 'Ei', 'Backlinks', 'Daily', 'Templates', 'Views'];
 
 class BdbSettingTab extends PluginSettingTab {
   constructor(plugin) {
@@ -180,6 +183,12 @@ class BdbSettingTab extends PluginSettingTab {
     this.bind(new Setting(el).setName('Limit').setDesc('Max notes shown; 0 = no limit.'), 'daily', 'limit', { number: true });
     this.bind(new Setting(el).setName('Truncate').setDesc('Characters per note preview.'), 'daily', 'truncate', { number: true });
     this.bind(new Setting(el).setName('Include current note'), 'daily', 'includeCurrent');
+  }
+
+  renderTemplates(el) {
+    this.bind(new Setting(el).setName('Templates folder')
+      .setDesc('Vault-relative folder where "Save note properties as template" writes. e.g. "90-99 Obsidian Meta/Templates/Categories". Created if missing.'),
+      'templates', 'dir');
   }
 
   renderViews(el) {

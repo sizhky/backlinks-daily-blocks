@@ -319,6 +319,47 @@
   height: 1.1em;
 }
 
+/* Lane picker / next-action audit: a wrapped row of project checkboxes above
+   the board. Doubles as the GTD audit — stalled lanes are tinted. */
+.bdb-kanban-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35em 0.6em;
+  padding: 0.5em 0.8em;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.bdb-kanban-picker-ctrls {
+  display: flex;
+  gap: 0.3em;
+  margin-right: 0.3em;
+}
+.bdb-kanban-picker-ctrls .bdb-kanban-tool {
+  padding: 0.15em 0.5em;
+  font-size: 0.85em;
+  border: 1px solid var(--background-modifier-border);
+}
+.bdb-kanban-picker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.15em 0.5em;
+  border-radius: 0.4em;
+  cursor: pointer;
+  font-size: 0.9em;
+  background: var(--background-secondary);
+}
+.bdb-kanban-picker-item input { cursor: pointer; margin: 0; }
+.bdb-kanban-picker-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.bdb-kanban-picker-stalled { background: color-mix(in srgb, var(--color-orange) 18%, var(--background-secondary)); }
+.bdb-kanban-picker-warn {
+  color: var(--color-orange);
+  font-size: 0.8em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 /* Lanes: the board stacks lane rows; each row lays out like the flat board.
    One horizontal scrollbar on the board moves every lane together. */
 .bdb-kanban-stacked {
@@ -1054,6 +1095,13 @@ textarea.bdb-config-preview {
 .bdb-pad-open:focus-visible { outline: 1px solid var(--text-accent); outline-offset: 2px; }
 .bdb-pad-on .bdb-pad-open { color: rgba(255,255,255,0.82); }
 .bdb-pad-on .bdb-pad-open:hover { color: #fff; background: rgba(255,255,255,0.12); }
+.bdb-pad-icon {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 19px; width: 19px; height: 19px;
+  color: var(--kb-card-color, var(--text-muted));
+}
+.bdb-pad-icon img, .bdb-pad-icon svg { width: 100%; height: 100%; object-fit: contain; }
+.bdb-pad-on .bdb-pad-icon { color: #fff; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.4)); }
 .bdb-pad-sub { display: grid; gap: 3px; font-size: 15px; font-weight: 700; color: var(--text-muted); font-family: var(--font-monospace); margin-top: 8px; }
 .bdb-pad-subline { line-height: 1.2; }
 .bdb-pad-trend { font-weight: 700; }

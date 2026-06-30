@@ -1,6 +1,8 @@
 // plugin.api — callable via: obsidian eval "JSON.stringify(await app.plugins.plugins['backlinks-daily-blocks'].api.METHOD())"
-const { scanKanbanTasks, moveCard, parseKanbanConfig, stampToDate, cleanText } = require('./kanban');
+const { scanKanbanTasks, moveCard, parseKanbanConfig, stampToDate, cleanText,
+  TASK_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
+const { saveTemplate } = require('./templates');
 
 const DEFAULT_COLS = 'columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-';
 const HABIT_COLS = 'columns: Idle~, Doing!';
@@ -152,6 +154,13 @@ function durCompact(ms) {
   return Math.floor(m / 60) + 'h' + (m % 60 ? (m % 60) + 'm' : '');
 }
 
+function pct(n, d) {
+  if (!d) return '0%';
+  const v = (n * 100) / d;
+  const decimals = (v < 10 && !Number.isInteger(v)) ? 1 : 0;
+  return (Math.round(v * 10) / 10).toFixed(decimals) + '%';
+}
+
 // ms overlap of interval [s,e] with window [lo,hi]; 0 if disjoint.
 function overlap(s, e, lo, hi) {
   const a = Math.max(s, lo), b = Math.min(e, hi);
@@ -261,6 +270,27 @@ function buildApi(plugin) {
       }
       if (opts.limit) rows = rows.slice(0, opts.limit);
       return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${fmSuffix(plugin.app, r.file, opts.fm)}`).join('\n');
+    },
+
+    // Freeform notes for one task: every line between the task and the next task
+    // line (any indent), minus the metadata block (tag/color/%%kb%%/%%ei%%).
+    // arg = "file:line" (the file:line other reads emit) or (filePath, line).
+    // Returns the trimmed prose, "" when the task has no notes.
+    async note(arg, line) {
+      let path = arg;
+      if (line == null && typeof arg === 'string' && arg.includes(':')) {
+        const i = arg.lastIndexOf(':'); path = arg.slice(0, i); line = +arg.slice(i + 1);
+      }
+      const file = plugin.app.vault.getAbstractFileByPath(path);
+      if (!file) throw new Error('file not found: ' + path);
+      const lines = (await plugin.app.vault.cachedRead(file)).split(/\r?\n/);
+      if (!TASK_RE.test(lines[line] || '')) throw new Error(`no task at ${path}:${line}`);
+      const meta = t => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE.test(t) || EI_HIST_RE.test(t);
+      const out = [];
+      for (let i = line + 1; i < lines.length && !TASK_RE.test(lines[i]); i++) {
+        if (!meta(lines[i])) out.push(lines[i]);
+      }
+      return '\n' + out.join('\n').replace(/^\n+|\n+$/g, '');
     },
 
     // Tasks moved to a terminal column on a date — "what I did"
@@ -394,10 +424,13 @@ function buildApi(plugin) {
       const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
       const multi = dates.length > 1;
       const out = [];
+      let grandTracked = 0;
+      let grandElapsed = 0;
       for (const dateStr of dates) {
         const lo = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8)).getTime();
         const hi = endOfDayMs(lo);
         const today = ymd(new Date()) === dateStr;
+        const elapsed = Math.max(0, (today ? Date.now() : hi) - lo);
         const segs = [];
         for (const [, list] of byCol) for (const card of list) {
           const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
@@ -412,10 +445,17 @@ function buildApi(plugin) {
             segs.push({ s: cs, e: ce, open: !chrono[i + 1] && today, body: cleanText(card.body) });
           }
         }
+        const tracked = segs.reduce((sum, x) => sum + (x.e - x.s), 0);
+        grandTracked += tracked;
+        grandElapsed += elapsed;
         const rows = segs.sort((a, b) => a.s - b.s)
           .map(x => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? '~' : ''}\t${durCompact(x.e - x.s)}\t${x.body}`);
-        if (multi) out.push(`== ${dateStr} ==`, ...(rows.length ? rows : ['(none)']));
-        else out.push(...rows);
+        const footer = `TOTAL\t${dur(tracked)}\t${pct(tracked, elapsed)} elapsed`;
+        if (multi) out.push(`== ${dateStr} ==`, ...(rows.length ? rows : ['(none)']), footer);
+        else out.push(...rows, footer);
+      }
+      if (multi) {
+        out.push(`== total ==`, `TOTAL\t${dur(grandTracked)}\t${pct(grandTracked, grandElapsed)} elapsed`);
       }
       return '\n' + out.join('\n');
     },
@@ -425,6 +465,7 @@ function buildApi(plugin) {
       return '\n' + [
         'active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit',
         'getDone(date,opts?)      tasks moved to terminal col on a date',
+        'note("file:line")        freeform notes under a task (prose to next task)',
         'getReport(...)           move timeline; day | from,to | {days:N}',
         'chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}',
         'summary(...)             done counts grouped by fm key; opts: by,col,sample,paths',
@@ -530,7 +571,7 @@ function buildApi(plugin) {
         .map(x => ({ ...x, label: cleanText(x.card.body) }))
         .sort((a, b) => a.label.localeCompare(b.label))
         .map(({ card, colKey, fm, label }) => {
-          const metric = fm.metric === 'count' ? 'count' : 'sum';
+          const metric = (card.metric || fm.metric) === 'count' ? 'count' : 'sum';   // inline %% kbmetric %% beats fm
           const st = habitStats(card.history, metric, now);
           const f = (v) => metric === 'count' ? `${Math.round((v || 0) * 10) / 10}x` : fmtHours(v);
           const state = colKey === 'doing' ? 'DOING' : 'idle';
@@ -557,6 +598,13 @@ function buildApi(plugin) {
         : config.columns.find(c => c.live);               // start -> Doing
       await moveCard(plugin.app, it.card.file, it.card.line, target, config, { fromCol: cur });
       return `ok ${it.label}: ${cur.name} -> ${target.name}`;
+    },
+
+    // Snapshot the ACTIVE note's properties into a reusable, provenance-stamped
+    // template (body dropped). Notes made from it inherit `template`/`template-version`
+    // for a future retroactive "propagate". Usage: kb.saveTemplate("Project ABC").
+    async saveTemplate(name) {
+      return saveTemplate(plugin, name);
     },
   };
 }
