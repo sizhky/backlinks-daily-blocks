@@ -26,5 +26,8 @@
     "limit": 0,
     "truncate": 800,
     "includeCurrent": false
+  },
+  "templates": {
+    "dir": "90-99 Obsidian Meta/Templates/Categories"
   }
 }

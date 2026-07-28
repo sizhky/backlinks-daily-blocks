@@ -5,6 +5,10 @@
 const { MarkdownRenderChild, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
 
+// Persisted marker for "no lanes selected". Kept distinct from a cleared
+// `lanes:` line (= all) and from the "(none)" no-frontmatter pool lane.
+const LANE_NONE = '__none__';
+
 const KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
 const KB_TAG_RE = /#kb\/([\w-]+)/;
 const STAMP_RE = /\s+\d{12}\s*$/;
@@ -108,12 +112,12 @@ function parseColors(text) {
 //     Doing > Parked
 //     Parked > Todo
 function parseKanbanConfig(src) {
-  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, lanes: [], hidedonelanes: false, lanesort: null, mode: null, only: [] };
+  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, groupby: null, lanes: [], open: [], hidedonelanes: false, lanesort: null, mode: null, only: [], autoFold: null };
   let lastKey = null;
   for (const rawLine of (src || '').split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|lanes|hidedonelanes|lanesort|mode|only)\s*:\s*(.*)$/);
+    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|groupby|lanes|open|hidedonelanes|lanesort|mode|only|auto-fold|fold)\s*:\s*(.*)$/);
     const key = m ? m[1] : lastKey;
     const value = m ? m[2].trim() : line;
     lastKey = key;
@@ -123,6 +127,8 @@ function parseKanbanConfig(src) {
       config.maxage = Number(value) || 0;
     } else if (key === 'mode') {
       config.mode = value.toLowerCase();
+    } else if (key === 'auto-fold' || key === 'fold') {
+      config.autoFold = value !== 'false';
     } else if (key === 'hidedonelanes') {
       config.hidedonelanes = value !== 'false';
     } else if (key === 'lanesort') {
@@ -131,10 +137,16 @@ function parseKanbanConfig(src) {
       config.filters.push(...parseFilters(value));
     } else if (key === 'lane') {
       config.lane = value;
+    } else if (key === 'groupby') {
+      config.groupby = value;
     } else if (key === 'lanes') {
-      // Selected swimlanes to render, in render order. Empty/absent = all
+      // Selected swimlanes shown as cards, in order. Empty/absent = all
       // (back-compat). Written back by the lane picker; survives restart.
       config.lanes.push(...value.split(',').map(s => s.trim()).filter(Boolean));
+    } else if (key === 'open') {
+      // Expanded lanes: rendered as full boards inline, not collapsed cards.
+      // Written back when a card is clicked open; survives restart.
+      config.open.push(...value.split(',').map(s => s.trim()).filter(Boolean));
     } else if (key === 'only') {
       // Display filter: render only these columns. Bucketing is unchanged, so
       // untagged tasks still land in the real inbox (first column) and just
@@ -185,13 +197,15 @@ async function scanKanbanTasks(app, config, opts = {}) {
     if (config.paths.length && !config.paths.some(p => f.path.startsWith(p))) return false;
     const cache = app.metadataCache.getFileCache(f);
     if (!cache?.listItems?.some(it => it.task != null)) return false;
-    if (opts.cacheFilter && !opts.cacheFilter(cache, f)) return false;
+    const cacheFilter = opts.cacheFilter || config.cacheFilter;
+    if (cacheFilter && !cacheFilter(cache, f)) return false;
     return config.filters.every(fl => passesFilter(cache, fl));
   });
 
   for (const file of files) {
     const cache = app.metadataCache.getFileCache(file);
     const lane = config.lane ? (fmValues(cache, config.lane)[0] || null) : null;
+    const laneGroup = config.groupby ? (fmValues(cache, config.groupby)[0] || null) : null;
     const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
     // Ancestor chain by indent: tasks at any depth become cards; history,
     // ei stamps and tag lines attach to the deepest task above them with
@@ -210,6 +224,10 @@ async function scanKanbanTasks(app, config, opts = {}) {
     for (let i = 0; i < lines.length; i++) {
       const text = lines[i];
 
+      // A `---` thematic break closes the open `- [!]` group: following
+      // top-level tasks are standalone again until the next `- [!]`.
+      if (/^-{3,}\s*$/.test(text)) { group = null; continue; }
+
       const tm = text.match(TASK_RE);
       if (tm) {
         const indent = indentWidth(text);
@@ -220,7 +238,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
         // indentation still nests deeper tasks under their own ancestor.
         if (!parent && !isGroup && group) parent = group;
         const card = {
-          file, line: i, body: tm[4], state: tm[2], parent, lane, isGroup,
+          file, line: i, body: tm[4], state: tm[2], parent, lane, group: laneGroup, isGroup,
           children: [], history: [], eiHistory: [], tags: [], who: [], color: null, icon: null,
         };
         if (parent) parent.children.push(card);
@@ -294,7 +312,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
         col = byTag.get(key) || open[0];
       } else {
         col = byState.get(card.state);
-        if (col && cutoff && (card.body.match(STAMP_RE)?.[0]?.trim() || '') < cutoff) col = null;
+        if (col && cutoff && terminalStamp(card, col) < cutoff) col = null;
       }
       if (col) cards.get(col.key).push(card);
     }
@@ -407,6 +425,13 @@ function stampNow(d = new Date()) {
 
 function stampToDate(s) {
   return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12));
+}
+
+function terminalStamp(card, col) {
+  return card.body.match(STAMP_RE)?.[0]?.trim()
+    || card.history.reduce((latest, ev) => (
+      ev.to === col.name && ev.stamp > latest ? ev.stamp : latest
+    ), '');
 }
 
 function hhmmMs(ms) {
@@ -533,6 +558,7 @@ function resolveKanbanConfig(plugin, src, sourcePath) {
     config.paths = defaults.paths.split(',').map(s => s.trim()).filter(Boolean);
   }
   if (config.maxage == null) config.maxage = defaults.maxage != null ? defaults.maxage : 7;
+  if (config.autoFold == null) config.autoFold = defaults.autoFold === true || defaults.fold === true;
   if (!config.sweeps.length && defaults.sweep) {
     config.sweeps = parseSweeps(defaults.sweep);
   }
@@ -540,12 +566,11 @@ function resolveKanbanConfig(plugin, src, sourcePath) {
   return config;
 }
 
-// Rewrite this block's own `lanes:` line in the host note so the picker's
-// selection survives a restart. `names` empty => remove the line (= show all,
-// the default). Written inline (`lanes: A, B`) in render order; reorder later
-// just changes that order. Live rendering reads state.selectedLanes, not this —
-// the file write is purely for persistence, so a missing sectionInfo is benign.
-async function persistLanes(plugin, ctx, el, names, state) {
+// Rewrite this block's own `lanes:` (visible cards) and `open:` (expanded
+// boards) lines in the host note so the picker survives a restart. Empty list
+// => remove that line. Live rendering reads state, not the file, so a missing
+// sectionInfo is benign (live-only, just won't persist).
+async function persistLaneState(plugin, ctx, el, selectedNames, openNames, state) {
   const info = ctx.getSectionInfo?.(el);
   if (!info) return; // embedded/unknown context: live-only, can't persist
   const file = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
@@ -555,13 +580,14 @@ async function persistLanes(plugin, ctx, el, names, state) {
   const body = lines.slice(bodyStart, info.lineEnd); // up to, not incl, closing fence
   const out = [];
   for (let i = 0; i < body.length; i++) {
-    if (/^\s*lanes\s*:/.test(body[i])) {
+    if (/^\s*(lanes|open)\s*:/.test(body[i])) {
       while (i + 1 < body.length && /^\s+\S/.test(body[i + 1])) i++; // drop indented continuation
       continue;
     }
     out.push(body[i]);
   }
-  if (names.length) out.push(`lanes: ${names.join(', ')}`);
+  if (selectedNames.length) out.push(`lanes: ${selectedNames.join(', ')}`);
+  if (openNames.length) out.push(`open: ${openNames.join(', ')}`);
   state.selfWriteAt = Date.now(); // our own write — skip the echoed vault-modify redraw
   lines.splice(bodyStart, info.lineEnd - bodyStart, ...out);
   await plugin.app.vault.modify(file, lines.join('\n'));
@@ -577,13 +603,20 @@ async function renderKanbanBlock(plugin, src, el, ctx) {
   }
   const board = el.createDiv({ cls: 'bdb-kanban' });
   const state = { dragging: false };
-  // Lane selection: Set of lowercased lane names, or null = all (back-compat).
-  // Seeded from the block's `lanes:` line; the picker mutates it and persists.
-  state.selectedLanes = config.lanes.length ? new Set(config.lanes.map(n => n.toLowerCase())) : null;
+  // Lane selection: Set of lowercased lane names, empty Set = none, null = all
+  // (back-compat). Seeded from the block's `lanes:` line. A cleared line means
+  // "all", so "none" persists as an explicit sentinel (LANE_NONE) to stay distinct.
+  state.selectedLanes = config.lanes.length
+    ? (config.lanes.length === 1 && config.lanes[0].toLowerCase() === LANE_NONE
+        ? new Set()
+        : new Set(config.lanes.map(n => n.toLowerCase())))
+    : null;
+  // Expanded lanes (rendered as full boards). Empty = all collapsed to cards.
+  state.openLanes = new Set(config.open.map(n => n.toLowerCase()));
   let persistTimer = null;
-  state.persistLanes = (names) => {
+  state.persist = (selectedNames, openNames) => {
     window.clearTimeout(persistTimer);
-    persistTimer = window.setTimeout(() => persistLanes(plugin, ctx, el, names, state), 400);
+    persistTimer = window.setTimeout(() => persistLaneState(plugin, ctx, el, selectedNames, openNames, state), 400);
   };
   const redraw = () => { if (!state.dragging) drawBoard(plugin, board, resolveKanbanConfig(plugin, src, ctx.sourcePath), state); };
   // Clock tick: patch the running-card times in place — no teardown, no flash.
@@ -595,12 +628,17 @@ async function renderKanbanBlock(plugin, src, el, ctx) {
   ctx.addChild(child);
   child.registerInterval(window.setInterval(tick, 60000));
   let pending = null;
-  child.registerEvent(plugin.app.vault.on('modify', () => {
+  const scheduleRedraw = (file) => {
     // A move we just made echoes back as a modify; we already redrew in place.
     if (state.selfWriteAt && Date.now() - state.selfWriteAt < 1500) return;
+    // Ignore churn outside this board's scope — non-markdown files (.base/.json)
+    // and notes in other folders shouldn't trigger a full rebuild (the "jitter").
+    if (file && file.extension !== 'md') return;
+    if (file && config.paths.length && !config.paths.some(p => file.path.startsWith(p))) return;
     window.clearTimeout(pending);
     pending = window.setTimeout(redraw, 500);
-  }));
+  };
+  child.registerEvent(plugin.app.vault.on('modify', scheduleRedraw));
   // Shift-click on any board's collapse button broadcasts here; every board folds
   // its own empty/terminal columns. state.collapse is refreshed each drawBoard.
   child.registerDomEvent(window, 'bdb-kanban-collapse-all', () => state.collapse?.());
@@ -608,34 +646,55 @@ async function renderKanbanBlock(plugin, src, el, ctx) {
   await drawBoard(plugin, board, config, state);
 }
 
-// Split the column map into lanes by card.lane. Lanes exist only where cards
-// do (empty lanes never render); no-value cards pool in "(none)", last.
-// Without lane config: one anonymous lane, board renders as before.
+function emptyColMap(config) {
+  return new Map(config.columns.map(c => [c.key, []]));
+}
+
+function laneMetrics(config, cards) {
+  const openKeys = config.columns.filter(c => !c.state).map(c => c.key);
+  const termKeys = config.columns.filter(c => c.state).map(c => c.key);
+  const actKeys = config.columns.filter((c, i) => !c.state && !c.paused && i !== 0).map(c => c.key);
+  return {
+    n: [...cards.values()].flat().length,
+    done: termKeys.reduce((s, k) => s + cards.get(k).length, 0),
+    open: openKeys.reduce((s, k) => s + cards.get(k).length, 0),
+    actionable: actKeys.reduce((s, k) => s + cards.get(k).length, 0),
+  };
+}
+
+function aggregateCards(config, lanes) {
+  const cards = emptyColMap(config);
+  for (const lane of lanes) {
+    for (const [key, list] of lane.cards) cards.get(key).push(...list);
+  }
+  return cards;
+}
+
+function compareNames(a, b) {
+  const noneLast = (a === '(none)') - (b === '(none)');
+  return noneLast || String(a).localeCompare(String(b));
+}
+
+// Split the column map into lanes by card.lane, optionally under card.group.
+// Empty lanes never render; no-value cards pool in "(none)", last.
+// Without lane/group config: one anonymous lane, board renders as before.
 function laneSplit(config, cards) {
-  if (!config.lane) return [{ name: null, cards, n: 0 }];
+  if (!config.lane && !config.groupby) return [{ name: null, group: null, cards, ...laneMetrics(config, cards) }];
   const lanes = new Map();
   for (const [key, list] of cards) {
     for (const card of list) {
-      const name = card.lane || '(none)';
-      if (!lanes.has(name)) lanes.set(name, new Map(config.columns.map(c => [c.key, []])));
-      lanes.get(name).get(key).push(card);
+      const group = config.groupby ? (card.group || '(none)') : null;
+      const name = config.lane ? (card.lane || '(none)') : null;
+      const id = `${group ?? ''}\u0000${name ?? ''}`;
+      if (!lanes.has(id)) lanes.set(id, { group, name, cards: emptyColMap(config) });
+      lanes.get(id).cards.get(key).push(card);
     }
   }
   // hidedonelanes: a lane with nothing left in an open column is finished
   // work, not a lane — drop it. Off by default; all non-empty lanes show.
   const openKeys = config.columns.filter(c => !c.state).map(c => c.key);
-  const termKeys = config.columns.filter(c => c.state).map(c => c.key);
-  // GTD "next action" columns: open, not paused (Parked/Waiting), not the inbox
-  // (first column). A lane with open cards but zero here is STALLED.
-  const actKeys = config.columns.filter((c, i) => !c.state && !c.paused && i !== 0).map(c => c.key);
-  return [...lanes.entries()]
-    .map(([name, m]) => ({
-      name, cards: m,
-      n: [...m.values()].flat().length,
-      done: termKeys.reduce((s, k) => s + m.get(k).length, 0), // closed = terminal cards
-      open: openKeys.reduce((s, k) => s + m.get(k).length, 0),
-      actionable: actKeys.reduce((s, k) => s + m.get(k).length, 0),
-    }))
+  return [...lanes.values()]
+    .map(l => ({ ...l, ...laneMetrics(config, l.cards) }))
     .filter(l => !config.hidedonelanes || openKeys.some(k => l.cards.get(k).length))
     // lanesort: "<key>-<dir>", key = total|open|name, dir = desc|asc (default
     // desc; bare "total"/"open" still parse). For numeric keys (none) sorts by
@@ -643,11 +702,31 @@ function laneSplit(config, cards) {
     .sort((a, b) => {
       const [skey, dir = 'desc'] = (config.lanesort || 'total').split('-');
       const sign = dir === 'asc' ? 1 : -1;
-      const noneLast = (a.name === '(none)') - (b.name === '(none)');
-      if (skey === 'name') return noneLast || sign * a.name.localeCompare(b.name);
+      const byGroup = compareNames(a.group || '', b.group || '');
+      if (byGroup) return byGroup;
+      if (skey === 'name') return sign * compareNames(a.name, b.name);
       const byKey = sign * ((skey === 'open' ? a.open : a.n) - (skey === 'open' ? b.open : b.n));
-      return byKey || noneLast || a.name.localeCompare(b.name);
+      return byKey || compareNames(a.name, b.name);
     });
+}
+
+function laneGroupSplit(config, lanes) {
+  if (!config.groupby) {
+    const cards = aggregateCards(config, lanes);
+    return [{ name: null, lanes, cards, ...laneMetrics(config, cards) }];
+  }
+  const groups = new Map();
+  for (const lane of lanes) {
+    const name = lane.group || '(none)';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(lane);
+  }
+  return [...groups.entries()]
+    .map(([name, groupLanes]) => {
+      const cards = aggregateCards(config, groupLanes);
+      return { name, lanes: groupLanes, cards, ...laneMetrics(config, cards) };
+    })
+    .sort((a, b) => (b.open - a.open) || compareNames(a.name, b.name));
 }
 
 async function drawBoard(plugin, board, config, state = { dragging: false }) {
@@ -661,6 +740,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
   // full teardown. Reset every full redraw so stale element refs drop out.
   state.timeUpdaters = [];
   state.folded ??= new Set();
+  state.groupFold ??= new Set();
   state.colFold ??= new Map();
 
   const lanes = laneSplit(config, cards);
@@ -673,11 +753,14 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
   // Stored on state so the window broadcast (Shift-click on any board) can fold
   // this board too; refreshed each draw with the current lanes.
   const collapse = async () => {
+    for (const group of laneGroupSplit(config, lanes)) {
+      if (config.groupby && group.open === 0) state.groupFold.add(group.name);
+    }
     for (const lane of lanes) {
       if (lane.name != null && lane.open === 0) state.folded.add(lane.name);
       for (const col of config.columns) {
         // Fold empty columns and terminal columns (Done/Cancelled) regardless of count.
-        if (!lane.cards.get(col.key).length || col.state) state.colFold.set(`${lane.name ?? ''}::${col.key}`, true);
+        if (!lane.cards.get(col.key).length || col.state) state.colFold.set(`${lane.group ?? ''}::${lane.name ?? ''}::${col.key}`, true);
       }
     }
     await drawBoard(plugin, board, config, state);
@@ -687,49 +770,104 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
     if (e.shiftKey) window.dispatchEvent(new CustomEvent('bdb-kanban-collapse-all'));
     else collapse();
   });
-
-  // Lane picker / next-action audit. Only when lanes exist and there's more than
-  // one to choose between (a single lane just renders, no overhead). Each row is a
-  // checkbox + "actionable/open" count; a lane with open cards but none in a
-  // next-action column is flagged STALLED (GTD: an active project with no next step).
-  const norm = (n) => n.toLowerCase();
-  const visible = state.selectedLanes
-    ? lanes.filter(l => state.selectedLanes.has(norm(l.name)))
-    : lanes;
-  if (config.lane && lanes.length > 1) {
-    const apply = (set) => {
-      state.selectedLanes = set;
-      const ordered = lanes.filter(l => set.has(norm(l.name))).map(l => l.name);
-      state.persistLanes?.(set.size === lanes.length ? [] : ordered); // all selected => clear line
-      drawBoard(plugin, board, config, state);
-    };
-    const picker = board.createDiv({ cls: 'bdb-kanban-picker' });
-    const ctrls = picker.createDiv({ cls: 'bdb-kanban-picker-ctrls' });
-    ctrls.createEl('button', { cls: 'bdb-kanban-tool', text: 'All' })
-      .addEventListener('click', () => apply(new Set(lanes.map(l => norm(l.name)))));
-    ctrls.createEl('button', { cls: 'bdb-kanban-tool', text: 'None' })
-      .addEventListener('click', () => apply(new Set()));
-    for (const lane of lanes) {
-      const on = state.selectedLanes ? state.selectedLanes.has(norm(lane.name)) : true;
-      const stalled = lane.open > 0 && lane.actionable === 0;
-      const item = picker.createEl('label', { cls: 'bdb-kanban-picker-item' });
-      if (stalled) item.classList.add('bdb-kanban-picker-stalled');
-      const cb = item.createEl('input', { type: 'checkbox' });
-      cb.checked = on;
-      cb.addEventListener('change', () => {
-        const set = state.selectedLanes ? new Set(state.selectedLanes) : new Set(lanes.map(l => norm(l.name)));
-        cb.checked ? set.add(norm(lane.name)) : set.delete(norm(lane.name));
-        apply(set);
-      });
-      item.createSpan({ cls: 'bdb-kanban-picker-name', text: lane.name });
-      item.createSpan({ cls: 'bdb-kanban-picker-count', text: `${lane.actionable}/${lane.open}` });
-      if (stalled) item.createSpan({ cls: 'bdb-kanban-picker-warn', text: 'stalled', attr: { 'aria-label': 'open cards but no next action' } });
-    }
+  for (const route of config.sweeps) {
+    const fromCol = config.columns.find(c => c.key === route.from);
+    const toCol = config.columns.find(c => c.key === route.to);
+    if (!fromCol || !toCol) continue;
+    const btn = bar.createEl('button', {
+      cls: 'bdb-kanban-tool bdb-kanban-sweep',
+      text: `${fromCol.name} > ${toCol.name}`,
+      attr: { 'aria-label': `Sweep all ${fromCol.name} cards to ${toCol.name}` },
+    });
+    btn.addEventListener('click', async () => {
+      await sweepColumn(plugin.app, config, fromCol, toCol, cards.get(fromCol.key) || []);
+      await drawBoard(plugin, board, config, state);
+    });
   }
 
-  // Body holds the lanes/columns; the board is now a column wrapper (toolbar + body).
+  // Lane selection + expansion. selectedLanes = which lanes show as cards
+  // (null = all); openLanes = which are expanded to full boards. Both persist.
+  const norm = (n) => String(n ?? '').toLowerCase();
+  state.openLanes ??= new Set();
+  const visibleLanes = state.selectedLanes
+    ? lanes.filter(l => state.selectedLanes.has(norm(l.name)))
+    : lanes;
+  const laneGroups = laneGroupSplit(config, visibleLanes);
+  // Persist args: selection uses a sentinel for "none" (a cleared line = all);
+  // open is plain (cleared = nothing expanded).
+  const selNames = () => !state.selectedLanes ? []
+    : state.selectedLanes.size === 0 ? [LANE_NONE]
+    : state.selectedLanes.size === lanes.length ? []
+    : lanes.filter(l => state.selectedLanes.has(norm(l.name))).map(l => l.name);
+  const openNames = () => lanes.filter(l => state.openLanes.has(norm(l.name))).map(l => l.name);
+  const persistNow = () => state.persist?.(selNames(), openNames());
+  const applyOpen = (name, isOpen) => {
+    isOpen ? state.openLanes.add(norm(name)) : state.openLanes.delete(norm(name));
+    persistNow();
+    drawBoard(plugin, board, config, state);
+  };
+  const applyGroupOpen = (name, isOpen) => {
+    isOpen ? state.groupFold.delete(name) : state.groupFold.add(name);
+    drawBoard(plugin, board, config, state);
+  };
+  // Slim header: lane count. The lanes themselves render in the body as cards
+  // (collapsed) or full boards (expanded).
+  if (config.lane && lanes.length > 1) {
+    const picker = board.createDiv({ cls: 'bdb-kanban-picker' });
+    const head = picker.createDiv({ cls: 'bdb-kanban-picker-head' });
+    const selN = state.selectedLanes ? state.selectedLanes.size : lanes.length;
+    head.createSpan({ cls: 'bdb-kanban-picker-title', text: `Lanes ${selN}/${lanes.length}` });
+  }
+
+  // Body holds the lanes/columns. With lanes, it's a vertical list: one clickable
+  // row per lane; clicking a row expands its board directly below it.
   const body = board.createDiv({ cls: 'bdb-kanban-body' });
-  body.classList.toggle('bdb-kanban-stacked', !!config.lane);
+  body.classList.toggle('bdb-kanban-lanelist', !!config.lane || !!config.groupby);
+
+  // A lane row: hide checkbox, caret, name, next/open/done counts, stalled flag,
+  // and a per-column distribution. Click toggles its board open/closed below.
+  const renderAggregateRow = (parent, item, opts = {}) => {
+    const on = opts.group ? !state.groupFold.has(item.name) : state.openLanes.has(norm(item.name));
+    const stalled = item.open > 0 && item.actionable === 0;
+    const row = parent.createDiv({ cls: opts.cls + (on ? ' is-open' : '') + (stalled ? ' is-stalled' : '') });
+    const caret = row.createSpan({ cls: 'bdb-kanban-lanerow-caret' });
+    setIcon(caret, on ? 'chevron-down' : 'chevron-right');
+    row.createSpan({ cls: 'bdb-kanban-lanerow-name', text: item.name });
+    const meta = row.createSpan({ cls: 'bdb-kanban-lanerow-meta' });
+    if (stalled) meta.createSpan({ cls: 'bdb-kanban-picker-warn', text: 'stalled' });
+    else meta.createSpan({ cls: 'bdb-kanban-lanerow-ok', text: `${item.actionable} next` });
+    meta.createSpan({ cls: 'bdb-kanban-lanerow-tot', text: `${item.open} open${item.done ? ` · ${item.done} done` : ''}` });
+    const dist = row.createDiv({ cls: 'bdb-kanban-lanerow-dist' });
+    dist.style.setProperty('--bdb-kanban-lane-cols', String(config.columns.length));
+    for (const [index, col] of config.columns.entries()) {
+      const n = item.cards.get(col.key).length;
+      const chip = dist.createSpan({ cls: 'bdb-kanban-lanerow-chip' + (n ? '' : ' is-zero') });
+      chip.createSpan({ cls: 'bdb-kanban-lanerow-dot' }).style.background = columnColor(config, col, index);
+      chip.createSpan({ text: `${col.name} ${n}` });
+    }
+    row.addEventListener('click', () => opts.group ? applyGroupOpen(item.name, !on) : applyOpen(item.name, !on));
+  };
+  const renderLaneRow = (parent, lane) => {
+    const on = state.openLanes.has(norm(lane.name));
+    const stalled = lane.open > 0 && lane.actionable === 0;
+    const row = parent.createDiv({ cls: 'bdb-kanban-lanerow' + (on ? ' is-open' : '') + (stalled ? ' is-stalled' : '') });
+    const caret = row.createSpan({ cls: 'bdb-kanban-lanerow-caret' });
+    setIcon(caret, on ? 'chevron-down' : 'chevron-right');
+    row.createSpan({ cls: 'bdb-kanban-lanerow-name', text: lane.name });
+    const meta = row.createSpan({ cls: 'bdb-kanban-lanerow-meta' });
+    if (stalled) meta.createSpan({ cls: 'bdb-kanban-picker-warn', text: 'stalled' });
+    else meta.createSpan({ cls: 'bdb-kanban-lanerow-ok', text: `${lane.actionable} next` });
+    meta.createSpan({ cls: 'bdb-kanban-lanerow-tot', text: `${lane.open} open${lane.done ? ` · ${lane.done} done` : ''}` });
+    const dist = row.createDiv({ cls: 'bdb-kanban-lanerow-dist' });
+    dist.style.setProperty('--bdb-kanban-lane-cols', String(config.columns.length));
+    for (const [index, col] of config.columns.entries()) {
+      const n = lane.cards.get(col.key).length;
+      const chip = dist.createSpan({ cls: 'bdb-kanban-lanerow-chip' + (n ? '' : ' is-zero') });
+      chip.createSpan({ cls: 'bdb-kanban-lanerow-dot' }).style.background = columnColor(config, col, index);
+      chip.createSpan({ text: `${col.name} ${n}` });
+    }
+    row.addEventListener('click', () => applyOpen(lane.name, !on));
+  };
 
   // Shared move path for HTML5 drop and mobile tap-to-move. Returns true if a
   // move happened. Enforces the terminal-column blocker rule for both.
@@ -754,22 +892,19 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
     return true;
   };
 
-  for (const lane of visible) {
-    let host = body;
-    if (lane.name != null) {
-      // Native <details>/<summary> fold; folded lanes survive redraws via state.
-      const laneEl = body.createEl('details', { cls: 'bdb-kanban-lane' });
-      if (!state.folded.has(lane.name)) laneEl.setAttribute('open', '');
-      laneEl.addEventListener('toggle', () => {
-        if (laneEl.open) state.folded.delete(lane.name);
-        else state.folded.add(lane.name);
-      });
-      const laneTitle = laneEl.createEl('summary', { cls: 'bdb-kanban-lane-title', text: `${lane.name} (${lane.open}/${lane.n})` });
-      addTitleCopy(laneTitle, lane.name);
-      host = laneEl.createDiv({ cls: 'bdb-kanban-lane-row' });
-    }
+  for (const group of laneGroups) {
+    if (config.groupby) renderAggregateRow(body, group, { cls: 'bdb-kanban-lanerow bdb-kanban-grouprow', group: true });
+    if (config.groupby && state.groupFold.has(group.name)) continue;
+    for (const lane of group.lanes) {
+      if (config.lane) renderLaneRow(body, lane); // the clickable row (always shown)
+      // Collapsed lane: row only. Expanded lane (or the anonymous no-lane board)
+      // renders its columns full-width directly below the row.
+      if (config.lane && !state.openLanes.has(norm(lane.name))) continue;
+      const host = lane.name != null || config.groupby
+        ? body.createDiv({ cls: 'bdb-kanban-lane-open bdb-kanban-lane-row' })
+        : body;
 
-    for (const [index, col] of config.columns.entries()) {
+      for (const [index, col] of config.columns.entries()) {
       if (config.only.length && !config.only.includes(col.key)) continue;
       const colCards = lane.cards.get(col.key);
       const colEl = host.createDiv({ cls: 'bdb-kanban-col' });
@@ -779,8 +914,8 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
       // Fold: column collapses to a vertical strip (still a drop target).
       // Empty columns auto-fold; a manual toggle overrides until the next
       // drop into the column clears it. Keyed per lane.
-      const foldKey = `${lane.name ?? ''}::${col.key}`;
-      const folded = state.colFold.get(foldKey) ?? !colCards.length;
+      const foldKey = `${lane.group ?? ''}::${lane.name ?? ''}::${col.key}`;
+      const folded = state.colFold.get(foldKey) ?? (config.autoFold && !colCards.length);
       if (folded) colEl.classList.add('bdb-kanban-col-folded');
 
       const titleEl = colEl.createDiv({ cls: 'bdb-kanban-col-title', text: `${col.name} (${colCards.length})` });
@@ -1031,6 +1166,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
         });
       }
     }
+    }
   }
 
   // Board height: H minimizing (empty space below short columns) + 3 ×
@@ -1070,18 +1206,16 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
     }
     if (scroller && savedTop != null) scroller.scrollTop = savedTop;
   };
-  // Right after attach (notably on app reload) styles and pane layout may
-  // not have settled, so the first measure can read junk — refit twice on
-  // a timer; the measurement is idempotent.
-  fit();
-  window.setTimeout(fit, 400);
-  window.setTimeout(fit, 2000);
+  // SUNSET: the dynamic percentile-fit (above) caused reflow jitter. Columns now
+  // use a fixed max-height from CSS (--bdb-kanban-col-h). `fit` is kept for
+  // reference / a future opt-in but is no longer called.
+  void fit;
 }
 
 module.exports = {
-  parseKanbanConfig, scanKanbanTasks, moveCard, logTapSpan, renderKanbanBlock,
+  parseKanbanConfig, scanKanbanTasks, moveCard, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
   openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, fmtDur, TASK_RE, STAMP_RE,
-  TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE,
+  TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE, terminalStamp,
   columnColor, colKey,
 };

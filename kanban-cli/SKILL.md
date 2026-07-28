@@ -2,7 +2,7 @@
 name: kanban-cli
 description: Query and mutate the backlinks-daily-blocks kanban board from the shell via `obsidian eval`. Use when an LLM needs to read the user's task plate, see what was done on a date, get a day's move timeline, create a task, or move a task between columns without opening Obsidian.
 metadata:
-  version: "0.2"
+  version: "0.2.1"
 ---
 
 # Kanban CLI
@@ -61,12 +61,14 @@ Returns a leading `\n` then tab-separated lines (token-lean, not JSON):
 ```
 col<TAB>file:line<TAB>body<TAB>age
 ```
-`age` is relative (`30m`, `7h`, `1d`). `opts`:
+`age` is relative (`30m`, `7h`, `1d`). With `opts.timestamps: true`, each row
+adds the exact ISO move timestamp after `age`. Other `opts`:
 - `paths` — folder filter (string)
 - `col` — only this column (case-insensitive)
 - `tag` — substring match on tags or body
 - `staleDays` — only tasks untouched ≥ N days
 - `limit` — cap row count
+- `timestamps` — append the exact timestamp used to calculate `age`
 
 Example: `kb.active({col:"Todo",limit:3})`
 
@@ -197,7 +199,7 @@ the span. Lets an LLM or a UI button log work without opening the board.
 
 There is no `kb.create` method — a task is a **checkbox line inside a note**, never a standalone file with a `# heading` or `Status::` prop. To add one:
 
-1. New note path: `~/Vault/$(date +%Y%m%d%H%M).md` (a daily note).
+1. New note path: `~/Vault/$(date +%Y%m%d-%H%M).md` (a daily note). Keep the hyphen between date and time.
 2. Frontmatter carries the project (and org) the board filters on:
    ```
    ---

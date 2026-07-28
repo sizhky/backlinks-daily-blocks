@@ -26,7 +26,7 @@
 .bdb-bases-title-link {
   color: var(--text-accent);
   text-decoration: none;
-  cursor: pointer;
+  cursor: grab;
 }
 
 .bdb-bases-title-link:hover {
@@ -318,47 +318,123 @@
   width: 1.1em;
   height: 1.1em;
 }
+.bdb-kanban-toolbar .bdb-kanban-sweep {
+  padding: 0.25em 0.7em;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+.bdb-kanban-toolbar .bdb-kanban-sweep:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
 
-/* Lane picker / next-action audit: a wrapped row of project checkboxes above
-   the board. Doubles as the GTD audit — stalled lanes are tinted. */
+/* Lane picker header: lane count above the lane card grid. */
 .bdb-kanban-picker {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.35em 0.6em;
-  padding: 0.5em 0.8em;
+  padding: 0.4em 0.8em;
   border-bottom: 1px solid var(--background-modifier-border);
 }
-.bdb-kanban-picker-ctrls {
+.bdb-kanban-picker-head {
   display: flex;
-  gap: 0.3em;
-  margin-right: 0.3em;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+  width: 100%;
 }
+.bdb-kanban-picker-title {
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.bdb-kanban-picker-ctrls { display: flex; gap: 0.3em; }
 .bdb-kanban-picker-ctrls .bdb-kanban-tool {
-  padding: 0.15em 0.5em;
-  font-size: 0.85em;
+  padding: 0.15em 0.7em;
+  font-size: 0.8em;
   border: 1px solid var(--background-modifier-border);
 }
-.bdb-kanban-picker-item {
+.bdb-kanban-picker-warn {
+  color: var(--color-orange);
+  font-size: 0.72em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Lane list: one clickable row per lane; clicking expands its board below it. */
+.bdb-kanban-lanelist { display: flex; flex-direction: column; gap: 2px; overflow-x: visible; align-items: stretch; }
+/* Grid so every row's columns line up regardless of name length:
+   checkbox | caret | name | meta | distribution. */
+.bdb-kanban-lanerow {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(8rem, 18rem) 14.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.5em;
+  cursor: pointer;
+}
+.bdb-kanban-lanerow:hover { background: var(--background-modifier-hover); }
+.bdb-kanban-lanerow.is-open { background: var(--background-secondary); }
+.bdb-kanban-grouprow {
+  margin-top: 0.5em;
+  padding: 0.6rem;
+  border-top: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 1.08em;
+  background: var(--background-primary-alt);
+}
+.bdb-kanban-grouprow .bdb-kanban-lanerow-name { font-size: 1.15em; }
+.bdb-kanban-grouprow .bdb-kanban-lanerow-chip { font-size: 0.86em; }
+.bdb-kanban-lanerow-caret { display: inline-flex; align-items: center; color: var(--text-muted); }
+.bdb-kanban-lanerow-caret svg { width: 1em; height: 1em; }
+.bdb-kanban-lanerow-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bdb-kanban-lanerow.is-stalled .bdb-kanban-lanerow-name { color: var(--color-orange); }
+.bdb-kanban-lanerow-meta { display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 0.7em; min-width: 0; font-size: 0.85em; white-space: nowrap; }
+.bdb-kanban-lanerow-ok { color: var(--text-accent); }
+.bdb-kanban-lanerow-tot { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.bdb-kanban-lanerow-dist {
+  display: grid;
+  grid-template-columns: repeat(var(--bdb-kanban-lane-cols, 1), minmax(6.8em, 1fr));
+  gap: 0.2em 0.7em;
+  min-width: 0;
+}
+.bdb-kanban-lanerow-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.3em;
-  padding: 0.15em 0.5em;
-  border-radius: 0.4em;
-  cursor: pointer;
-  font-size: 0.9em;
-  background: var(--background-secondary);
+  min-width: 0;
+  font-size: 0.78em;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
 }
-.bdb-kanban-picker-item input { cursor: pointer; margin: 0; }
-.bdb-kanban-picker-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.bdb-kanban-picker-stalled { background: color-mix(in srgb, var(--color-orange) 18%, var(--background-secondary)); }
-.bdb-kanban-picker-warn {
-  color: var(--color-orange);
-  font-size: 0.8em;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.bdb-kanban-lanerow-chip span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.bdb-kanban-lanerow-chip.is-zero { color: var(--text-faint); }
+.bdb-kanban-lanerow-chip.is-zero .bdb-kanban-lanerow-dot { opacity: 0.28; }
+.bdb-kanban-lanerow-dot { width: 0.6em; height: 0.6em; border-radius: 50%; flex: none; }
+/* Expanded board: a columns row, indented under its lane row, own h-scroll. */
+.bdb-kanban-lanelist .bdb-kanban-lane-open { margin: 2px 0 10px 1.7em; overflow-x: auto; }
+
+/* Shared distribution bar — also used by the report Σ day summary. */
+.bdb-lane-bar {
+  display: flex;
+  height: 7px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 10px;
+  background: var(--background-modifier-border);
+}
+.bdb-lane-bar-seg { min-width: 2px; }
 
 /* Lanes: the board stacks lane rows; each row lays out like the flat board.
    One horizontal scrollbar on the board moves every lane together. */
@@ -916,9 +992,11 @@ textarea.bdb-config-preview {
   opacity: 0.6;
 }
 
-/* percentile-capped columns: tall ones scroll inside themselves */
+/* Fixed column height (replaces the old dynamic fit): tall columns scroll
+   inside themselves. Override per board with --bdb-kanban-col-h if needed. */
 .bdb-kanban-cards {
   overflow-y: auto;
+  max-height: var(--bdb-kanban-col-h, 460px);
 }
 
 /* clipped column: faint dashed lip — there's more below the fold */
@@ -1047,6 +1125,44 @@ textarea.bdb-config-preview {
 
 /* report group headers + rollups */
 .bdb-report-rollup { font-size: 11px; color: var(--text-muted); font-family: var(--font-monospace); margin: 2px 0 8px 0; }
+
+/* Σ day summary: headline + labeled stacked bars (Projects, Columns). Every
+   item gets a segment — no truncation. Fixed height regardless of count. */
+.bdb-report-summary { display: flex; flex-direction: column; gap: 10px; padding: 8px 2px; }
+.bdb-report-summary-head { font-weight: 700; font-family: var(--font-monospace); font-size: 13px; }
+.bdb-report-sumbar-row { display: flex; align-items: center; gap: 10px; }
+.bdb-report-sumbar-cap {
+  flex: 0 0 5.5em;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bdb-report-sumbar {
+  flex: 1;
+  display: flex;
+  height: 22px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+}
+.bdb-report-sumbar-seg {
+  display: flex;
+  align-items: center;
+  min-width: 3px;
+  padding: 0 6px;
+  overflow: hidden;
+  cursor: default;
+}
+.bdb-report-sumbar-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
 .bdb-report-group { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 4px 0; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 2px; }
 .bdb-report-group-name { font-weight: 700; color: var(--text-normal); font-size: 12px; }
 .bdb-report-group-stat { font-size: 10px; color: var(--text-faint); font-family: var(--font-monospace); }
@@ -1117,3 +1233,196 @@ textarea.bdb-config-preview {
 .bdb-pad-on .bdb-pad-sub { color: var(--kb-card-color, var(--text-accent)); }
 .bdb-pad-on .bdb-pad-spark-bar { background: #fff; opacity: 0.9; }
 .bdb-pad-on .bdb-pad-spark-bar.is-zero { opacity: 0.22; }
+
+/* Doing view: compact live task clocks */
+.bdb-doing-view {
+  --bdb-doing-glow: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 18px 22px;
+}
+.bdb-task-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-height: 28px;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font: 650 10px/1 var(--font-monospace);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.bdb-task-collapse-all { width: 26px; height: 26px; }
+.bdb-task-section { margin-bottom: 14px; }
+.bdb-task-section.is-drop-target {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bdb-section-color) 10%, transparent);
+  box-shadow: inset 0 0 0 2px var(--bdb-section-color);
+}
+.bdb-task-section-head {
+  display: grid;
+  grid-template-columns: 18px clamp(130px, 30%, 180px) auto 1fr;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  gap: 9px;
+  min-height: 42px;
+  margin: 0 0 5px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+}
+.bdb-task-section-head:hover { background: color-mix(in srgb, var(--bdb-section-color) 8%, transparent); }
+.bdb-task-section-head.is-doing { cursor: default; }
+.bdb-task-section-head.is-doing:hover { background: transparent; }
+.bdb-task-section-head:focus-visible {
+  outline: 2px solid var(--bdb-section-color);
+  outline-offset: 1px;
+}
+.bdb-task-section-caret {
+  display: inline-flex;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+.bdb-task-section-caret.is-spacer { visibility: hidden; }
+.bdb-task-section-caret svg { width: 18px; height: 18px; }
+.bdb-task-section-title {
+  overflow: hidden;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bdb-task-section-head .bdb-doing-count { margin-left: 2px; }
+.bdb-task-section-meta {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+  min-width: 0;
+}
+.bdb-task-section-emojis {
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bdb-task-section-body { padding-left: 1px; }
+.bdb-doing-count {
+  min-width: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: 800 20px/1 var(--font-monospace);
+  text-align: left;
+}
+.bdb-doing-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  justify-self: end;
+  color: var(--text-muted);
+  font: 700 9px/1 var(--font-monospace);
+  letter-spacing: .12em;
+}
+.bdb-doing-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bdb-section-color, var(--interactive-accent));
+  box-shadow: 0 0 0 3px var(--bdb-doing-glow);
+  animation: bdb-doing-pulse 1.8s ease-in-out infinite;
+}
+.bdb-doing-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 42px;
+  margin: 6px 0;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: linear-gradient(110deg, var(--background-secondary), var(--background-primary));
+  cursor: grab;
+  transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease;
+}
+.bdb-doing-item:hover {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 3px 14px var(--bdb-doing-glow);
+  transform: translateY(-1px);
+}
+.bdb-doing-item.is-dragging { opacity: .28; cursor: grabbing; transform: scale(.985); }
+.bdb-task-drag-ghost {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  z-index: 10000;
+  margin: 0;
+  opacity: .9;
+  pointer-events: none;
+  transform: rotate(1.2deg) scale(.98);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .42), 0 0 0 1px var(--interactive-accent);
+}
+.bdb-doing-item:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+.bdb-doing-task { min-width: 0; overflow: hidden; color: var(--text-normal); }
+.bdb-doing-item::before {
+  content: '';
+  width: 3px;
+  height: 18px;
+  margin-left: -7px;
+  border-radius: 2px;
+  background: var(--bdb-section-color, var(--interactive-accent));
+  opacity: .45;
+}
+.bdb-doing-item { grid-template-columns: 3px minmax(0, 1fr) auto; }
+.bdb-doing-task p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+}
+.bdb-doing-clock {
+  min-width: 88px;
+  padding: 5px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary-alt);
+  color: var(--text-accent);
+  font: 700 12px/1.1 var(--font-monospace);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .035em;
+  text-align: right;
+  white-space: nowrap;
+}
+.bdb-doing-empty {
+  padding: 7px 26px;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+}
+@keyframes bdb-doing-pulse {
+  0%, 100% { opacity: .45; transform: scale(.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bdb-doing-live-dot { animation: none; }
+  .bdb-doing-item { transition: none; }
+}

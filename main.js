@@ -252,7 +252,7 @@ var require_render = __commonJS({
 // src/habits.js
 var require_habits = __commonJS({
   "src/habits.js"(exports2, module2) {
-    var { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, logTapSpan, addTitleCopy } = require_kanban();
+    var { parseKanbanConfig: parseKanbanConfig2, scanKanbanTasks, stampToDate, cleanText, moveCard: moveCard2, logTapSpan, addTitleCopy } = require_kanban();
     var { MarkdownRenderChild, setIcon } = require("obsidian");
     var { openFileAtLine } = require_render();
     var HABIT_COLS = "columns: Idle~, Doing!";
@@ -286,7 +286,7 @@ var require_habits = __commonJS({
       return days;
     }
     async function collectHabits(app2, paths2, year) {
-      const config = parseKanbanConfig(`${HABIT_COLS}
+      const config = parseKanbanConfig2(`${HABIT_COLS}
 paths: ${paths2.join(", ")}`);
       const cards = await scanKanbanTasks(app2, config, {
         cacheFilter: (cache) => cache?.frontmatter?.metric != null
@@ -525,8 +525,8 @@ paths: ${paths2.join(", ")}`);
     async function renderHabitPad2(plugin, source, el, ctx) {
       const child = new MarkdownRenderChild(el);
       ctx.addChild(child);
-      const config = parseKanbanConfig(source || "");
-      if (!config.columns.length) config.columns = parseKanbanConfig(HABIT_COLS).columns;
+      const config = parseKanbanConfig2(source || "");
+      if (!config.columns.length) config.columns = parseKanbanConfig2(HABIT_COLS).columns;
       if (!config.paths.length) config.paths = [ctx.sourcePath];
       const liveCol = config.columns.find((c) => c.live) || config.columns.find((c) => !c.state && !c.paused);
       const idleCol = config.columns.find((c) => !c.state && c.paused) || config.columns.find((c) => !c.state);
@@ -633,7 +633,7 @@ paths: ${paths2.join(", ")}`);
             }
             const target = doing ? idleCol : liveCol;
             if (!target) return;
-            await moveCard(plugin.app, card.file, card.line, target, config, { fromCol: cur });
+            await moveCard2(plugin.app, card.file, card.line, target, config, { fromCol: cur });
             await draw();
           });
         }
@@ -649,13 +649,14 @@ paths: ${paths2.join(", ")}`);
 // src/kanban.js
 var require_kanban = __commonJS({
   "src/kanban.js"(exports2, module2) {
-    var { MarkdownRenderChild, Notice, Platform, setIcon } = require("obsidian");
+    var { MarkdownRenderChild, Notice: Notice2, Platform, setIcon } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
+    var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
     var KB_TAG_RE = /#kb\/([\w-]+)/;
     var STAMP_RE = /\s+\d{12}\s*$/;
-    var TASK_RE = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
-    var HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
+    var TASK_RE2 = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
+    var HIST_RE2 = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
     var EI_HIST_RE = /^\s*%%\s?ei (\d{12}) ([\w-]+)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
     var ICON_RE = /^\s*%%\s?kbicon ([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*)\s?%%\s*$/i;
@@ -721,13 +722,13 @@ var require_kanban = __commonJS({
       }
       return out;
     }
-    function parseKanbanConfig(src) {
-      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, lanes: [], hidedonelanes: false, lanesort: null, mode: null, only: [] };
+    function parseKanbanConfig2(src) {
+      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, groupby: null, lanes: [], open: [], hidedonelanes: false, lanesort: null, mode: null, only: [], autoFold: null };
       let lastKey = null;
       for (const rawLine of (src || "").split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
-        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|lanes|hidedonelanes|lanesort|mode|only)\s*:\s*(.*)$/);
+        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|groupby|lanes|open|hidedonelanes|lanesort|mode|only|auto-fold|fold)\s*:\s*(.*)$/);
         const key = m ? m[1] : lastKey;
         const value = m ? m[2].trim() : line;
         lastKey = key;
@@ -736,6 +737,8 @@ var require_kanban = __commonJS({
           config.maxage = Number(value) || 0;
         } else if (key === "mode") {
           config.mode = value.toLowerCase();
+        } else if (key === "auto-fold" || key === "fold") {
+          config.autoFold = value !== "false";
         } else if (key === "hidedonelanes") {
           config.hidedonelanes = value !== "false";
         } else if (key === "lanesort") {
@@ -744,8 +747,12 @@ var require_kanban = __commonJS({
           config.filters.push(...parseFilters(value));
         } else if (key === "lane") {
           config.lane = value;
+        } else if (key === "groupby") {
+          config.groupby = value;
         } else if (key === "lanes") {
           config.lanes.push(...value.split(",").map((s) => s.trim()).filter(Boolean));
+        } else if (key === "open") {
+          config.open.push(...value.split(",").map((s) => s.trim()).filter(Boolean));
         } else if (key === "only") {
           config.only.push(...value.split(",").map((s) => colKey(s.trim())).filter(Boolean));
         } else if (key === "sweep") {
@@ -786,12 +793,14 @@ var require_kanban = __commonJS({
         if (config.paths.length && !config.paths.some((p) => f.path.startsWith(p))) return false;
         const cache = app2.metadataCache.getFileCache(f);
         if (!cache?.listItems?.some((it) => it.task != null)) return false;
-        if (opts.cacheFilter && !opts.cacheFilter(cache, f)) return false;
+        const cacheFilter = opts.cacheFilter || config.cacheFilter;
+        if (cacheFilter && !cacheFilter(cache, f)) return false;
         return config.filters.every((fl) => passesFilter(cache, fl));
       });
       for (const file of files) {
         const cache = app2.metadataCache.getFileCache(file);
         const lane = config.lane ? fmValues(cache, config.lane)[0] || null : null;
+        const laneGroup = config.groupby ? fmValues(cache, config.groupby)[0] || null : null;
         const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
         const fileCards = [];
         const stack = [];
@@ -805,7 +814,11 @@ var require_kanban = __commonJS({
         };
         for (let i = 0; i < lines.length; i++) {
           const text = lines[i];
-          const tm = text.match(TASK_RE);
+          if (/^-{3,}\s*$/.test(text)) {
+            group = null;
+            continue;
+          }
+          const tm = text.match(TASK_RE2);
           if (tm) {
             const indent = indentWidth(text);
             while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
@@ -819,6 +832,7 @@ var require_kanban = __commonJS({
               state: tm[2],
               parent,
               lane,
+              group: laneGroup,
               isGroup,
               children: [],
               history: [],
@@ -834,7 +848,7 @@ var require_kanban = __commonJS({
             if (isGroup) group = card;
             continue;
           }
-          const hm = text.match(HIST_RE);
+          const hm = text.match(HIST_RE2);
           if (hm) {
             owner(text)?.history.push({ stamp: hm[1], from: hm[2], to: hm[3] });
             continue;
@@ -888,7 +902,7 @@ var require_kanban = __commonJS({
             col = byTag.get(key) || open[0];
           } else {
             col = byState.get(card.state);
-            if (col && cutoff && (card.body.match(STAMP_RE)?.[0]?.trim() || "") < cutoff) col = null;
+            if (col && cutoff && terminalStamp(card, col) < cutoff) col = null;
           }
           if (col) cards.get(col.key).push(card);
         }
@@ -924,8 +938,8 @@ var require_kanban = __commonJS({
       for (i = line + 1; i < end; i++) {
         const t = lines[i];
         if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t)) prefix.push(t);
-        else if (HIST_RE.test(t) || EI_HIST_RE.test(t)) logs.push(t);
-        else if (TASK_RE.test(t)) {
+        else if (HIST_RE2.test(t) || EI_HIST_RE.test(t)) logs.push(t);
+        else if (TASK_RE2.test(t)) {
           restAt = i;
           break;
         } else notes.push(t);
@@ -982,6 +996,9 @@ var require_kanban = __commonJS({
     function stampToDate(s) {
       return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12));
     }
+    function terminalStamp(card, col) {
+      return card.body.match(STAMP_RE)?.[0]?.trim() || card.history.reduce((latest, ev) => ev.to === col.name && ev.stamp > latest ? ev.stamp : latest, "");
+    }
     function hhmmMs(ms) {
       const d = new Date(ms);
       return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
@@ -1008,14 +1025,14 @@ var require_kanban = __commonJS({
           blocked++;
           continue;
         }
-        if (await moveCard(app2, card.file, card.line, toCol, config, { fromCol })) moved++;
+        if (await moveCard2(app2, card.file, card.line, toCol, config, { fromCol })) moved++;
       }
-      new Notice(`kanban: swept ${moved} to ${toCol.name}${blocked ? `, ${blocked} blocked` : ""}`);
+      new Notice2(`kanban: swept ${moved} to ${toCol.name}${blocked ? `, ${blocked} blocked` : ""}`);
     }
-    async function moveCard(app2, file, line, targetCol, config, { fromCol } = {}) {
+    async function moveCard2(app2, file, line, targetCol, config, { fromCol } = {}) {
       const content = await app2.vault.read(file);
       const lines = content.split(/\r?\n/);
-      const m = lines[line]?.match(TASK_RE);
+      const m = lines[line]?.match(TASK_RE2);
       if (!m) return false;
       const [, pre, , close] = m;
       const body = m[4].replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").replace(/\s{2,}/g, " ").trim();
@@ -1038,12 +1055,12 @@ var require_kanban = __commonJS({
     async function logTapSpan(app2, file, line) {
       const content = await app2.vault.read(file);
       const lines = content.split(/\r?\n/);
-      if (!TASK_RE.test(lines[line] || "")) return false;
+      if (!TASK_RE2.test(lines[line] || "")) return false;
       const base = indentWidth(lines[line]);
       let maxMs = 0;
       for (let i = line + 1; i < lines.length; i++) {
         if (lines[i].trim() && indentWidth(lines[i]) <= base) break;
-        const h = lines[i].match(HIST_RE);
+        const h = lines[i].match(HIST_RE2);
         if (h) maxMs = Math.max(maxMs, stampToDate(h[1]).getTime());
       }
       const startMs = Math.max(Date.now(), maxMs + 6e4);
@@ -1065,10 +1082,10 @@ var require_kanban = __commonJS({
       return !!li && li.some((it) => it.task != null);
     }
     function resolveKanbanConfig(plugin, src, sourcePath) {
-      const config = parseKanbanConfig(src);
+      const config = parseKanbanConfig2(src);
       const defaults = plugin.settings?.kanban || {};
       if (!config.columns.length) {
-        const d = parseKanbanConfig(`columns: ${defaults.columns || "Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-"}`);
+        const d = parseKanbanConfig2(`columns: ${defaults.columns || "Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-"}`);
         config.columns = d.columns;
         config.colors = { ...d.colors, ...config.colors };
       }
@@ -1081,13 +1098,14 @@ var require_kanban = __commonJS({
         config.paths = defaults.paths.split(",").map((s) => s.trim()).filter(Boolean);
       }
       if (config.maxage == null) config.maxage = defaults.maxage != null ? defaults.maxage : 7;
+      if (config.autoFold == null) config.autoFold = defaults.autoFold === true || defaults.fold === true;
       if (!config.sweeps.length && defaults.sweep) {
         config.sweeps = parseSweeps(defaults.sweep);
       }
       if (config.lanesort == null && defaults.lanesort) config.lanesort = defaults.lanesort;
       return config;
     }
-    async function persistLanes(plugin, ctx, el, names, state) {
+    async function persistLaneState(plugin, ctx, el, selectedNames, openNames, state) {
       const info = ctx.getSectionInfo?.(el);
       if (!info) return;
       const file = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
@@ -1097,13 +1115,14 @@ var require_kanban = __commonJS({
       const body = lines.slice(bodyStart, info.lineEnd);
       const out = [];
       for (let i = 0; i < body.length; i++) {
-        if (/^\s*lanes\s*:/.test(body[i])) {
+        if (/^\s*(lanes|open)\s*:/.test(body[i])) {
           while (i + 1 < body.length && /^\s+\S/.test(body[i + 1])) i++;
           continue;
         }
         out.push(body[i]);
       }
-      if (names.length) out.push(`lanes: ${names.join(", ")}`);
+      if (selectedNames.length) out.push(`lanes: ${selectedNames.join(", ")}`);
+      if (openNames.length) out.push(`open: ${openNames.join(", ")}`);
       state.selfWriteAt = Date.now();
       lines.splice(bodyStart, info.lineEnd - bodyStart, ...out);
       await plugin.app.vault.modify(file, lines.join("\n"));
@@ -1118,11 +1137,12 @@ var require_kanban = __commonJS({
       }
       const board = el.createDiv({ cls: "bdb-kanban" });
       const state = { dragging: false };
-      state.selectedLanes = config.lanes.length ? new Set(config.lanes.map((n) => n.toLowerCase())) : null;
+      state.selectedLanes = config.lanes.length ? config.lanes.length === 1 && config.lanes[0].toLowerCase() === LANE_NONE ? /* @__PURE__ */ new Set() : new Set(config.lanes.map((n) => n.toLowerCase())) : null;
+      state.openLanes = new Set(config.open.map((n) => n.toLowerCase()));
       let persistTimer = null;
-      state.persistLanes = (names) => {
+      state.persist = (selectedNames, openNames) => {
         window.clearTimeout(persistTimer);
-        persistTimer = window.setTimeout(() => persistLanes(plugin, ctx, el, names, state), 400);
+        persistTimer = window.setTimeout(() => persistLaneState(plugin, ctx, el, selectedNames, openNames, state), 400);
       };
       const redraw = () => {
         if (!state.dragging) drawBoard(plugin, board, resolveKanbanConfig(plugin, src, ctx.sourcePath), state);
@@ -1134,43 +1154,80 @@ var require_kanban = __commonJS({
       ctx.addChild(child);
       child.registerInterval(window.setInterval(tick, 6e4));
       let pending = null;
-      child.registerEvent(plugin.app.vault.on("modify", () => {
+      const scheduleRedraw = (file) => {
         if (state.selfWriteAt && Date.now() - state.selfWriteAt < 1500) return;
+        if (file && file.extension !== "md") return;
+        if (file && config.paths.length && !config.paths.some((p) => file.path.startsWith(p))) return;
         window.clearTimeout(pending);
         pending = window.setTimeout(redraw, 500);
-      }));
+      };
+      child.registerEvent(plugin.app.vault.on("modify", scheduleRedraw));
       child.registerDomEvent(window, "bdb-kanban-collapse-all", () => state.collapse?.());
       await drawBoard(plugin, board, config, state);
     }
-    function laneSplit(config, cards) {
-      if (!config.lane) return [{ name: null, cards, n: 0 }];
-      const lanes = /* @__PURE__ */ new Map();
-      for (const [key, list] of cards) {
-        for (const card of list) {
-          const name = card.lane || "(none)";
-          if (!lanes.has(name)) lanes.set(name, new Map(config.columns.map((c) => [c.key, []])));
-          lanes.get(name).get(key).push(card);
-        }
-      }
+    function emptyColMap(config) {
+      return new Map(config.columns.map((c) => [c.key, []]));
+    }
+    function laneMetrics(config, cards) {
       const openKeys = config.columns.filter((c) => !c.state).map((c) => c.key);
       const termKeys = config.columns.filter((c) => c.state).map((c) => c.key);
       const actKeys = config.columns.filter((c, i) => !c.state && !c.paused && i !== 0).map((c) => c.key);
-      return [...lanes.entries()].map(([name, m]) => ({
-        name,
-        cards: m,
-        n: [...m.values()].flat().length,
-        done: termKeys.reduce((s, k) => s + m.get(k).length, 0),
-        // closed = terminal cards
-        open: openKeys.reduce((s, k) => s + m.get(k).length, 0),
-        actionable: actKeys.reduce((s, k) => s + m.get(k).length, 0)
-      })).filter((l) => !config.hidedonelanes || openKeys.some((k) => l.cards.get(k).length)).sort((a, b) => {
+      return {
+        n: [...cards.values()].flat().length,
+        done: termKeys.reduce((s, k) => s + cards.get(k).length, 0),
+        open: openKeys.reduce((s, k) => s + cards.get(k).length, 0),
+        actionable: actKeys.reduce((s, k) => s + cards.get(k).length, 0)
+      };
+    }
+    function aggregateCards(config, lanes) {
+      const cards = emptyColMap(config);
+      for (const lane of lanes) {
+        for (const [key, list] of lane.cards) cards.get(key).push(...list);
+      }
+      return cards;
+    }
+    function compareNames(a, b) {
+      const noneLast = (a === "(none)") - (b === "(none)");
+      return noneLast || String(a).localeCompare(String(b));
+    }
+    function laneSplit(config, cards) {
+      if (!config.lane && !config.groupby) return [{ name: null, group: null, cards, ...laneMetrics(config, cards) }];
+      const lanes = /* @__PURE__ */ new Map();
+      for (const [key, list] of cards) {
+        for (const card of list) {
+          const group = config.groupby ? card.group || "(none)" : null;
+          const name = config.lane ? card.lane || "(none)" : null;
+          const id = `${group ?? ""}\0${name ?? ""}`;
+          if (!lanes.has(id)) lanes.set(id, { group, name, cards: emptyColMap(config) });
+          lanes.get(id).cards.get(key).push(card);
+        }
+      }
+      const openKeys = config.columns.filter((c) => !c.state).map((c) => c.key);
+      return [...lanes.values()].map((l) => ({ ...l, ...laneMetrics(config, l.cards) })).filter((l) => !config.hidedonelanes || openKeys.some((k) => l.cards.get(k).length)).sort((a, b) => {
         const [skey, dir = "desc"] = (config.lanesort || "total").split("-");
         const sign = dir === "asc" ? 1 : -1;
-        const noneLast = (a.name === "(none)") - (b.name === "(none)");
-        if (skey === "name") return noneLast || sign * a.name.localeCompare(b.name);
+        const byGroup = compareNames(a.group || "", b.group || "");
+        if (byGroup) return byGroup;
+        if (skey === "name") return sign * compareNames(a.name, b.name);
         const byKey = sign * ((skey === "open" ? a.open : a.n) - (skey === "open" ? b.open : b.n));
-        return byKey || noneLast || a.name.localeCompare(b.name);
+        return byKey || compareNames(a.name, b.name);
       });
+    }
+    function laneGroupSplit(config, lanes) {
+      if (!config.groupby) {
+        const cards = aggregateCards(config, lanes);
+        return [{ name: null, lanes, cards, ...laneMetrics(config, cards) }];
+      }
+      const groups = /* @__PURE__ */ new Map();
+      for (const lane of lanes) {
+        const name = lane.group || "(none)";
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(lane);
+      }
+      return [...groups.entries()].map(([name, groupLanes]) => {
+        const cards = aggregateCards(config, groupLanes);
+        return { name, lanes: groupLanes, cards, ...laneMetrics(config, cards) };
+      }).sort((a, b) => b.open - a.open || compareNames(a.name, b.name));
     }
     async function drawBoard(plugin, board, config, state = { dragging: false }) {
       const cards = await scanKanbanTasks(plugin.app, config);
@@ -1178,16 +1235,20 @@ var require_kanban = __commonJS({
       const cardEls = /* @__PURE__ */ new Map();
       state.timeUpdaters = [];
       state.folded ??= /* @__PURE__ */ new Set();
+      state.groupFold ??= /* @__PURE__ */ new Set();
       state.colFold ??= /* @__PURE__ */ new Map();
       const lanes = laneSplit(config, cards);
       const bar = board.createDiv({ cls: "bdb-kanban-toolbar" });
       const collapseBtn = bar.createEl("button", { cls: "bdb-kanban-tool", attr: { "aria-label": "Collapse empty/terminal columns (Shift: all boards)" } });
       setIcon(collapseBtn, "fold-vertical");
       const collapse = async () => {
+        for (const group of laneGroupSplit(config, lanes)) {
+          if (config.groupby && group.open === 0) state.groupFold.add(group.name);
+        }
         for (const lane of lanes) {
           if (lane.name != null && lane.open === 0) state.folded.add(lane.name);
           for (const col of config.columns) {
-            if (!lane.cards.get(col.key).length || col.state) state.colFold.set(`${lane.name ?? ""}::${col.key}`, true);
+            if (!lane.cards.get(col.key).length || col.state) state.colFold.set(`${lane.group ?? ""}::${lane.name ?? ""}::${col.key}`, true);
           }
         }
         await drawBoard(plugin, board, config, state);
@@ -1197,38 +1258,86 @@ var require_kanban = __commonJS({
         if (e.shiftKey) window.dispatchEvent(new CustomEvent("bdb-kanban-collapse-all"));
         else collapse();
       });
-      const norm = (n) => n.toLowerCase();
-      const visible = state.selectedLanes ? lanes.filter((l) => state.selectedLanes.has(norm(l.name))) : lanes;
+      for (const route of config.sweeps) {
+        const fromCol = config.columns.find((c) => c.key === route.from);
+        const toCol = config.columns.find((c) => c.key === route.to);
+        if (!fromCol || !toCol) continue;
+        const btn = bar.createEl("button", {
+          cls: "bdb-kanban-tool bdb-kanban-sweep",
+          text: `${fromCol.name} > ${toCol.name}`,
+          attr: { "aria-label": `Sweep all ${fromCol.name} cards to ${toCol.name}` }
+        });
+        btn.addEventListener("click", async () => {
+          await sweepColumn(plugin.app, config, fromCol, toCol, cards.get(fromCol.key) || []);
+          await drawBoard(plugin, board, config, state);
+        });
+      }
+      const norm = (n) => String(n ?? "").toLowerCase();
+      state.openLanes ??= /* @__PURE__ */ new Set();
+      const visibleLanes = state.selectedLanes ? lanes.filter((l) => state.selectedLanes.has(norm(l.name))) : lanes;
+      const laneGroups = laneGroupSplit(config, visibleLanes);
+      const selNames = () => !state.selectedLanes ? [] : state.selectedLanes.size === 0 ? [LANE_NONE] : state.selectedLanes.size === lanes.length ? [] : lanes.filter((l) => state.selectedLanes.has(norm(l.name))).map((l) => l.name);
+      const openNames = () => lanes.filter((l) => state.openLanes.has(norm(l.name))).map((l) => l.name);
+      const persistNow = () => state.persist?.(selNames(), openNames());
+      const applyOpen = (name, isOpen) => {
+        isOpen ? state.openLanes.add(norm(name)) : state.openLanes.delete(norm(name));
+        persistNow();
+        drawBoard(plugin, board, config, state);
+      };
+      const applyGroupOpen = (name, isOpen) => {
+        isOpen ? state.groupFold.delete(name) : state.groupFold.add(name);
+        drawBoard(plugin, board, config, state);
+      };
       if (config.lane && lanes.length > 1) {
-        const apply = (set) => {
-          state.selectedLanes = set;
-          const ordered = lanes.filter((l) => set.has(norm(l.name))).map((l) => l.name);
-          state.persistLanes?.(set.size === lanes.length ? [] : ordered);
-          drawBoard(plugin, board, config, state);
-        };
         const picker = board.createDiv({ cls: "bdb-kanban-picker" });
-        const ctrls = picker.createDiv({ cls: "bdb-kanban-picker-ctrls" });
-        ctrls.createEl("button", { cls: "bdb-kanban-tool", text: "All" }).addEventListener("click", () => apply(new Set(lanes.map((l) => norm(l.name)))));
-        ctrls.createEl("button", { cls: "bdb-kanban-tool", text: "None" }).addEventListener("click", () => apply(/* @__PURE__ */ new Set()));
-        for (const lane of lanes) {
-          const on = state.selectedLanes ? state.selectedLanes.has(norm(lane.name)) : true;
-          const stalled = lane.open > 0 && lane.actionable === 0;
-          const item = picker.createEl("label", { cls: "bdb-kanban-picker-item" });
-          if (stalled) item.classList.add("bdb-kanban-picker-stalled");
-          const cb = item.createEl("input", { type: "checkbox" });
-          cb.checked = on;
-          cb.addEventListener("change", () => {
-            const set = state.selectedLanes ? new Set(state.selectedLanes) : new Set(lanes.map((l) => norm(l.name)));
-            cb.checked ? set.add(norm(lane.name)) : set.delete(norm(lane.name));
-            apply(set);
-          });
-          item.createSpan({ cls: "bdb-kanban-picker-name", text: lane.name });
-          item.createSpan({ cls: "bdb-kanban-picker-count", text: `${lane.actionable}/${lane.open}` });
-          if (stalled) item.createSpan({ cls: "bdb-kanban-picker-warn", text: "stalled", attr: { "aria-label": "open cards but no next action" } });
-        }
+        const head = picker.createDiv({ cls: "bdb-kanban-picker-head" });
+        const selN = state.selectedLanes ? state.selectedLanes.size : lanes.length;
+        head.createSpan({ cls: "bdb-kanban-picker-title", text: `Lanes ${selN}/${lanes.length}` });
       }
       const body = board.createDiv({ cls: "bdb-kanban-body" });
-      body.classList.toggle("bdb-kanban-stacked", !!config.lane);
+      body.classList.toggle("bdb-kanban-lanelist", !!config.lane || !!config.groupby);
+      const renderAggregateRow = (parent, item, opts = {}) => {
+        const on = opts.group ? !state.groupFold.has(item.name) : state.openLanes.has(norm(item.name));
+        const stalled = item.open > 0 && item.actionable === 0;
+        const row = parent.createDiv({ cls: opts.cls + (on ? " is-open" : "") + (stalled ? " is-stalled" : "") });
+        const caret = row.createSpan({ cls: "bdb-kanban-lanerow-caret" });
+        setIcon(caret, on ? "chevron-down" : "chevron-right");
+        row.createSpan({ cls: "bdb-kanban-lanerow-name", text: item.name });
+        const meta = row.createSpan({ cls: "bdb-kanban-lanerow-meta" });
+        if (stalled) meta.createSpan({ cls: "bdb-kanban-picker-warn", text: "stalled" });
+        else meta.createSpan({ cls: "bdb-kanban-lanerow-ok", text: `${item.actionable} next` });
+        meta.createSpan({ cls: "bdb-kanban-lanerow-tot", text: `${item.open} open${item.done ? ` \xB7 ${item.done} done` : ""}` });
+        const dist = row.createDiv({ cls: "bdb-kanban-lanerow-dist" });
+        dist.style.setProperty("--bdb-kanban-lane-cols", String(config.columns.length));
+        for (const [index, col] of config.columns.entries()) {
+          const n = item.cards.get(col.key).length;
+          const chip = dist.createSpan({ cls: "bdb-kanban-lanerow-chip" + (n ? "" : " is-zero") });
+          chip.createSpan({ cls: "bdb-kanban-lanerow-dot" }).style.background = columnColor(config, col, index);
+          chip.createSpan({ text: `${col.name} ${n}` });
+        }
+        row.addEventListener("click", () => opts.group ? applyGroupOpen(item.name, !on) : applyOpen(item.name, !on));
+      };
+      const renderLaneRow = (parent, lane) => {
+        const on = state.openLanes.has(norm(lane.name));
+        const stalled = lane.open > 0 && lane.actionable === 0;
+        const row = parent.createDiv({ cls: "bdb-kanban-lanerow" + (on ? " is-open" : "") + (stalled ? " is-stalled" : "") });
+        const caret = row.createSpan({ cls: "bdb-kanban-lanerow-caret" });
+        setIcon(caret, on ? "chevron-down" : "chevron-right");
+        row.createSpan({ cls: "bdb-kanban-lanerow-name", text: lane.name });
+        const meta = row.createSpan({ cls: "bdb-kanban-lanerow-meta" });
+        if (stalled) meta.createSpan({ cls: "bdb-kanban-picker-warn", text: "stalled" });
+        else meta.createSpan({ cls: "bdb-kanban-lanerow-ok", text: `${lane.actionable} next` });
+        meta.createSpan({ cls: "bdb-kanban-lanerow-tot", text: `${lane.open} open${lane.done ? ` \xB7 ${lane.done} done` : ""}` });
+        const dist = row.createDiv({ cls: "bdb-kanban-lanerow-dist" });
+        dist.style.setProperty("--bdb-kanban-lane-cols", String(config.columns.length));
+        for (const [index, col] of config.columns.entries()) {
+          const n = lane.cards.get(col.key).length;
+          const chip = dist.createSpan({ cls: "bdb-kanban-lanerow-chip" + (n ? "" : " is-zero") });
+          chip.createSpan({ cls: "bdb-kanban-lanerow-dot" }).style.background = columnColor(config, col, index);
+          chip.createSpan({ text: `${col.name} ${n}` });
+        }
+        row.addEventListener("click", () => applyOpen(lane.name, !on));
+      };
       const tryDrop = async (path, lineStr, fromKey, col, foldKey) => {
         if (!path || fromKey === col.key) return false;
         const file = plugin.app.vault.getAbstractFileByPath(path);
@@ -1238,255 +1347,250 @@ var require_kanban = __commonJS({
           const dragged = [...cards.values()].flat().find((c) => c.file.path === path && c.line === Number(lineStr));
           const blockers = dragged ? openDescendants(dragged) : 0;
           if (blockers) {
-            new Notice(`kanban: ${blockers} open sub-task${blockers > 1 ? "s" : ""} \u2014 close them first`);
+            new Notice2(`kanban: ${blockers} open sub-task${blockers > 1 ? "s" : ""} \u2014 close them first`);
             return false;
           }
         }
-        await moveCard(plugin.app, file, Number(lineStr), col, config, {
+        await moveCard2(plugin.app, file, Number(lineStr), col, config, {
           fromCol: config.columns.find((c) => c.key === fromKey)
         });
         state.selfWriteAt = Date.now();
         state.colFold.delete(foldKey);
         return true;
       };
-      for (const lane of visible) {
-        let host = body;
-        if (lane.name != null) {
-          const laneEl = body.createEl("details", { cls: "bdb-kanban-lane" });
-          if (!state.folded.has(lane.name)) laneEl.setAttribute("open", "");
-          laneEl.addEventListener("toggle", () => {
-            if (laneEl.open) state.folded.delete(lane.name);
-            else state.folded.add(lane.name);
-          });
-          const laneTitle = laneEl.createEl("summary", { cls: "bdb-kanban-lane-title", text: `${lane.name} (${lane.open}/${lane.n})` });
-          addTitleCopy(laneTitle, lane.name);
-          host = laneEl.createDiv({ cls: "bdb-kanban-lane-row" });
-        }
-        for (const [index, col] of config.columns.entries()) {
-          if (config.only.length && !config.only.includes(col.key)) continue;
-          const colCards = lane.cards.get(col.key);
-          const colEl = host.createDiv({ cls: "bdb-kanban-col" });
-          if (col.live) colEl.classList.add("bdb-kanban-col-live");
-          colEl.style.setProperty("--kb-col-color", columnColor(config, col, index));
-          const foldKey = `${lane.name ?? ""}::${col.key}`;
-          const folded = state.colFold.get(foldKey) ?? !colCards.length;
-          if (folded) colEl.classList.add("bdb-kanban-col-folded");
-          const titleEl = colEl.createDiv({ cls: "bdb-kanban-col-title", text: `${col.name} (${colCards.length})` });
-          titleEl.addEventListener("click", async (e) => {
-            if (e.target.closest("button")) return;
-            state.colFold.set(foldKey, !folded);
-            await drawBoard(plugin, board, config, state);
-          });
-          if (!folded) for (const route of config.sweeps.filter((s) => s.from === col.key)) {
-            const sweepTo = config.columns.find((c) => c.key === route.to);
-            if (!sweepTo) continue;
-            const btn = titleEl.createEl("button", {
-              cls: "bdb-kanban-sweep",
-              text: `\u2933 ${sweepTo.name}`,
-              attr: { "aria-label": `Sweep all to ${sweepTo.name}` }
-            });
-            btn.addEventListener("click", async () => {
-              await sweepColumn(plugin.app, config, col, sweepTo, colCards);
+      for (const group of laneGroups) {
+        if (config.groupby) renderAggregateRow(body, group, { cls: "bdb-kanban-lanerow bdb-kanban-grouprow", group: true });
+        if (config.groupby && state.groupFold.has(group.name)) continue;
+        for (const lane of group.lanes) {
+          if (config.lane) renderLaneRow(body, lane);
+          if (config.lane && !state.openLanes.has(norm(lane.name))) continue;
+          const host = lane.name != null || config.groupby ? body.createDiv({ cls: "bdb-kanban-lane-open bdb-kanban-lane-row" }) : body;
+          for (const [index, col] of config.columns.entries()) {
+            if (config.only.length && !config.only.includes(col.key)) continue;
+            const colCards = lane.cards.get(col.key);
+            const colEl = host.createDiv({ cls: "bdb-kanban-col" });
+            if (col.live) colEl.classList.add("bdb-kanban-col-live");
+            colEl.style.setProperty("--kb-col-color", columnColor(config, col, index));
+            const foldKey = `${lane.group ?? ""}::${lane.name ?? ""}::${col.key}`;
+            const folded = state.colFold.get(foldKey) ?? (config.autoFold && !colCards.length);
+            if (folded) colEl.classList.add("bdb-kanban-col-folded");
+            const titleEl = colEl.createDiv({ cls: "bdb-kanban-col-title", text: `${col.name} (${colCards.length})` });
+            titleEl.addEventListener("click", async (e) => {
+              if (e.target.closest("button")) return;
+              state.colFold.set(foldKey, !folded);
               await drawBoard(plugin, board, config, state);
             });
-          }
-          const list = colEl.createDiv({ cls: "bdb-kanban-cards" });
-          const rejects = () => col.state && state.card && openDescendants(state.card) > 0;
-          colEl.addEventListener("dragover", (e) => {
-            e.preventDefault();
-            if (rejects()) {
-              e.dataTransfer.dropEffect = "none";
-              colEl.classList.add("bdb-kanban-reject");
-            } else {
-              colEl.classList.add("bdb-kanban-over");
-            }
-          });
-          colEl.addEventListener("dragleave", () => colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject"));
-          colEl.addEventListener("drop", async (e) => {
-            e.preventDefault();
-            colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject");
-            const [path, lineStr, fromKey] = (e.dataTransfer.getData("text/plain") || "").split("::");
-            if (await tryDrop(path, lineStr, fromKey, col, foldKey)) await drawBoard(plugin, board, config, state);
-          });
-          if (Platform.isMobile) colEl.addEventListener("click", async (e) => {
-            if (!state.picked || e.target.closest(".bdb-kanban-card")) return;
-            const p = state.picked;
-            const moved = await tryDrop(p.path, p.line, p.fromKey, col, foldKey);
-            if (moved) state.picked = null;
-            if (moved) await drawBoard(plugin, board, config, state);
-          });
-          const parents = folded ? [] : colCards.filter((c) => c.children.length);
-          const leaves = folded ? [] : colCards.filter((c) => !c.children.length);
-          for (const card of [...parents, ...leaves]) {
-            if (parents.length && leaves.length && card === leaves[0]) list.createDiv({ cls: "bdb-kanban-sep" });
-            const cardEl = list.createDiv({ cls: "bdb-kanban-card", attr: { draggable: "true" } });
-            const kbcolor = card.color || app.metadataCache.getFileCache(card.file)?.frontmatter?.kbcolor;
-            if (kbcolor) {
-              cardEl.classList.add("bdb-kanban-card-tinted");
-              cardEl.style.setProperty("--kb-card-color", kbcolor);
-            }
-            if (card.children.length) cardEl.classList.add("bdb-kanban-card-parent");
-            if (col.live) cardEl.classList.add("bdb-kanban-card-live");
-            cardEls.set(card, cardEl);
-            if (card.parent) {
-              const crumb = cardEl.createDiv({ cls: "bdb-kanban-card-crumb", text: `${cleanText(card.parent.body)} \u25B8` });
-              crumb.addEventListener("click", (e) => {
-                const parentEl = cardEls.get(card.parent);
-                if (!parentEl) return openFileAtLine(plugin.app, card.parent.file, card.parent.line, e.ctrlKey || e.metaKey);
-                parentEl.scrollIntoView({ behavior: "smooth", block: "center" });
-                parentEl.classList.remove("bdb-kanban-glow");
-                void parentEl.offsetWidth;
-                parentEl.classList.add("bdb-kanban-glow");
+            if (!folded) for (const route of config.sweeps.filter((s) => s.from === col.key)) {
+              const sweepTo = config.columns.find((c) => c.key === route.to);
+              if (!sweepTo) continue;
+              const btn = titleEl.createEl("button", {
+                cls: "bdb-kanban-sweep",
+                text: `\u2933 ${sweepTo.name}`,
+                attr: { "aria-label": `Sweep all to ${sweepTo.name}` }
+              });
+              btn.addEventListener("click", async () => {
+                await sweepColumn(plugin.app, config, col, sweepTo, colCards);
+                await drawBoard(plugin, board, config, state);
               });
             }
-            const display = card.body.replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").trim();
-            const textEl = cardEl.createDiv({ cls: "bdb-kanban-card-text" });
-            await renderInteractive(plugin, display, textEl, card.file.path);
-            const copyBtn = cardEl.createSpan({ cls: "bdb-kanban-card-copy", attr: { "aria-label": "Copy task" } });
-            setIcon(copyBtn, "copy");
-            copyBtn.addEventListener("click", async (e) => {
-              e.stopPropagation();
-              await navigator.clipboard.writeText(cleanText(card.body));
-              setIcon(copyBtn, "check");
-              copyBtn.classList.add("bdb-kanban-card-copied");
-              window.setTimeout(() => {
-                setIcon(copyBtn, "copy");
-                copyBtn.classList.remove("bdb-kanban-card-copied");
-              }, 1200);
-            });
-            const total = countDescendants(card);
-            if (total) {
-              const closed = total - openDescendants(card);
-              const host2 = textEl.querySelector("p") || textEl;
-              const pill = host2.createSpan({ cls: "bdb-kanban-card-rollup", text: `${closed}/${total}` });
-              if (closed === total) pill.classList.add("bdb-kanban-card-rollup-full");
-            }
-            if (card.who.length) {
-              const whoEl = cardEl.createDiv({ cls: "bdb-ei-who" });
-              for (const name of card.who) whoEl.createSpan({ cls: "bdb-ei-who-pill", text: name });
-            }
-            if (config.mode === "habits") {
-              const { habitStats, fmtHours } = require_habits();
-              const fm = app.metadataCache.getFileCache(card.file)?.frontmatter || {};
-              const metric = fm.metric === "count" ? "count" : "sum";
-              const st = habitStats(card.history, metric, /* @__PURE__ */ new Date());
-              const foot = cardEl.createDiv({ cls: "bdb-kanban-card-habit" });
-              if (!st) {
-                foot.createSpan({ text: "no logs yet" });
+            const list = colEl.createDiv({ cls: "bdb-kanban-cards" });
+            const rejects = () => col.state && state.card && openDescendants(state.card) > 0;
+            colEl.addEventListener("dragover", (e) => {
+              e.preventDefault();
+              if (rejects()) {
+                e.dataTransfer.dropEffect = "none";
+                colEl.classList.add("bdb-kanban-reject");
               } else {
-                const f = (v) => metric === "count" ? (Number.isInteger(v) ? `${v}` : v.toFixed(1)) + "x" : fmtHours(v);
-                const arrow = st.trend > 0.05 ? "\u2191" : st.trend < -0.05 ? "\u2193" : "\u2192";
-                foot.setAttribute(
-                  "title",
-                  `min ${f(st.min)} \xB7 mean ${f(st.mean)} \xB7 max ${f(st.max)} \xB7 ${st.days}d logged`
-                );
-                foot.createSpan({ cls: "bdb-kanban-habit-trend", text: arrow });
-                if (st.open) foot.createSpan({ cls: "bdb-kanban-habit-live", text: "\u25CF live" });
-                foot.createSpan({ cls: "bdb-kanban-habit-stat", text: `today ${f(st.today)}` });
-                foot.createSpan({ cls: "bdb-kanban-habit-sep", text: "\xB7" });
-                foot.createSpan({ cls: "bdb-kanban-habit-stat", text: `7d ${f(st.avg7)}` });
-                foot.createSpan({ cls: "bdb-kanban-habit-sep", text: "\xB7" });
-                foot.createSpan({ cls: "bdb-kanban-habit-stat", text: `${st.streak}d streak` });
+                colEl.classList.add("bdb-kanban-over");
               }
-            } else if (card.history.length) {
-              const es = card.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
-              const colorOf = new Map(config.columns.map((c, i) => [c.name, columnColor(config, c, i)]));
-              const idle = new Set(config.columns.filter((c) => c.paused).map((c) => c.name));
-              const terminal = !!col.state;
-              const birthM = card.file.name.match(/^(\d{8})-(\d{4})/);
-              const birth = birthM ? stampToDate(birthM[1] + birthM[2]) : null;
-              const visits = [];
-              if (birth) {
-                const start = birth.getTime();
-                const end = stampToDate(es[0].stamp).getTime();
-                visits.push({ name: es[0].from, start, end, dur: Math.max(end - start, 0) });
+            });
+            colEl.addEventListener("dragleave", () => colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject"));
+            colEl.addEventListener("drop", async (e) => {
+              e.preventDefault();
+              colEl.classList.remove("bdb-kanban-over", "bdb-kanban-reject");
+              const [path, lineStr, fromKey] = (e.dataTransfer.getData("text/plain") || "").split("::");
+              if (await tryDrop(path, lineStr, fromKey, col, foldKey)) await drawBoard(plugin, board, config, state);
+            });
+            if (Platform.isMobile) colEl.addEventListener("click", async (e) => {
+              if (!state.picked || e.target.closest(".bdb-kanban-card")) return;
+              const p = state.picked;
+              const moved = await tryDrop(p.path, p.line, p.fromKey, col, foldKey);
+              if (moved) state.picked = null;
+              if (moved) await drawBoard(plugin, board, config, state);
+            });
+            const parents = folded ? [] : colCards.filter((c) => c.children.length);
+            const leaves = folded ? [] : colCards.filter((c) => !c.children.length);
+            for (const card of [...parents, ...leaves]) {
+              if (parents.length && leaves.length && card === leaves[0]) list.createDiv({ cls: "bdb-kanban-sep" });
+              const cardEl = list.createDiv({ cls: "bdb-kanban-card", attr: { draggable: "true" } });
+              const kbcolor = card.color || app.metadataCache.getFileCache(card.file)?.frontmatter?.kbcolor;
+              if (kbcolor) {
+                cardEl.classList.add("bdb-kanban-card-tinted");
+                cardEl.style.setProperty("--kb-card-color", kbcolor);
               }
-              for (let i = 0; i < es.length; i++) {
-                const isLast = i === es.length - 1;
-                if (isLast && terminal) break;
-                const start = stampToDate(es[i].stamp).getTime();
-                const end = (isLast ? /* @__PURE__ */ new Date() : stampToDate(es[i + 1].stamp)).getTime();
-                visits.push({ name: es[i].to, start, end, dur: end - start });
-              }
-              const active = visits.filter((v) => !idle.has(v.name)).reduce((sum, v) => sum + v.dur, 0);
-              const journeyStart = birth || stampToDate(es[0].stamp);
-              const journeyEnd = terminal ? stampToDate(es[es.length - 1].stamp) : /* @__PURE__ */ new Date();
-              const total2 = Math.max(journeyEnd - journeyStart, 0);
-              const parts = visits.map((v) => `${v.name} ${fmtDur(v.dur)}`);
-              if (!birth) parts.unshift(es[0].from);
-              if (terminal) parts.push(col.name);
-              const last = es[es.length - 1];
-              const inSync = last.to === col.name;
-              const lineStamp = card.body.match(STAMP_RE)?.[0]?.trim();
-              let since = null;
-              if (terminal && lineStamp) since = /* @__PURE__ */ new Date() - stampToDate(lineStamp);
-              else if (inSync) since = /* @__PURE__ */ new Date() - stampToDate(last.stamp);
-              const flow = cardEl.createDiv({ cls: "bdb-kanban-card-flow", attr: { title: parts.join(" \u2192 ") } });
-              const liveVisit = !terminal && inSync ? visits[visits.length - 1] : null;
-              const bars = flow.createDiv({ cls: "bdb-kanban-card-bars" });
-              const bar2 = bars.createDiv({ cls: "bdb-kanban-card-bar" });
-              for (const v of visits) {
-                const span = bar2.createSpan();
-                span.style.flexGrow = String(Math.max(v.dur, 1));
-                span.style.background = colorOf.get(v.name) || "var(--background-modifier-border)";
-                span.setAttribute("title", `${v.name}: ${hhmmMs(v.start)}-${hhmmMs(v.end)} \xB7 ${fmtDurCompact(v.dur)}`);
-                if (v === liveVisit) span.classList.add("bdb-kanban-live-span");
-              }
-              const nowEl = flow.createSpan({
-                cls: "bdb-kanban-card-now",
-                text: terminal ? `${fmtDur(active)} spent \xB7 ${fmtDur(total2)} total` : since == null ? col.name : `${col.name} ${fmtDur(since)} \xB7 ${fmtDur(active)} spent`
-              });
-              const ages = !terminal && col.paused && col !== config.columns[0];
-              const ageT = (col.age || 1) * 864e5;
-              const applyAge = (ms) => {
-                if (!ages || ms == null) return;
-                cardEl.classList.toggle("bdb-kanban-age-red", ms > 3 * ageT);
-                cardEl.classList.toggle("bdb-kanban-age-amber", ms > ageT && ms <= 3 * ageT);
-              };
-              applyAge(since);
-              if (liveVisit) {
-                const startMs = stampToDate(last.stamp).getTime();
-                const activeBase = active - (idle.has(col.name) ? 0 : liveVisit.dur);
-                state.timeUpdaters.push(() => {
-                  const ms = Date.now() - startMs;
-                  const act = activeBase + (idle.has(col.name) ? 0 : ms);
-                  nowEl.textContent = `${col.name} ${fmtDur(ms)} \xB7 ${fmtDur(act)} spent`;
-                  for (const sp of cardEl.querySelectorAll(".bdb-kanban-live-span")) {
-                    sp.style.flexGrow = String(Math.max(ms, 1));
-                    sp.setAttribute("title", `${col.name}: ${hhmmMs(startMs)}-${hhmmMs(Date.now())} \xB7 ${fmtDurCompact(ms)}`);
-                  }
-                  applyAge(ms);
+              if (card.children.length) cardEl.classList.add("bdb-kanban-card-parent");
+              if (col.live) cardEl.classList.add("bdb-kanban-card-live");
+              cardEls.set(card, cardEl);
+              if (card.parent) {
+                const crumb = cardEl.createDiv({ cls: "bdb-kanban-card-crumb", text: `${cleanText(card.parent.body)} \u25B8` });
+                crumb.addEventListener("click", (e) => {
+                  const parentEl = cardEls.get(card.parent);
+                  if (!parentEl) return openFileAtLine(plugin.app, card.parent.file, card.parent.line, e.ctrlKey || e.metaKey);
+                  parentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                  parentEl.classList.remove("bdb-kanban-glow");
+                  void parentEl.offsetWidth;
+                  parentEl.classList.add("bdb-kanban-glow");
                 });
               }
-            }
-            const stamp = card.body.match(STAMP_RE)?.[0]?.trim();
-            cardEl.createDiv({ cls: "bdb-kanban-card-meta", text: stamp ? `${card.file.basename} \xB7 ${stamp}` : card.file.basename });
-            cardEl.addEventListener("dragstart", (e) => {
-              state.dragging = true;
-              state.card = card;
-              e.dataTransfer.setData("text/plain", `${card.file.path}::${card.line}::${col.key}`);
-              e.dataTransfer.effectAllowed = "move";
-            });
-            cardEl.addEventListener("dragend", () => {
-              state.dragging = false;
-              state.card = null;
-            });
-            if (Platform.isMobile) cardEl.addEventListener("click", (e) => {
-              if (e.target.closest("a, .bdb-kanban-card-meta, .bdb-kanban-card-crumb")) return;
-              e.stopPropagation();
-              const wasPicked = state.picked && state.picked.el === cardEl;
-              board.querySelectorAll(".bdb-kanban-picked").forEach((el) => el.classList.remove("bdb-kanban-picked"));
-              if (wasPicked) {
-                state.picked = null;
-                return;
+              const display = card.body.replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").trim();
+              const textEl = cardEl.createDiv({ cls: "bdb-kanban-card-text" });
+              await renderInteractive(plugin, display, textEl, card.file.path);
+              const copyBtn = cardEl.createSpan({ cls: "bdb-kanban-card-copy", attr: { "aria-label": "Copy task" } });
+              setIcon(copyBtn, "copy");
+              copyBtn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                await navigator.clipboard.writeText(cleanText(card.body));
+                setIcon(copyBtn, "check");
+                copyBtn.classList.add("bdb-kanban-card-copied");
+                window.setTimeout(() => {
+                  setIcon(copyBtn, "copy");
+                  copyBtn.classList.remove("bdb-kanban-card-copied");
+                }, 1200);
+              });
+              const total = countDescendants(card);
+              if (total) {
+                const closed = total - openDescendants(card);
+                const host2 = textEl.querySelector("p") || textEl;
+                const pill = host2.createSpan({ cls: "bdb-kanban-card-rollup", text: `${closed}/${total}` });
+                if (closed === total) pill.classList.add("bdb-kanban-card-rollup-full");
               }
-              state.picked = { el: cardEl, path: card.file.path, line: card.line, fromKey: col.key };
-              state.card = card;
-              cardEl.classList.add("bdb-kanban-picked");
-            });
-            cardEl.querySelector(".bdb-kanban-card-meta").addEventListener("click", (e) => {
-              openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
-            });
+              if (card.who.length) {
+                const whoEl = cardEl.createDiv({ cls: "bdb-ei-who" });
+                for (const name of card.who) whoEl.createSpan({ cls: "bdb-ei-who-pill", text: name });
+              }
+              if (config.mode === "habits") {
+                const { habitStats, fmtHours } = require_habits();
+                const fm = app.metadataCache.getFileCache(card.file)?.frontmatter || {};
+                const metric = fm.metric === "count" ? "count" : "sum";
+                const st = habitStats(card.history, metric, /* @__PURE__ */ new Date());
+                const foot = cardEl.createDiv({ cls: "bdb-kanban-card-habit" });
+                if (!st) {
+                  foot.createSpan({ text: "no logs yet" });
+                } else {
+                  const f = (v) => metric === "count" ? (Number.isInteger(v) ? `${v}` : v.toFixed(1)) + "x" : fmtHours(v);
+                  const arrow = st.trend > 0.05 ? "\u2191" : st.trend < -0.05 ? "\u2193" : "\u2192";
+                  foot.setAttribute(
+                    "title",
+                    `min ${f(st.min)} \xB7 mean ${f(st.mean)} \xB7 max ${f(st.max)} \xB7 ${st.days}d logged`
+                  );
+                  foot.createSpan({ cls: "bdb-kanban-habit-trend", text: arrow });
+                  if (st.open) foot.createSpan({ cls: "bdb-kanban-habit-live", text: "\u25CF live" });
+                  foot.createSpan({ cls: "bdb-kanban-habit-stat", text: `today ${f(st.today)}` });
+                  foot.createSpan({ cls: "bdb-kanban-habit-sep", text: "\xB7" });
+                  foot.createSpan({ cls: "bdb-kanban-habit-stat", text: `7d ${f(st.avg7)}` });
+                  foot.createSpan({ cls: "bdb-kanban-habit-sep", text: "\xB7" });
+                  foot.createSpan({ cls: "bdb-kanban-habit-stat", text: `${st.streak}d streak` });
+                }
+              } else if (card.history.length) {
+                const es = card.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+                const colorOf = new Map(config.columns.map((c, i) => [c.name, columnColor(config, c, i)]));
+                const idle = new Set(config.columns.filter((c) => c.paused).map((c) => c.name));
+                const terminal = !!col.state;
+                const birthM = card.file.name.match(/^(\d{8})-(\d{4})/);
+                const birth = birthM ? stampToDate(birthM[1] + birthM[2]) : null;
+                const visits = [];
+                if (birth) {
+                  const start = birth.getTime();
+                  const end = stampToDate(es[0].stamp).getTime();
+                  visits.push({ name: es[0].from, start, end, dur: Math.max(end - start, 0) });
+                }
+                for (let i = 0; i < es.length; i++) {
+                  const isLast = i === es.length - 1;
+                  if (isLast && terminal) break;
+                  const start = stampToDate(es[i].stamp).getTime();
+                  const end = (isLast ? /* @__PURE__ */ new Date() : stampToDate(es[i + 1].stamp)).getTime();
+                  visits.push({ name: es[i].to, start, end, dur: end - start });
+                }
+                const active = visits.filter((v) => !idle.has(v.name)).reduce((sum, v) => sum + v.dur, 0);
+                const journeyStart = birth || stampToDate(es[0].stamp);
+                const journeyEnd = terminal ? stampToDate(es[es.length - 1].stamp) : /* @__PURE__ */ new Date();
+                const total2 = Math.max(journeyEnd - journeyStart, 0);
+                const parts = visits.map((v) => `${v.name} ${fmtDur(v.dur)}`);
+                if (!birth) parts.unshift(es[0].from);
+                if (terminal) parts.push(col.name);
+                const last = es[es.length - 1];
+                const inSync = last.to === col.name;
+                const lineStamp = card.body.match(STAMP_RE)?.[0]?.trim();
+                let since = null;
+                if (terminal && lineStamp) since = /* @__PURE__ */ new Date() - stampToDate(lineStamp);
+                else if (inSync) since = /* @__PURE__ */ new Date() - stampToDate(last.stamp);
+                const flow = cardEl.createDiv({ cls: "bdb-kanban-card-flow", attr: { title: parts.join(" \u2192 ") } });
+                const liveVisit = !terminal && inSync ? visits[visits.length - 1] : null;
+                const bars = flow.createDiv({ cls: "bdb-kanban-card-bars" });
+                const bar2 = bars.createDiv({ cls: "bdb-kanban-card-bar" });
+                for (const v of visits) {
+                  const span = bar2.createSpan();
+                  span.style.flexGrow = String(Math.max(v.dur, 1));
+                  span.style.background = colorOf.get(v.name) || "var(--background-modifier-border)";
+                  span.setAttribute("title", `${v.name}: ${hhmmMs(v.start)}-${hhmmMs(v.end)} \xB7 ${fmtDurCompact(v.dur)}`);
+                  if (v === liveVisit) span.classList.add("bdb-kanban-live-span");
+                }
+                const nowEl = flow.createSpan({
+                  cls: "bdb-kanban-card-now",
+                  text: terminal ? `${fmtDur(active)} spent \xB7 ${fmtDur(total2)} total` : since == null ? col.name : `${col.name} ${fmtDur(since)} \xB7 ${fmtDur(active)} spent`
+                });
+                const ages = !terminal && col.paused && col !== config.columns[0];
+                const ageT = (col.age || 1) * 864e5;
+                const applyAge = (ms) => {
+                  if (!ages || ms == null) return;
+                  cardEl.classList.toggle("bdb-kanban-age-red", ms > 3 * ageT);
+                  cardEl.classList.toggle("bdb-kanban-age-amber", ms > ageT && ms <= 3 * ageT);
+                };
+                applyAge(since);
+                if (liveVisit) {
+                  const startMs = stampToDate(last.stamp).getTime();
+                  const activeBase = active - (idle.has(col.name) ? 0 : liveVisit.dur);
+                  state.timeUpdaters.push(() => {
+                    const ms = Date.now() - startMs;
+                    const act = activeBase + (idle.has(col.name) ? 0 : ms);
+                    nowEl.textContent = `${col.name} ${fmtDur(ms)} \xB7 ${fmtDur(act)} spent`;
+                    for (const sp of cardEl.querySelectorAll(".bdb-kanban-live-span")) {
+                      sp.style.flexGrow = String(Math.max(ms, 1));
+                      sp.setAttribute("title", `${col.name}: ${hhmmMs(startMs)}-${hhmmMs(Date.now())} \xB7 ${fmtDurCompact(ms)}`);
+                    }
+                    applyAge(ms);
+                  });
+                }
+              }
+              const stamp = card.body.match(STAMP_RE)?.[0]?.trim();
+              cardEl.createDiv({ cls: "bdb-kanban-card-meta", text: stamp ? `${card.file.basename} \xB7 ${stamp}` : card.file.basename });
+              cardEl.addEventListener("dragstart", (e) => {
+                state.dragging = true;
+                state.card = card;
+                e.dataTransfer.setData("text/plain", `${card.file.path}::${card.line}::${col.key}`);
+                e.dataTransfer.effectAllowed = "move";
+              });
+              cardEl.addEventListener("dragend", () => {
+                state.dragging = false;
+                state.card = null;
+              });
+              if (Platform.isMobile) cardEl.addEventListener("click", (e) => {
+                if (e.target.closest("a, .bdb-kanban-card-meta, .bdb-kanban-card-crumb")) return;
+                e.stopPropagation();
+                const wasPicked = state.picked && state.picked.el === cardEl;
+                board.querySelectorAll(".bdb-kanban-picked").forEach((el) => el.classList.remove("bdb-kanban-picked"));
+                if (wasPicked) {
+                  state.picked = null;
+                  return;
+                }
+                state.picked = { el: cardEl, path: card.file.path, line: card.line, fromKey: col.key };
+                state.card = card;
+                cardEl.classList.add("bdb-kanban-picked");
+              });
+              cardEl.querySelector(".bdb-kanban-card-meta").addEventListener("click", (e) => {
+                openFileAtLine(plugin.app, card.file, card.line, e.ctrlKey || e.metaKey);
+              });
+            }
           }
         }
       }
@@ -1516,16 +1620,15 @@ var require_kanban = __commonJS({
         }
         if (scroller && savedTop != null) scroller.scrollTop = savedTop;
       };
-      fit();
-      window.setTimeout(fit, 400);
-      window.setTimeout(fit, 2e3);
+      void fit;
     }
     module2.exports = {
-      parseKanbanConfig,
+      parseKanbanConfig: parseKanbanConfig2,
       scanKanbanTasks,
-      moveCard,
+      moveCard: moveCard2,
       logTapSpan,
       renderKanbanBlock: renderKanbanBlock2,
+      drawBoard,
       resolveKanbanConfig,
       editTags,
       tagLineAt,
@@ -1536,12 +1639,13 @@ var require_kanban = __commonJS({
       stampNow,
       stampToDate,
       fmtDur,
-      TASK_RE,
+      TASK_RE: TASK_RE2,
       STAMP_RE,
       TAGLINE_RE,
       COLOR_RE,
-      HIST_RE,
+      HIST_RE: HIST_RE2,
       EI_HIST_RE,
+      terminalStamp,
       columnColor,
       colKey
     };
@@ -1551,17 +1655,17 @@ var require_kanban = __commonJS({
 // src/ei.js
 var require_ei = __commonJS({
   "src/ei.js"(exports2, module2) {
-    var { MarkdownRenderChild, Notice, Modal } = require("obsidian");
+    var { MarkdownRenderChild, Notice: Notice2, Modal } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
     var {
       scanKanbanTasks,
-      moveCard,
+      moveCard: moveCard2,
       resolveKanbanConfig,
       editTags,
       openDescendants,
       columnColor,
       colKey,
-      TASK_RE,
+      TASK_RE: TASK_RE2,
       STAMP_RE
     } = require_kanban();
     function parseDoors(text) {
@@ -1599,7 +1703,7 @@ var require_ei = __commonJS({
     }
     async function editCardTags(app2, card, who) {
       const lines = (await app2.vault.read(card.file)).split(/\r?\n/);
-      if (!TASK_RE.test(lines[card.line] || "")) return false;
+      if (!TASK_RE2.test(lines[card.line] || "")) return false;
       editTags(lines, card.line, (tokens) => {
         const out = tokens.filter((t) => !t.startsWith("#ei/"));
         if (who && !out.includes(`[[${who}]]`)) out.push(`[[${who}]]`);
@@ -1696,11 +1800,11 @@ var require_ei = __commonJS({
           const card = backlog.find((c) => c.file.path === path && c.line === Number(lineStr));
           if (!card) return;
           if (!door.col) {
-            new Notice(`ei: add a "${door.target}" column to your kanban first`);
+            new Notice2(`ei: add a "${door.target}" column to your kanban first`);
             return;
           }
           if (door.col.state && openDescendants(card) > 0) {
-            new Notice("ei: open sub-tasks \u2014 close them first");
+            new Notice2("ei: open sub-tasks \u2014 close them first");
             return;
           }
           let who = null;
@@ -1709,7 +1813,7 @@ var require_ei = __commonJS({
             if (who == null) return;
           }
           await editCardTags(app2, card, who);
-          await moveCard(app2, card.file, card.line, door.col, kb, { fromCol: first });
+          await moveCard2(app2, card.file, card.line, door.col, kb, { fromCol: first });
           await drawEi(plugin, root, src, state);
         });
       }
@@ -1740,10 +1844,10 @@ var require_ei = __commonJS({
 // src/report.js
 var require_report = __commonJS({
   "src/report.js"(exports2, module2) {
-    var { TASK_RE, STAMP_RE, stampToDate, parseKanbanConfig, fmtDur, addTitleCopy } = require_kanban();
+    var { TASK_RE: TASK_RE2, STAMP_RE, stampToDate, parseKanbanConfig: parseKanbanConfig2, fmtDur, addTitleCopy } = require_kanban();
     var { openFileAtLine } = require_render();
-    var { MarkdownRenderChild, Modal, Notice, getFrontMatterInfo, parseYaml } = require("obsidian");
-    var HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
+    var { MarkdownRenderChild, Modal, Notice: Notice2, getFrontMatterInfo, parseYaml } = require("obsidian");
+    var HIST_RE2 = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -1761,6 +1865,11 @@ var require_report = __commonJS({
       const k = (name || "").toLowerCase().replace(/\s+/g, "-");
       if (_colCache[k]) return _colCache[k];
       return _colCache[k] = COL_PALETTE[k] || COL_CYCLE[_cycleIdx++ % COL_CYCLE.length];
+    }
+    function projColor(name) {
+      let h = 0;
+      for (const c of String(name)) h = h * 31 + c.charCodeAt(0) >>> 0;
+      return `hsl(${h % 360} 52% 55%)`;
     }
     function indentWidth(text) {
       let w = 0;
@@ -1840,7 +1949,7 @@ var require_report = __commonJS({
         const stack = [], cards = [];
         for (let li = 0; li < lines.length; li++) {
           const text = lines[li];
-          const tm = text.match(TASK_RE);
+          const tm = text.match(TASK_RE2);
           if (tm) {
             const indent = indentWidth(text);
             while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
@@ -1849,7 +1958,7 @@ var require_report = __commonJS({
             cards.push(card);
             continue;
           }
-          const hm = text.match(HIST_RE);
+          const hm = text.match(HIST_RE2);
           if (hm) {
             const hi = indentWidth(text);
             for (let i = stack.length - 1; i >= 0; i--) {
@@ -1939,7 +2048,7 @@ var require_report = __commonJS({
       ];
       for (const ref of refs) {
         const li = ref.line;
-        const m = lines[li]?.match(HIST_RE);
+        const m = lines[li]?.match(HIST_RE2);
         if (!m) throw new Error("history line not found");
         const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
         lines[li] = lines[li].replace(ref.stamp, newStamp);
@@ -2060,7 +2169,7 @@ var require_report = __commonJS({
             modal.close();
             resolve(true);
           } catch (err) {
-            new Notice(`report: ${err.message}`);
+            new Notice2(`report: ${err.message}`);
           }
         };
         save.addEventListener("click", submit);
@@ -2117,7 +2226,7 @@ var require_report = __commonJS({
       const now = /* @__PURE__ */ new Date();
       const todayStr = toDateStr(now);
       const maxEvent = Math.max(...allStamps) + pad;
-      const maxT = Math.min(endOfDay.getTime(), endStr === todayStr ? Math.max(maxEvent, now.getTime()) : maxEvent);
+      const maxT = endStr < todayStr ? endOfDay.getTime() : Math.min(endOfDay.getTime(), Math.max(maxEvent, now.getTime()));
       const rangeMs = maxT - minT || 1;
       const pct = (t) => Math.max(0, Math.min(100, (t.getTime() - minT) / rangeMs * 100)).toFixed(2);
       const fmt = fmtClock;
@@ -2288,7 +2397,7 @@ var require_report = __commonJS({
                   await rewriteReportSegmentTimes(plugin.app, task, seg, startStr, hhmmInput(new Date(draftStart)), hhmmInput(new Date(draftEnd)));
                   await redraw();
                 } catch (err) {
-                  new Notice(`report: ${err.message}`);
+                  new Notice2(`report: ${err.message}`);
                   s.style.cssText = `left:${pct(seg.start)}%;width:${Math.max(0.5, pct(seg.end) - pct(seg.start))}%;background:${cardColor || colColor(seg.col)}`;
                 }
               };
@@ -2330,6 +2439,87 @@ var require_report = __commonJS({
         item.appendText(col);
       }
     }
+    async function renderDaySummary(plugin, host, startStr, endStr, config, activeNames, pausedNames, terminalNames) {
+      const { tasks, standing } = await collectReportData(plugin.app, startStr, endStr, config.paths, (n) => activeNames.has((n || "").toLowerCase()));
+      const section = host.createDiv({ cls: "bdb-report-summary" });
+      if (!tasks.length) {
+        section.createDiv({ cls: "bdb-report-empty", text: "No task movements" });
+        renderPending(plugin, section, standing);
+        return;
+      }
+      const dayStart = parseDateStr(startStr);
+      dayStart.setHours(0, 0, 0, 0);
+      const endOfDay = parseDateStr(endStr);
+      endOfDay.setHours(23, 59, 59, 999);
+      const now = /* @__PURE__ */ new Date();
+      const todayStr = toDateStr(now);
+      const allStamps = tasks.flatMap((t) => t.history.map((h) => stampToDate(h.stamp).getTime()));
+      const maxEvent = Math.max(...allStamps) + 15 * 6e4;
+      const maxT = endStr < todayStr ? endOfDay.getTime() : Math.min(endOfDay.getTime(), Math.max(maxEvent, now.getTime()));
+      const colTime = /* @__PURE__ */ new Map();
+      const colCount = /* @__PURE__ */ new Map();
+      for (const task of tasks) {
+        task._segs = buildSegments(task.history, dayStart, new Date(maxT));
+        task._active = 0;
+        task._done = false;
+        const seen = /* @__PURE__ */ new Set();
+        for (const seg of task._segs) {
+          const k = (seg.col || "").toLowerCase();
+          seen.add(seg.col);
+          if (terminalNames.has(k)) {
+            task._done = true;
+            continue;
+          }
+          const dur = seg.end - seg.start;
+          if (!pausedNames.has(k)) task._active += dur;
+          colTime.set(seg.col, (colTime.get(seg.col) || 0) + dur);
+        }
+        for (const c of seen) colCount.set(c, (colCount.get(c) || 0) + 1);
+      }
+      const totalActive = tasks.reduce((s, t) => s + t._active, 0);
+      const doneN = tasks.filter((t) => t._done).length;
+      const groups = [];
+      if (config.lane) {
+        const groupOf = (task) => {
+          let v = task.fm?.[config.lane];
+          if (Array.isArray(v)) v = v[0];
+          v = v == null ? "" : String(v).replace(/^\[\[|\]\]$/g, "").replace(/\|.*$/, "").trim();
+          return v || "(none)";
+        };
+        const m = /* @__PURE__ */ new Map();
+        for (const t of tasks) {
+          const g = groupOf(t);
+          (m.get(g) || m.set(g, []).get(g)).push(t);
+        }
+        groups.push(...[...m.entries()].sort((a, b) => b[1].length - a[1].length));
+      }
+      section.createDiv({ cls: "bdb-report-summary-head", text: `${tasks.length} tasks \xB7 ${fmtDur(totalActive)} active \xB7 ${doneN} done` });
+      const sumBar = (caption, segs) => {
+        if (!segs.length) return;
+        const row = section.createDiv({ cls: "bdb-report-sumbar-row" });
+        row.createSpan({ cls: "bdb-report-sumbar-cap", text: caption });
+        const track = row.createDiv({ cls: "bdb-report-sumbar" });
+        for (const x of segs) {
+          const seg = track.createDiv({ cls: "bdb-report-sumbar-seg" });
+          seg.style.flexGrow = String(Math.max(x.size, 1));
+          seg.style.background = x.color;
+          seg.setAttribute("title", x.tip);
+          seg.createSpan({ cls: "bdb-report-sumbar-lbl", text: x.label });
+        }
+      };
+      sumBar("Projects", groups.map(([name, arr]) => ({
+        size: arr.length,
+        color: projColor(name),
+        label: `${name} ${arr.length}`,
+        tip: `${name}: ${arr.length}t \xB7 ${fmtDur(arr.reduce((s, t) => s + t._active, 0))} active \xB7 ${arr.filter((t) => t._done).length} done`
+      })));
+      sumBar("Columns", [...colCount.entries()].sort((a, b) => b[1] - a[1]).map(([col, n]) => ({
+        size: n,
+        color: colColor(col),
+        label: `${col} ${n}`,
+        tip: `${col}: ${n}t \xB7 ${fmtDur(colTime.get(col) || 0)} active`
+      })));
+    }
     async function drawReport(plugin, source, el, ctx, redraw, state) {
       ensureReportEscHandler();
       let dateStr = state?.dateStr || (source || "").trim().replace(/[^0-9]/g, "").substring(0, 8);
@@ -2343,8 +2533,8 @@ var require_report = __commonJS({
       }
       if (state) state.dateStr = dateStr;
       const DEFAULT_COLS = "columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-";
-      const config = parseKanbanConfig(source || "");
-      const cols = config.columns.length ? config.columns : parseKanbanConfig(DEFAULT_COLS).columns;
+      const config = parseKanbanConfig2(source || "");
+      const cols = config.columns.length ? config.columns : parseKanbanConfig2(DEFAULT_COLS).columns;
       const activeNames = new Set(cols.filter((c) => !c.state && !c.paused).map((c) => c.name.toLowerCase()));
       const visibleKeys = new Set((config.only?.length ? config.only : ["todo", "doing", "parked", "done", "cancelled"]).map((s) => String(s).toLowerCase()));
       const pausedNames = new Set(cols.filter((c) => c.paused).map((c) => c.name.toLowerCase()));
@@ -2361,6 +2551,11 @@ var require_report = __commonJS({
           await redraw();
         });
       }
+      const sumBtn = modeWrap.createEl("button", { cls: `bdb-report-mode${state.summary ? " is-active" : ""}`, text: "\u03A3", attr: { type: "button", "aria-label": "Toggle day summary" } });
+      sumBtn.addEventListener("click", async () => {
+        state.summary = !state.summary;
+        await redraw();
+      });
       const dock = head.createDiv({ cls: "bdb-report-dock" });
       const dateBtn = dock.createEl("button", { cls: "bdb-report-title", text: fmtDateTitle(dateStr), attr: { type: "button", "aria-label": "Pick report date" } });
       const metaEl = dock.createDiv({ cls: "bdb-report-meta" });
@@ -2402,7 +2597,9 @@ var require_report = __commonJS({
       addJump("W+", { days: 7 });
       addJump("M+", { months: 1 });
       addJump("Y+", { years: 1 });
-      if (mode === "week" || mode === "7d") {
+      if (state.summary) {
+        await renderDaySummary(plugin, wrap, range.start, range.end, config, activeNames, pausedNames, terminalNames);
+      } else if (mode === "week" || mode === "7d") {
         await renderReportRangeSection(plugin, wrap, range.start, range.end, config, activeNames, pausedNames, terminalNames, redraw, {
           showSubtitle: false,
           label: range.label,
@@ -2428,7 +2625,11 @@ var require_report = __commonJS({
           console.error("bdb report", e);
         }
       };
-      child.registerInterval(window.setInterval(draw, 6e4));
+      child.registerInterval(window.setInterval(() => {
+        const today = toDateStr(/* @__PURE__ */ new Date());
+        const r = reportRange({ mode: state.mode || "day", dateStr: state.dateStr || today });
+        if (r.start <= today && today <= r.end) draw();
+      }, 6e4));
       await draw();
     }
     module2.exports = { renderReportBlock: renderReportBlock2, collectDayTasks: async (app2, dateStr, paths2) => (await collectReportData(app2, dateStr, dateStr, paths2, () => false)).tasks };
@@ -2524,18 +2725,18 @@ ${stringifyYaml(body)}---
       }
     };
     async function saveTemplateCommand2(plugin) {
-      const { Notice } = require("obsidian");
+      const { Notice: Notice2 } = require("obsidian");
       const file = plugin.app.workspace.getActiveFile();
       if (!file) {
-        new Notice("No active note");
+        new Notice2("No active note");
         return;
       }
       new NameModal(plugin.app, file.basename, async (name) => {
         if (!name) return;
         try {
-          new Notice(await saveTemplate(plugin, name));
+          new Notice2(await saveTemplate(plugin, name));
         } catch (e) {
-          new Notice("Template failed: " + e.message);
+          new Notice2("Template failed: " + e.message);
         }
       }).open();
     }
@@ -2558,14 +2759,14 @@ var require_api = __commonJS({
   "src/api.js"(exports2, module2) {
     var {
       scanKanbanTasks,
-      moveCard,
-      parseKanbanConfig,
+      moveCard: moveCard2,
+      parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
       cleanText,
-      TASK_RE,
+      TASK_RE: TASK_RE2,
       TAGLINE_RE,
       COLOR_RE,
-      HIST_RE,
+      HIST_RE: HIST_RE2,
       EI_HIST_RE
     } = require_kanban();
     var { collectDayTasks } = require_report();
@@ -2575,12 +2776,12 @@ var require_api = __commonJS({
     function makeConfig(opts = {}) {
       const lines = [DEFAULT_COLS];
       if (opts.paths) lines.push("paths: " + opts.paths);
-      return parseKanbanConfig(lines.join("\n"));
+      return parseKanbanConfig2(lines.join("\n"));
     }
     function makeHabitConfig(opts = {}) {
       const lines = [HABIT_COLS];
       if (opts.paths) lines.push("paths: " + opts.paths);
-      return parseKanbanConfig(lines.join("\n"));
+      return parseKanbanConfig2(lines.join("\n"));
     }
     async function habitCards(plugin, opts = {}) {
       const cards = await scanKanbanTasks(plugin.app, makeHabitConfig(opts));
@@ -2782,8 +2983,8 @@ var require_api = __commonJS({
       return {
         // Live tasks (non-terminal). Paused cols (e.g. Backlog~) are excluded by default,
         // but INCLUDED when explicitly requested via opts.col or opts.includePaused.
-        // Returns tab-lines: col<TAB>file:line<TAB>body<TAB>age
-        // opts: { paths, col, tag, staleDays, limit, includePaused }
+        // Returns tab-lines: col<TAB>file:line<TAB>body<TAB>age[<TAB>timestamp]
+        // opts: { paths, col, tag, staleDays, limit, includePaused, timestamps }
         async active(opts = {}) {
           const config = makeConfig(opts);
           const byCol = await scanKanbanTasks(plugin.app, config);
@@ -2799,7 +3000,7 @@ var require_api = __commonJS({
             rows = rows.filter((r) => r.since && new Date(r.since).getTime() <= cut);
           }
           if (opts.limit) rows = rows.slice(0, opts.limit);
-          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
+          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
         },
         // Freeform notes for one task: every line between the task and the next task
         // line (any indent), minus the metadata block (tag/color/%%kb%%/%%ei%%).
@@ -2815,10 +3016,10 @@ var require_api = __commonJS({
           const file = plugin.app.vault.getAbstractFileByPath(path);
           if (!file) throw new Error("file not found: " + path);
           const lines = (await plugin.app.vault.cachedRead(file)).split(/\r?\n/);
-          if (!TASK_RE.test(lines[line] || "")) throw new Error(`no task at ${path}:${line}`);
-          const meta = (t) => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE.test(t) || EI_HIST_RE.test(t);
+          if (!TASK_RE2.test(lines[line] || "")) throw new Error(`no task at ${path}:${line}`);
+          const meta = (t) => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE2.test(t) || EI_HIST_RE.test(t);
           const out = [];
-          for (let i = line + 1; i < lines.length && !TASK_RE.test(lines[i]); i++) {
+          for (let i = line + 1; i < lines.length && !TASK_RE2.test(lines[i]); i++) {
             if (!meta(lines[i])) out.push(lines[i]);
           }
           return "\n" + out.join("\n").replace(/^\n+|\n+$/g, "");
@@ -2983,7 +3184,7 @@ var require_api = __commonJS({
         // List available methods.
         help() {
           return "\n" + [
-            "active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit",
+            "active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit,timestamps",
             "getDone(date,opts?)      tasks moved to terminal col on a date",
             'note("file:line")        freeform notes under a task (prose to next task)',
             "getReport(...)           move timeline; day | from,to | {days:N}",
@@ -3073,7 +3274,7 @@ var require_api = __commonJS({
           const config = makeConfig();
           const col = config.columns.find((c) => c.name.toLowerCase() === String(toCol).toLowerCase());
           if (!col) throw new Error("unknown col: " + toCol);
-          await moveCard(plugin.app, file, line, col, config, {});
+          await moveCard2(plugin.app, file, line, col, config, {});
           return `ok ${filePath}:${line} -> ${col.name}`;
         },
         // Habit stats — one line per habit card. opts: { paths }.
@@ -3104,7 +3305,7 @@ var require_api = __commonJS({
           const config = makeHabitConfig(opts);
           const cur = config.columns.find((c) => c.key === it.colKey);
           const target = it.colKey === "doing" ? config.columns.find((c) => !c.state && c.paused) : config.columns.find((c) => c.live);
-          await moveCard(plugin.app, it.card.file, it.card.line, target, config, { fromCol: cur });
+          await moveCard2(plugin.app, it.card.file, it.card.line, target, config, { fromCol: cur });
           return `ok ${it.label}: ${cur.name} -> ${target.name}`;
         },
         // Snapshot the ACTIVE note's properties into a reusable, provenance-stamped
@@ -3130,7 +3331,8 @@ var require_settings = __commonJS({
         paths: "",
         maxage: 7,
         sweep: "Doing > Parked",
-        lanesort: "total-desc"
+        lanesort: "total-desc",
+        autoFold: false
       },
       ei: {
         paths: "",
@@ -3152,6 +3354,9 @@ var require_settings = __commonJS({
       },
       templates: {
         dir: "90-99 Obsidian Meta/Templates"
+      },
+      views: {
+        recentHours: 24
       }
     };
     var TABS = ["Kanban", "Ei", "Backlinks", "Daily", "Templates", "Views"];
@@ -3206,6 +3411,7 @@ var require_settings = __commonJS({
         );
         this.bind(new Setting(el).setName("Default paths").setDesc("Comma list of path prefixes to scan; empty = whole vault."), "kanban", "paths");
         this.bind(new Setting(el).setName("Max age (days)").setDesc("Hide terminal cards stamped older than this; 0 = show all."), "kanban", "maxage", { number: true });
+        this.bind(new Setting(el).setName("Auto-fold empty columns").setDesc("Collapse empty columns by default."), "kanban", "autoFold");
         this.bind(new Setting(el).setName("Sweep").setDesc('One "From > To" route per line; each adds a bulk-move button on its From column. Empty disables.'), "kanban", "sweep", { area: true });
         new Setting(el).setName("Lane sort").setDesc("Default swimlane order.").addDropdown((d) => d.addOptions({
           "total-desc": "Total cards (most first)",
@@ -3243,6 +3449,7 @@ var require_settings = __commonJS({
         const lines = multi("columns", k.columns);
         if (k.paths) lines.push(`paths: ${k.paths}`);
         lines.push(`maxage: ${k.maxage}`);
+        lines.push(`auto-fold: ${k.autoFold}`);
         if (k.lanesort && k.lanesort !== "total-desc") lines.push(`lanesort: ${k.lanesort}`);
         if (k.sweep) lines.push(...multi("sweep", k.sweep));
         if (k.colors) lines.push(...multi("colors", k.colors));
@@ -3305,6 +3512,12 @@ var require_settings = __commonJS({
         );
       }
       renderViews(el) {
+        this.bind(
+          new Setting(el).setName("Recent task window (hours)").setDesc("Show tasks whose latest move happened within this many hours."),
+          "views",
+          "recentHours",
+          { number: true }
+        );
         el.createEl("p", {
           text: "Chronicle, Atlas, Ledger and Beacon are Bases views: configure each one from the view options menu in the Bases toolbar.",
           cls: "setting-item-description"
@@ -4018,10 +4231,291 @@ var require_beacon = __commonJS({
   }
 });
 
+// src/views/doing.js
+var require_doing = __commonJS({
+  "src/views/doing.js"(exports2, module2) {
+    var { ItemView, Menu, Notice: Notice2, setIcon } = require("obsidian");
+    var {
+      cleanText,
+      resolveKanbanConfig,
+      scanKanbanTasks,
+      moveCard: moveCard2,
+      stampToDate,
+      columnColor
+    } = require_kanban();
+    var { renderInteractive, openFileAtLine } = require_render();
+    var DOING_VIEW_TYPE2 = "bdb-doing";
+    function elapsed(date) {
+      const total = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1e3));
+      if (!date || !Number.isFinite(total)) return "--:--:--";
+      const days = Math.floor(total / 86400);
+      const hours = String(Math.floor(total / 3600) % 24).padStart(2, "0");
+      const minutes = String(Math.floor(total / 60) % 60).padStart(2, "0");
+      const seconds = String(total % 60).padStart(2, "0");
+      return `${days ? `${days}d ` : ""}${hours}:${minutes}:${seconds}`;
+    }
+    function cardTime(card) {
+      const last = card.history.slice().sort((a, b) => b.stamp.localeCompare(a.stamp))[0];
+      if (last) return stampToDate(last.stamp);
+      const daily = card.file.basename.match(/^(\d{8})-(\d{4})/);
+      return daily ? stampToDate(daily[1] + daily[2]) : new Date(card.file.stat.ctime);
+    }
+    function taskEmojis(cards) {
+      const found = /* @__PURE__ */ new Set();
+      const text = cards.map((item) => item.card.body).join(" ");
+      const segments = new Intl.Segmenter(void 0, { granularity: "grapheme" }).segment(text);
+      for (const { segment } of segments) {
+        if (/[\p{Extended_Pictographic}\p{Regional_Indicator}\u20e3]/u.test(segment)) found.add(segment);
+      }
+      return [...found].join(" ");
+    }
+    var DoingView2 = class extends ItemView {
+      constructor(leaf, plugin) {
+        super(leaf);
+        this.plugin = plugin;
+        this.collapsed = /* @__PURE__ */ new Set();
+      }
+      getViewType() {
+        return DOING_VIEW_TYPE2;
+      }
+      getDisplayText() {
+        return "Tasks";
+      }
+      getIcon() {
+        return "list-checks";
+      }
+      async onOpen() {
+        this.registerEvent(this.app.vault.on("modify", () => this.draw()));
+        this.registerEvent(this.app.vault.on("create", () => this.draw()));
+        this.registerEvent(this.app.vault.on("delete", () => this.draw()));
+        this.registerEvent(this.app.vault.on("rename", () => this.draw()));
+        this.registerInterval(window.setInterval(() => this.tick(), 1e3));
+        this.registerInterval(window.setInterval(() => this.draw(), 6e4));
+        await this.draw();
+      }
+      tick() {
+        for (const clock of this.clocks || []) clock.el.setText(elapsed(clock.date));
+      }
+      config() {
+        const config = resolveKanbanConfig(this.plugin, "", null);
+        config.maxage = 0;
+        return config;
+      }
+      async recentGroups(config) {
+        const byCol = await scanKanbanTasks(this.app, config);
+        const hours = Math.max(1, Number(this.plugin.settings.views.recentHours) || 24);
+        const cutoff = Date.now() - hours * 36e5;
+        const doing = config.columns.find((col) => col.key === "doing");
+        const columns = doing ? [doing, ...config.columns.filter((col) => col !== doing)] : config.columns;
+        return {
+          hours,
+          groups: columns.map((col, index) => ({
+            col,
+            index,
+            cards: (byCol.get(col.key) || []).map((card) => ({ card, date: cardTime(card) })).filter((item) => item.date.getTime() >= cutoff).sort((a, b) => b.date - a.date)
+          }))
+        };
+      }
+      async moveTask(card, fromCol, toCol, config) {
+        if (!card || fromCol === toCol) return false;
+        const moved = await moveCard2(this.app, card.file, card.line, toCol, config, { fromCol });
+        new Notice2(moved ? `Task moved to ${toCol.name}` : "Task could not be moved");
+        if (moved) this.collapsed.delete(toCol.key);
+        await this.draw();
+        return moved;
+      }
+      showMoveMenu(event, card, fromCol, config) {
+        event.preventDefault();
+        const menu = new Menu().setUseNativeMenu(false);
+        for (const col of config.columns.filter((col2) => col2 !== fromCol)) {
+          menu.addItem((item) => item.setTitle(`Move to ${col.name}`).setIcon(col.state ? "check-circle-2" : "arrow-right").onClick(() => this.moveTask(card, fromCol, col, config)));
+        }
+        menu.showAtMouseEvent(event);
+      }
+      startDrag(event, task, card, fromCol) {
+        this.dragged = { card, fromCol };
+        task.addClass("is-dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", `${card.file.path}::${card.line}::${fromCol.key}`);
+        const ghost = task.cloneNode(true);
+        ghost.addClass("bdb-task-drag-ghost");
+        ghost.style.width = `${Math.round(task.getBoundingClientRect().width)}px`;
+        task.ownerDocument.body.appendChild(ghost);
+        event.dataTransfer.setDragImage(ghost, 22, 22);
+        window.setTimeout(() => ghost.remove(), 0);
+      }
+      wireDropTarget(section, toCol, config) {
+        const accepts = () => this.dragged && this.dragged.fromCol !== toCol;
+        section.addEventListener("dragover", (event) => {
+          if (!accepts()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          section.addClass("is-drop-target");
+        });
+        section.addEventListener("dragleave", (event) => {
+          if (!section.contains(event.relatedTarget)) section.removeClass("is-drop-target");
+        });
+        section.addEventListener("drop", async (event) => {
+          event.preventDefault();
+          section.removeClass("is-drop-target");
+          const dragged = this.dragged;
+          this.dragged = null;
+          if (dragged && dragged.fromCol !== toCol) {
+            await this.moveTask(dragged.card, dragged.fromCol, toCol, config);
+          }
+        });
+      }
+      collapseButton(toolbar, groups) {
+        const keys = groups.filter((group) => group.col.key !== "doing").map((group) => group.col.key);
+        const allCollapsed = keys.every((key) => this.collapsed.has(key));
+        const button = toolbar.createEl("button", {
+          cls: "clickable-icon bdb-task-collapse-all",
+          attr: { "aria-label": allCollapsed ? "Expand all sections" : "Collapse all sections" }
+        });
+        setIcon(button, allCollapsed ? "unfold-vertical" : "fold-vertical");
+        button.addEventListener("click", () => {
+          for (const key of keys) allCollapsed ? this.collapsed.delete(key) : this.collapsed.add(key);
+          this.draw();
+        });
+      }
+      sectionHeader(section, group) {
+        const { col, cards } = group;
+        const doing = col.key === "doing";
+        const head = section.createDiv({
+          cls: `bdb-task-section-head${doing ? " is-doing" : ""}`,
+          attr: doing ? {} : {
+            role: "button",
+            tabindex: "0",
+            "aria-expanded": String(!this.collapsed.has(col.key))
+          }
+        });
+        const caret = head.createSpan({
+          cls: `bdb-task-section-caret${doing ? " is-spacer" : ""}`,
+          attr: doing ? { "aria-hidden": "true" } : {}
+        });
+        if (!doing) {
+          setIcon(caret, this.collapsed.has(col.key) ? "chevron-right" : "chevron-down");
+        }
+        head.createSpan({ cls: "bdb-task-section-title", text: col.name });
+        head.createSpan({ cls: "bdb-doing-count", text: String(cards.length) });
+        const meta = head.createSpan({ cls: "bdb-task-section-meta" });
+        const emojis = taskEmojis(cards);
+        if (emojis) meta.createSpan({ cls: "bdb-task-section-emojis", text: emojis });
+        if (doing) {
+          const live = meta.createSpan({ cls: "bdb-doing-live" });
+          live.createSpan({ cls: "bdb-doing-live-dot" });
+          live.createSpan({ text: "LIVE" });
+        } else {
+          const toggle = () => {
+            this.collapsed.has(col.key) ? this.collapsed.delete(col.key) : this.collapsed.add(col.key);
+            this.draw();
+          };
+          head.addEventListener("click", toggle);
+          head.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            toggle();
+          });
+        }
+      }
+      async taskCard(parent, item, col, config, drawVersion) {
+        const { card, date } = item;
+        const task = parent.createDiv({
+          cls: "bdb-doing-item",
+          attr: { role: "button", tabindex: "0", draggable: "true" }
+        });
+        task.setAttr("title", "Drag or right-click to move");
+        await renderInteractive(this.plugin, cleanText(card.body), task.createDiv({ cls: "bdb-doing-task" }), card.file.path);
+        if (drawVersion !== this.drawVersion) return false;
+        if (col.key === "doing") {
+          const clock = task.createSpan({ cls: "bdb-doing-clock", text: elapsed(date) });
+          clock.setAttr("aria-label", "Time in Doing");
+          clock.setAttr("title", `In Doing since ${date.toLocaleString()}`);
+          this.clocks.push({ el: clock, date });
+        }
+        const open = (event) => openFileAtLine(this.app, card.file, card.line, event.metaKey || event.ctrlKey);
+        task.addEventListener("click", (event) => {
+          if (!event.target.closest("a")) open(event);
+        });
+        task.addEventListener("contextmenu", (event) => this.showMoveMenu(event, card, col, config));
+        task.addEventListener("dragstart", (event) => this.startDrag(event, task, card, col));
+        task.addEventListener("dragend", () => {
+          task.removeClass("is-dragging");
+          this.dragged = null;
+          for (const target of this.contentEl.querySelectorAll(".is-drop-target")) target.removeClass("is-drop-target");
+        });
+        task.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          open(event);
+        });
+        return true;
+      }
+      async draw() {
+        const drawVersion = (this.drawVersion || 0) + 1;
+        this.drawVersion = drawVersion;
+        const config = this.config();
+        const { hours, groups } = await this.recentGroups(config);
+        if (drawVersion !== this.drawVersion) return;
+        const root = this.contentEl;
+        root.empty();
+        root.addClass("bdb-doing-view");
+        this.clocks = [];
+        const toolbar = root.createDiv({ cls: "bdb-task-toolbar" });
+        toolbar.createSpan({ text: `Last ${hours}h` });
+        this.collapseButton(toolbar, groups);
+        for (const group of groups) {
+          const section = root.createDiv({ cls: "bdb-task-section" });
+          section.style.setProperty("--bdb-section-color", columnColor(config, group.col, group.index));
+          this.wireDropTarget(section, group.col, config);
+          this.sectionHeader(section, group);
+          if (group.col.key !== "doing" && this.collapsed.has(group.col.key)) continue;
+          const body = section.createDiv({ cls: "bdb-task-section-body" });
+          if (!group.cards.length) body.createDiv({ cls: "bdb-doing-empty", text: "No recent tasks" });
+          for (const item of group.cards) {
+            if (!await this.taskCard(body, item, group.col, config, drawVersion)) return;
+          }
+        }
+      }
+    };
+    module2.exports = { DoingView: DoingView2, DOING_VIEW_TYPE: DOING_VIEW_TYPE2 };
+  }
+});
+
+// src/views/kanban.js
+var require_kanban2 = __commonJS({
+  "src/views/kanban.js"(exports2, module2) {
+    var { BdbBasesView } = require_base();
+    var { resolveKanbanConfig, drawBoard } = require_kanban();
+    var KANBAN_VIEW_TYPE2 = "kanban-bases-view";
+    var KanbanView2 = class extends BdbBasesView {
+      constructor(plugin, controller, parentEl) {
+        super(plugin, controller, parentEl, KANBAN_VIEW_TYPE2, "bdb-kanban bdb-kanban-bases");
+        this.state = { dragging: false };
+      }
+      load() {
+        this.timer = window.setInterval(() => {
+          if (!this.state.dragging) (this.state.timeUpdaters || []).forEach((update) => update());
+        }, 6e4);
+      }
+      unload() {
+        window.clearInterval(this.timer);
+      }
+      async onDataUpdated() {
+        const paths2 = new Set([...this.fileEntries()].map((entry) => entry.file.path));
+        const config = resolveKanbanConfig(this.plugin, "", null);
+        config.cacheFilter = (_cache, file) => paths2.has(file.path);
+        await drawBoard(this.plugin, this.containerEl, config, this.state);
+      }
+    };
+    module2.exports = { KanbanView: KanbanView2, KANBAN_VIEW_TYPE: KANBAN_VIEW_TYPE2 };
+  }
+});
+
 // src/main.js
-var { Plugin } = require("obsidian");
+var { Plugin, Notice, SuggestModal } = require("obsidian");
 var { renderBacklinksBlock, renderDailyBlock } = require_blocks();
-var { renderKanbanBlock } = require_kanban();
+var { renderKanbanBlock, parseKanbanConfig, moveCard, TASK_RE, HIST_RE } = require_kanban();
 var { renderEiBlock } = require_ei();
 var { renderReportBlock } = require_report();
 var { renderHabitsBlock, renderHabitPad } = require_habits();
@@ -4032,16 +4526,97 @@ var { ChronicleView, CHRONICLE_VIEW_TYPE } = require_chronicle();
 var { AtlasView, ATLAS_VIEW_TYPE } = require_atlas();
 var { LedgerView, LEDGER_VIEW_TYPE } = require_ledger();
 var { BeaconView, BEACON_VIEW_TYPE } = require_beacon();
+var { DoingView, DOING_VIEW_TYPE } = require_doing();
+var { KanbanView, KANBAN_VIEW_TYPE } = require_kanban2();
+function taskMeta(lines, line) {
+  const histories = /* @__PURE__ */ new Set();
+  let tag = (lines[line].match(/#kb\/([\w-]+)/) || [])[1];
+  for (let i = line + 1; i < lines.length && !TASK_RE.test(lines[i]); i++) {
+    const history = lines[i].match(HIST_RE)?.[0];
+    if (history) histories.add(history);
+    tag ||= (lines[i].match(/#kb\/([\w-]+)/) || [])[1];
+  }
+  return { histories, tag };
+}
+var TaskColumnSuggest = class extends SuggestModal {
+  constructor(plugin, file, line, config, fromCol) {
+    super(plugin.app);
+    this.file = file;
+    this.line = line;
+    this.config = config;
+    this.fromCol = fromCol;
+    this.setPlaceholder("Move task to\u2026");
+  }
+  getSuggestions(query) {
+    const q = query.trim().toLowerCase();
+    return this.config.columns.filter((col) => col.name.toLowerCase().includes(q));
+  }
+  renderSuggestion(col, el) {
+    el.setText(col === this.fromCol ? `${col.name} (current)` : col.name);
+  }
+  async onChooseSuggestion(col) {
+    if (col === this.fromCol) return;
+    const moved = await moveCard(this.app, this.file, this.line, col, this.config, { fromCol: this.fromCol });
+    new Notice(moved ? `Task moved to ${col.name}` : "Task could not be moved");
+  }
+};
 var BacklinksDailyBlocksPlugin = class extends Plugin {
   async onload() {
     this.settings = mergeSettings(await this.loadData());
     this.api = buildApi(this);
     globalThis.kb = this.api;
     this.addSettingTab(new BdbSettingTab(this));
+    this.registerView(DOING_VIEW_TYPE, (leaf) => new DoingView(leaf, this));
+    this.addCommand({
+      id: "open-doing-view",
+      name: "Open recent tasks",
+      callback: async () => {
+        const leaf = this.app.workspace.getLeavesOfType(DOING_VIEW_TYPE)[0] || this.app.workspace.getLeaf("tab");
+        await leaf.setViewState({ type: DOING_VIEW_TYPE, active: true });
+        this.app.workspace.revealLeaf(leaf);
+      }
+    });
+    this.taskSnapshots = /* @__PURE__ */ new Map();
+    this.taskWrites = /* @__PURE__ */ new Set();
+    this.editorSnapshots = /* @__PURE__ */ new WeakMap();
+    const remember = async (file) => {
+      if (file?.extension === "md") this.taskSnapshots.set(file.path, await this.app.vault.read(file));
+    };
+    const rememberEditor = (leaf) => {
+      if (leaf?.view?.editor) this.editorSnapshots.set(leaf.view.editor, leaf.view.editor.getValue());
+    };
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      remember(leaf.view.file);
+      rememberEditor(leaf);
+    }
+    this.registerEvent(this.app.workspace.on("file-open", (file) => remember(file)));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", rememberEditor));
+    this.registerEvent(this.app.workspace.on("editor-change", (editor, info) => {
+      this.closeEditorCheckedTasks(editor, info).catch((err) => console.warn("backlinks-daily-blocks: close checked task failed", err));
+    }));
+    this.registerEvent(this.app.vault.on("modify", (file) => this.closeManuallyCheckedTasks(file)));
     this.addCommand({
       id: "save-props-as-template",
       name: "Save note properties as template",
       callback: () => saveTemplateCommand(this)
+    });
+    this.addCommand({
+      id: "move-task-under-cursor",
+      name: "Move task under cursor",
+      hotkeys: [{ modifiers: ["Mod", "Shift"], key: "M" }],
+      editorCallback: async (editor, view) => {
+        const file = view.file;
+        const line = editor.getCursor().line;
+        const task = editor.getLine(line).match(TASK_RE);
+        if (!file || !task) return new Notice("Cursor is not on a task");
+        await view.save();
+        const columns = this.settings.kanban.columns.split(/\r?\n/).map((x) => `  ${x}`).join("\n");
+        const config = parseKanbanConfig(`columns:
+${columns}`);
+        const meta = taskMeta(editor.getValue().split(/\r?\n/), line);
+        const fromCol = config.columns.find((col) => col.state === task[2]) || config.columns.find((col) => col.key === meta.tag) || config.columns.find((col) => !col.state);
+        new TaskColumnSuggest(this, file, line, config, fromCol).open();
+      }
     });
     this.normalizeBaseGroupBy().catch((err) => console.warn("backlinks-daily-blocks: normalize groupBy failed", err));
     this.registerMarkdownCodeBlockProcessor("backlinks", (src, el, ctx) => {
@@ -4134,6 +4709,12 @@ var BacklinksDailyBlocksPlugin = class extends Plugin {
         }
       ]
     });
+    this.registerBasesView(KANBAN_VIEW_TYPE, {
+      name: "Kanban",
+      icon: "lucide-columns-3",
+      factory: (controller, containerEl) => new KanbanView(this, controller, containerEl),
+      options: () => []
+    });
     this.registerBasesView(BEACON_VIEW_TYPE, {
       name: "Beacon",
       icon: "lucide-flag",
@@ -4150,6 +4731,70 @@ var BacklinksDailyBlocksPlugin = class extends Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
+    for (const leaf of this.app.workspace.getLeavesOfType(DOING_VIEW_TYPE)) leaf.view.draw();
+  }
+  async closeManuallyCheckedTasks(file) {
+    if (file?.extension !== "md") return;
+    const next = await this.app.vault.read(file);
+    const previous = this.taskSnapshots.get(file.path);
+    this.taskSnapshots.set(file.path, next);
+    if (previous == null || this.taskWrites.has(file.path)) return;
+    const before = previous.split(/\r?\n/);
+    const after = next.split(/\r?\n/);
+    const config = parseKanbanConfig(`columns:
+${this.settings.kanban.columns.split(/\r?\n/).map((x) => `  ${x}`).join("\n")}`);
+    const moves = [];
+    for (let line = 0; line < Math.min(before.length, after.length); line++) {
+      const oldTask = before[line].match(TASK_RE);
+      const newTask = after[line].match(TASK_RE);
+      const target = newTask && config.columns.find((col) => col.state === newTask[2]);
+      if (!oldTask || oldTask[2] !== " " || !target) continue;
+      const oldMeta = taskMeta(before, line);
+      const newMeta = taskMeta(after, line);
+      if ([...newMeta.histories].some((history) => !oldMeta.histories.has(history))) continue;
+      const fromCol = config.columns.find((col) => col.key === oldMeta.tag) || config.columns.find((col) => !col.state);
+      moves.push({ line, target, fromCol });
+    }
+    if (!moves.length) return;
+    this.taskWrites.add(file.path);
+    try {
+      for (const move of moves.reverse()) await moveCard(this.app, file, move.line, move.target, config, { fromCol: move.fromCol });
+      this.taskSnapshots.set(file.path, await this.app.vault.read(file));
+    } finally {
+      this.taskWrites.delete(file.path);
+    }
+  }
+  async closeEditorCheckedTasks(editor, info) {
+    const file = info?.file;
+    const next = editor.getValue();
+    const previous = this.editorSnapshots.get(editor);
+    this.editorSnapshots.set(editor, next);
+    if (!file || previous == null || this.taskWrites.has(file.path)) return;
+    const before = previous.split(/\r?\n/);
+    const after = next.split(/\r?\n/);
+    const config = parseKanbanConfig(`columns:
+${this.settings.kanban.columns.split(/\r?\n/).map((x) => `  ${x}`).join("\n")}`);
+    const moves = [];
+    for (let line = 0; line < Math.min(before.length, after.length); line++) {
+      const oldTask = before[line].match(TASK_RE);
+      const newTask = after[line].match(TASK_RE);
+      const target = newTask && config.columns.find((col) => col.state === newTask[2]);
+      if (!oldTask || oldTask[2] !== " " || !target) continue;
+      const oldMeta = taskMeta(before, line);
+      const newMeta = taskMeta(after, line);
+      if ([...newMeta.histories].some((history) => !oldMeta.histories.has(history))) continue;
+      const fromCol = config.columns.find((col) => col.key === oldMeta.tag) || config.columns.find((col) => !col.state);
+      moves.push({ line, target, fromCol });
+    }
+    if (!moves.length || typeof info.save !== "function") return;
+    this.taskWrites.add(file.path);
+    try {
+      await info.save();
+      for (const move of moves.reverse()) await moveCard(this.app, file, move.line, move.target, config, { fromCol: move.fromCol });
+      this.taskSnapshots.set(file.path, await this.app.vault.read(file));
+    } finally {
+      this.taskWrites.delete(file.path);
+    }
   }
   async normalizeBaseGroupBy(targetFile) {
     const files = targetFile ? [targetFile] : this.app.vault.getFiles().filter((f) => f.extension === "base");

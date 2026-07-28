@@ -18,6 +18,13 @@ function colColor(name) {
   return (_colCache[k] = COL_PALETTE[k] || COL_CYCLE[(_cycleIdx++) % COL_CYCLE.length]);
 }
 
+// Deterministic, well-spread color per project name (summary bar segments).
+function projColor(name) {
+  let h = 0;
+  for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `hsl(${h % 360} 52% 55%)`;
+}
+
 function indentWidth(text) {
   let w = 0;
   for (const ch of text.match(/^\s*/)[0]) w += ch === '\t' ? 4 : 1;
@@ -386,7 +393,9 @@ async function renderReportRangeSection(plugin, host, startStr, endStr, config, 
   const now = new Date();
   const todayStr = toDateStr(now);
   const maxEvent = Math.max(...allStamps) + pad;
-  const maxT = Math.min(endOfDay.getTime(), endStr === todayStr ? Math.max(maxEvent, now.getTime()) : maxEvent);
+  const maxT = endStr < todayStr
+    ? endOfDay.getTime()
+    : Math.min(endOfDay.getTime(), Math.max(maxEvent, now.getTime()));
   const rangeMs = maxT - minT || 1;
   const pct = (t) => Math.max(0, Math.min(100, ((t.getTime() - minT) / rangeMs) * 100)).toFixed(2);
   const fmt = fmtClock;
@@ -588,6 +597,91 @@ async function renderReportRangeSection(plugin, host, startStr, endStr, config, 
   }
 }
 
+// Compact day summary: overall totals, a stacked column-time bar, and a
+// per-project breakdown. Reuses the same segment math as the Gantt — just
+// aggregates instead of drawing each stay. Shown when the Σ toggle is on.
+async function renderDaySummary(plugin, host, startStr, endStr, config, activeNames, pausedNames, terminalNames) {
+  const { tasks, standing } = await collectReportData(plugin.app, startStr, endStr, config.paths, n => activeNames.has((n || '').toLowerCase()));
+  const section = host.createDiv({ cls: 'bdb-report-summary' });
+  if (!tasks.length) {
+    section.createDiv({ cls: 'bdb-report-empty', text: 'No task movements' });
+    renderPending(plugin, section, standing);
+    return;
+  }
+  const dayStart = parseDateStr(startStr); dayStart.setHours(0, 0, 0, 0);
+  const endOfDay = parseDateStr(endStr); endOfDay.setHours(23, 59, 59, 999);
+  const now = new Date(); const todayStr = toDateStr(now);
+  const allStamps = tasks.flatMap(t => t.history.map(h => stampToDate(h.stamp).getTime()));
+  const maxEvent = Math.max(...allStamps) + 15 * 60000;
+  const maxT = endStr < todayStr
+    ? endOfDay.getTime()
+    : Math.min(endOfDay.getTime(), Math.max(maxEvent, now.getTime()));
+
+  const colTime = new Map();  // column -> active ms
+  const colCount = new Map(); // column -> distinct tasks that touched it today
+  for (const task of tasks) {
+    task._segs = buildSegments(task.history, dayStart, new Date(maxT));
+    task._active = 0; task._done = false;
+    const seen = new Set();
+    for (const seg of task._segs) {
+      const k = (seg.col || '').toLowerCase();
+      seen.add(seg.col);
+      if (terminalNames.has(k)) { task._done = true; continue; }
+      const dur = seg.end - seg.start;
+      if (!pausedNames.has(k)) task._active += dur;
+      colTime.set(seg.col, (colTime.get(seg.col) || 0) + dur);
+    }
+    for (const c of seen) colCount.set(c, (colCount.get(c) || 0) + 1);
+  }
+  const totalActive = tasks.reduce((s, t) => s + t._active, 0);
+  const doneN = tasks.filter(t => t._done).length;
+
+  // Per-project rollup (every project, no truncation).
+  const groups = [];
+  if (config.lane) {
+    const groupOf = (task) => {
+      let v = task.fm?.[config.lane];
+      if (Array.isArray(v)) v = v[0];
+      v = v == null ? '' : String(v).replace(/^\[\[|\]\]$/g, '').replace(/\|.*$/, '').trim();
+      return v || '(none)';
+    };
+    const m = new Map();
+    for (const t of tasks) { const g = groupOf(t); (m.get(g) || m.set(g, []).get(g)).push(t); }
+    groups.push(...[...m.entries()].sort((a, b) => b[1].length - a[1].length));
+  }
+
+  section.createDiv({ cls: 'bdb-report-summary-head', text: `${tasks.length} tasks · ${fmtDur(totalActive)} active · ${doneN} done` });
+
+  // A labeled stacked bar: one segment per item, sized by task count so it stays
+  // meaningful even on days with no tracked time. Inline label, full detail on hover.
+  const sumBar = (caption, segs) => {
+    if (!segs.length) return;
+    const row = section.createDiv({ cls: 'bdb-report-sumbar-row' });
+    row.createSpan({ cls: 'bdb-report-sumbar-cap', text: caption });
+    const track = row.createDiv({ cls: 'bdb-report-sumbar' });
+    for (const x of segs) {
+      const seg = track.createDiv({ cls: 'bdb-report-sumbar-seg' });
+      seg.style.flexGrow = String(Math.max(x.size, 1));
+      seg.style.background = x.color;
+      seg.setAttribute('title', x.tip);
+      seg.createSpan({ cls: 'bdb-report-sumbar-lbl', text: x.label });
+    }
+  };
+
+  sumBar('Projects', groups.map(([name, arr]) => ({
+    size: arr.length,
+    color: projColor(name),
+    label: `${name} ${arr.length}`,
+    tip: `${name}: ${arr.length}t · ${fmtDur(arr.reduce((s, t) => s + t._active, 0))} active · ${arr.filter(t => t._done).length} done`,
+  })));
+  sumBar('Columns', [...colCount.entries()].sort((a, b) => b[1] - a[1]).map(([col, n]) => ({
+    size: n,
+    color: colColor(col),
+    label: `${col} ${n}`,
+    tip: `${col}: ${n}t · ${fmtDur(colTime.get(col) || 0)} active`,
+  })));
+}
+
 async function drawReport(plugin, source, el, ctx, redraw, state) {
   ensureReportEscHandler();
   let dateStr = state?.dateStr || (source || '').trim().replace(/[^0-9]/g, '').substring(0, 8);
@@ -617,6 +711,10 @@ async function drawReport(plugin, source, el, ctx, redraw, state) {
     const btn = modeWrap.createEl('button', { cls: `bdb-report-mode${mode === key ? ' is-active' : ''}`, text: key === 'day' ? 'D' : key === 'week' ? 'W' : '7D', attr: { type: 'button' } });
     btn.addEventListener('click', async () => { state.mode = key; await redraw(); });
   }
+  // Σ: collapse the detailed timeline into a compact day summary (totals,
+  // per-column time, per-project breakdown). In-memory toggle, like kanban's.
+  const sumBtn = modeWrap.createEl('button', { cls: `bdb-report-mode${state.summary ? ' is-active' : ''}`, text: 'Σ', attr: { type: 'button', 'aria-label': 'Toggle day summary' } });
+  sumBtn.addEventListener('click', async () => { state.summary = !state.summary; await redraw(); });
   const dock = head.createDiv({ cls: 'bdb-report-dock' });
   const dateBtn = dock.createEl('button', { cls: 'bdb-report-title', text: fmtDateTitle(dateStr), attr: { type: 'button', 'aria-label': 'Pick report date' } });
   const metaEl = dock.createDiv({ cls: 'bdb-report-meta' });
@@ -656,7 +754,9 @@ async function drawReport(plugin, source, el, ctx, redraw, state) {
   addJump('W+', { days: 7 });
   addJump('M+', { months: 1 });
   addJump('Y+', { years: 1 });
-  if (mode === 'week' || mode === '7d') {
+  if (state.summary) {
+    await renderDaySummary(plugin, wrap, range.start, range.end, config, activeNames, pausedNames, terminalNames);
+  } else if (mode === 'week' || mode === '7d') {
     await renderReportRangeSection(plugin, wrap, range.start, range.end, config, activeNames, pausedNames, terminalNames, redraw, {
       showSubtitle: false,
       label: range.label,
@@ -678,7 +778,13 @@ async function renderReportBlock(plugin, source, el, ctx) {
   const child = new MarkdownRenderChild(el);
   ctx.addChild(child);
   const draw = async () => { el.empty(); try { await drawReport(plugin, source, el, ctx, draw, state); } catch (e) { console.error('bdb report', e); } };
-  child.registerInterval(window.setInterval(draw, 60000));
+  // Only the live view (one whose range spans today) advances with the clock.
+  // Past/future views are static — skip the 60s teardown so they don't flicker.
+  child.registerInterval(window.setInterval(() => {
+    const today = toDateStr(new Date());
+    const r = reportRange({ mode: state.mode || 'day', dateStr: state.dateStr || today });
+    if (r.start <= today && today <= r.end) draw();
+  }, 60000));
   await draw();
 }
 

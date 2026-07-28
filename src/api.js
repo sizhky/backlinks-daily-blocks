@@ -250,8 +250,8 @@ function buildApi(plugin) {
   return {
     // Live tasks (non-terminal). Paused cols (e.g. Backlog~) are excluded by default,
     // but INCLUDED when explicitly requested via opts.col or opts.includePaused.
-    // Returns tab-lines: col<TAB>file:line<TAB>body<TAB>age
-    // opts: { paths, col, tag, staleDays, limit, includePaused }
+    // Returns tab-lines: col<TAB>file:line<TAB>body<TAB>age[<TAB>timestamp]
+    // opts: { paths, col, tag, staleDays, limit, includePaused, timestamps }
     async active(opts = {}) {
       const config = makeConfig(opts);
       const byCol = await scanKanbanTasks(plugin.app, config);
@@ -269,7 +269,7 @@ function buildApi(plugin) {
         rows = rows.filter(r => r.since && new Date(r.since).getTime() <= cut);
       }
       if (opts.limit) rows = rows.slice(0, opts.limit);
-      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${fmSuffix(plugin.app, r.file, opts.fm)}`).join('\n');
+      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${fmSuffix(plugin.app, r.file, opts.fm)}`).join('\n');
     },
 
     // Freeform notes for one task: every line between the task and the next task
@@ -463,7 +463,7 @@ function buildApi(plugin) {
     // List available methods.
     help() {
       return '\n' + [
-        'active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit',
+        'active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit,timestamps',
         'getDone(date,opts?)      tasks moved to terminal col on a date',
         'note("file:line")        freeform notes under a task (prose to next task)',
         'getReport(...)           move timeline; day | from,to | {days:N}',

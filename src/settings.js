@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS = {
     maxage: 7,
     sweep: 'Doing > Parked',
     lanesort: 'total-desc',
+    autoFold: false,
   },
   ei: {
     paths: '',
@@ -31,6 +32,9 @@ const DEFAULT_SETTINGS = {
   },
   templates: {
     dir: '90-99 Obsidian Meta/Templates',
+  },
+  views: {
+    recentHours: 24,
   },
 };
 
@@ -83,6 +87,7 @@ class BdbSettingTab extends PluginSettingTab {
       'kanban', 'columns', { area: true });
     this.bind(new Setting(el).setName('Default paths').setDesc('Comma list of path prefixes to scan; empty = whole vault.'), 'kanban', 'paths');
     this.bind(new Setting(el).setName('Max age (days)').setDesc('Hide terminal cards stamped older than this; 0 = show all.'), 'kanban', 'maxage', { number: true });
+    this.bind(new Setting(el).setName('Auto-fold empty columns').setDesc('Collapse empty columns by default.'), 'kanban', 'autoFold');
     this.bind(new Setting(el).setName('Sweep').setDesc('One "From > To" route per line; each adds a bulk-move button on its From column. Empty disables.'), 'kanban', 'sweep', { area: true });
     new Setting(el).setName('Lane sort').setDesc('Default swimlane order.')
       .addDropdown(d => d.addOptions({
@@ -122,6 +127,7 @@ class BdbSettingTab extends PluginSettingTab {
     const lines = multi('columns', k.columns);
     if (k.paths) lines.push(`paths: ${k.paths}`);
     lines.push(`maxage: ${k.maxage}`);
+    lines.push(`auto-fold: ${k.autoFold}`);
     if (k.lanesort && k.lanesort !== 'total-desc') lines.push(`lanesort: ${k.lanesort}`);
     if (k.sweep) lines.push(...multi('sweep', k.sweep));
     if (k.colors) lines.push(...multi('colors', k.colors));
@@ -192,6 +198,9 @@ class BdbSettingTab extends PluginSettingTab {
   }
 
   renderViews(el) {
+    this.bind(new Setting(el).setName('Recent task window (hours)')
+      .setDesc('Show tasks whose latest move happened within this many hours.'),
+    'views', 'recentHours', { number: true });
     el.createEl('p', {
       text: 'Chronicle, Atlas, Ledger and Beacon are Bases views: configure each one from the view options menu in the Bases toolbar.',
       cls: 'setting-item-description',
