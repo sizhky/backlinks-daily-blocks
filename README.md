@@ -39,11 +39,11 @@ columns: Todo, Doing, Done=x, Cancelled=-
 - Parent cards show a rollup pill `closed/total` over all descendants; turns green when complete. Display only — parent state never auto-changes.
 - History comment lines attach to their task by indent (one level deeper than the task line).
 - Open columns: membership via `#kb/<column>` tag; untagged tasks land in first column.
-- `Name=char` columns are terminal: drop sets `[char]`, strips `#kb` tag, stamps `YYYYMMDDHHmm`.
+- `Name=char` columns are terminal: drop sets `[char]`, strips `#kb` tag, stamps `YYYYMMDD-HHmm`.
 - Drag back out reopens: `[ ]`, stamp stripped, tag added.
 - Click card footer (note name) to jump to the source line.
 - `maxage: 7` (default) hides terminal cards stamped older than N days, or unstamped; `maxage: 0` shows all.
-- Every move writes a hidden history line under the task (`    %% kb YYYYMMDDHHmm From > To %%`); invisible in reading view, travels with the task.
+- Every move writes a hidden history line under the task (`    %% kb YYYYMMDD-HHmm From > To %%`); invisible in reading view, travels with the task.
 - `Name~` columns are idle (Backlog, Parked by default): time there counts in total but not work time.
 - Task birth = note's `YYYYMMDD-HHmm` filename stamp; the journey starts there (gray backlog lead-in on the bar).
 - Card shows two journey bars (segments ∝ time, column colors): full timeline incl. idle, and active-only beneath. Full text trail on hover.

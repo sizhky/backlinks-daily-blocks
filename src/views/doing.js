@@ -87,7 +87,6 @@ class DoingView extends ItemView {
     if (!card || fromCol === toCol) return false;
     const moved = await moveCard(this.app, card.file, card.line, toCol, config, { fromCol });
     new Notice(moved ? `Task moved to ${toCol.name}` : 'Task could not be moved');
-    if (moved) this.collapsed.delete(toCol.key);
     await this.draw();
     return moved;
   }

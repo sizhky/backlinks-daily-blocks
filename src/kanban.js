@@ -11,15 +11,15 @@ const LANE_NONE = '__none__';
 
 const KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
 const KB_TAG_RE = /#kb\/([\w-]+)/;
-const STAMP_RE = /\s+\d{12}\s*$/;
+const STAMP_RE = /\s+\d{8}-?\d{4}\s*$/;
 const TASK_RE = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
 // Move history rides under the task as hidden comment lines:
-//     %% kb 202606111530 Todo > Doing %%
-// (regex tolerates the older no-space form)
-const HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
+//     %% kb 20260611-1530 Todo > Doing %%
+// (regex tolerates the older no-space and unhyphenated forms)
+const HIST_RE = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
 // Eisenhower triage stamps (written by the ei block):
-//     %% ei 202606120850 sched %%
-const EI_HIST_RE = /^\s*%%\s?ei (\d{12}) ([\w-]+)\s?%%\s*$/;
+//     %% ei 20260612-0850 sched %%
+const EI_HIST_RE = /^\s*%%\s?ei (\d{8}-?\d{4}) ([\w-]+)\s?%%\s*$/;
 // Per-card color override (under the task): %% kbcolor #e06c8b %%. Beats frontmatter.
 const COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
 // Per-card Iconify icon: %% kbicon mdi:shower %%. Beats frontmatter `icon`.
@@ -250,13 +250,13 @@ async function scanKanbanTasks(app, config, opts = {}) {
 
       const hm = text.match(HIST_RE);
       if (hm) {
-        owner(text)?.history.push({ stamp: hm[1], from: hm[2], to: hm[3] });
+        owner(text)?.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3] });
         continue;
       }
 
       const em = text.match(EI_HIST_RE);
       if (em) {
-        owner(text)?.eiHistory.push({ stamp: em[1], label: em[2] });
+        owner(text)?.eiHistory.push({ stamp: stampDigits(em[1]), label: em[2] });
         continue;
       }
 
@@ -423,12 +423,25 @@ function stampNow(d = new Date()) {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`;
 }
 
+// Stamps live in notes as yyyymmdd-hhmm but are stored and compared as bare
+// digits, so slice() offsets and lexical ordering stay valid.
+function stampDigits(s) {
+  return String(s).replace(/\D/g, '');
+}
+
+function stampWrite(s) {
+  const d = stampDigits(s);
+  return `${d.slice(0, 8)}-${d.slice(8, 12)}`;
+}
+
 function stampToDate(s) {
+  s = stampDigits(s);
   return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12));
 }
 
 function terminalStamp(card, col) {
-  return card.body.match(STAMP_RE)?.[0]?.trim()
+  const line = card.body.match(STAMP_RE)?.[0]?.trim();
+  return (line && stampDigits(line))
     || card.history.reduce((latest, ev) => (
       ev.to === col.name && ev.stamp > latest ? ev.stamp : latest
     ), '');
@@ -494,7 +507,7 @@ async function moveCard(app, file, line, targetCol, config, { fromCol } = {}) {
   });
   // Record the move under note lines but above any child tasks.
   const indent = lines[line].match(/^\s*/)[0];
-  lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || '?'} > ${targetCol.name} %%`);
+  lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow())} ${fromCol?.name || '?'} > ${targetCol.name} %%`);
   await app.vault.modify(file, lines.join('\n'));
   return true;
 }
@@ -517,8 +530,8 @@ async function logTapSpan(app, file, line) {
     if (h) maxMs = Math.max(maxMs, stampToDate(h[1]).getTime());
   }
   const startMs = Math.max(Date.now(), maxMs + 60000);
-  const start = stampNow(new Date(startMs));
-  const end = stampNow(new Date(startMs + 60000));
+  const start = stampWrite(stampNow(new Date(startMs)));
+  const end = stampWrite(stampNow(new Date(startMs + 60000)));
   const indent = lines[line].match(/^\s*/)[0];
   // newest-first (matches log convention): close stamp on top, open below.
   lines.splice(normalizeTaskMeta(lines, line), 0,
@@ -1215,7 +1228,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 module.exports = {
   parseKanbanConfig, scanKanbanTasks, moveCard, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
-  openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, fmtDur, TASK_RE, STAMP_RE,
+  openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, STAMP_RE,
   TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE, terminalStamp,
   columnColor, colKey,
 };

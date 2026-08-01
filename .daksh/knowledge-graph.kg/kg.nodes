@@ -1,0 +1,94 @@
+p1: Collapsed target section expands after a task move
+	summary=The Done section changes from collapsed to expanded when a task moves from Doing to Done.
+	source=[Observed collapse-state trace](../sources/collapse-state.md#collapsed-section-state)
+o1: Preserve the selected section state
+	summary=A task move keeps the user-selected collapsed or expanded state of each section.
+	source=User request, 2026-07-27
+	measure=|
+		- **Metric:** Successful moves that keep the target section state
+		- **Baseline:** 0% in the reported collapsed-target case
+		- **Target:** 100%
+s1: Tasks sidebar user
+	summary=The user moves recent tasks and selects which task sections are collapsed.
+	source=User request, [DoingView.moveTask](../../src/views/doing.js?symbol=moveTask), [DoingView.sectionHeader](../../src/views/doing.js?symbol=sectionHeader), and [DoingView.collapseButton](../../src/views/doing.js?symbol=collapseButton)
+bp1: Move a recent task
+	summary=The user moves a task from its current column to another column in the Tasks sidebar.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask)
+r1: Section state changes only through section controls
+	summary=A section header or the collapse-all control changes the selected section state.
+	source=User request, 2026-07-27
+fr1: Select section state
+	summary=The Tasks sidebar lets the user collapse or expand each section other than Doing.
+	source=[DoingView.sectionHeader](../../src/views/doing.js?symbol=sectionHeader) and [DoingView.collapseButton](../../src/views/doing.js?symbol=collapseButton)
+fr2: Move task without changing section state
+	summary=The Tasks sidebar moves a task and redraws task data while it keeps each selected section state.
+	source=User request, 2026-07-27
+out1: Section state after a task move
+	summary=After a successful task move, each section has the same collapsed or expanded state that it had before the move.
+	source=User request, 2026-07-27
+u1: Task move changes section state
+	summary=If a task move changes a selected section state, the sidebar must keep the state that existed before the move.
+	source=User request, 2026-07-27
+lc1: Recent task membership changes
+	summary=Task moves change the cards and counts in recent task sections.
+	source=[DoingView.recentGroups](../../src/views/doing.js?symbol=recentGroups)
+m1: Backlinks Daily Blocks plugin
+	summary=The Obsidian plugin registers and supplies the Tasks sidebar.
+	source=[BacklinksDailyBlocksPlugin.onload](../../src/main.js?symbol=onload)
+m2: Tasks sidebar view
+	summary=The view owns recent task rendering, section state, and sidebar task moves.
+	source=[DoingView.draw](../../src/views/doing.js?symbol=draw), [DoingView.moveTask](../../src/views/doing.js?symbol=moveTask), [DoingView.sectionHeader](../../src/views/doing.js?symbol=sectionHeader), and [DoingView.collapseButton](../../src/views/doing.js?symbol=collapseButton)
+ad1: View-local section state
+	summary=The Tasks sidebar keeps collapsed column keys in the active DoingView instance.
+	source=[DoingView.constructor](../../src/views/doing.js?symbol=constructor)
+li1: Tasks sidebar interface
+	summary=The Tasks sidebar accepts task moves and section-control input and produces the current recent-task display.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask), [DoingView.sectionHeader](../../src/views/doing.js?symbol=sectionHeader), [DoingView.collapseButton](../../src/views/doing.js?symbol=collapseButton), and [DoingView.draw](../../src/views/doing.js?symbol=draw)
+	reads=Task card, source column, target column, kanban configuration, and selected section state.
+	produces=Move result, notice, and redrawn recent-task display.
+	guarantees=A task move keeps the selected section state.
+	rejects=A missing card or a move to the current column.
+	check=Run the moveTask state test and npm run build.
+ap1: moveTask
+	summary=Move one sidebar task to another column and redraw the view.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask)
+	parameters=card, fromCol, toCol, and config.
+	effects=Move the card, show the result notice, redraw task data, keep selected section state, and return the move result.
+rv1: Move result
+	summary=The returned Boolean states whether the card move succeeded.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask)
+ad2: Direct correctness order for the repair
+	summary=The scoped Tasks sidebar interface has one access program and no access-program dependency.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask)
+ad3: Tasks sidebar repair fits one work assignment
+	summary=The collapse-state repair changes one view method and its focused check.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask) and [loadDoingView](../../test/doing.test.js?symbol=loadDoingView)
+ds1: Collapsed column key set
+	summary=The active view stores the keys of task sections that the user selected as collapsed.
+	source=[DoingView.constructor](../../src/views/doing.js?symbol=constructor), [DoingView.sectionHeader](../../src/views/doing.js?symbol=sectionHeader), and [DoingView.collapseButton](../../src/views/doing.js?symbol=collapseButton)
+	representation=JavaScript Set on DoingView.collapsed.
+	invariant=Only sectionHeader and collapseButton change membership; moveTask and data redraws keep membership.
+ape1: moveTask section-state effect
+	summary=The task move completes without a write to the collapsed column key set.
+	source=Design from user request and [DoingView.moveTask](../../src/views/doing.js?symbol=moveTask)
+	representation=function
+	definition=For different source and target columns, call moveCard, show the result notice, call draw, and return the move result; do not add or delete collapsed keys.
+rvm1: Move result mapping
+	summary=moveTask returns false for a missing card or unchanged column and otherwise returns the Boolean result from moveCard.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask)
+	representation=function
+	definition=moveTask(card, from, to, config) equals false when card is absent or from equals to; otherwise it equals Boolean(moveCard(...)).
+ued1: Section-state regression detection
+	summary=A focused check compares collapsed membership before and after a successful move into a collapsed target section.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask), [loadDoingView](../../test/doing.test.js?symbol=loadDoingView), and [doing.test.js](../../test/doing.test.js)
+	representation=function
+	definition=Fail when collapsed.has(target.key) differs before and after moveTask without a section-control event.
+va1: Tasks sidebar state-preservation argument
+	summary=The internal design keeps section state while a move updates recent task data.
+	source=[DoingView.constructor](../../src/views/doing.js?symbol=constructor), [DoingView.moveTask](../../src/views/doing.js?symbol=moveTask), [DoingView.draw](../../src/views/doing.js?symbol=draw), and [doing.test.js](../../test/doing.test.js)
+	argument=The collapsed Set is the only section-state store. The move effect does not write that Set. draw reads the Set to omit collapsed bodies. The focused check supplies a collapsed target, completes a successful move, and proves membership is unchanged. Therefore the interface keeps the selected section state while it redraws cards and counts.
+ep1: Tasks sidebar collapse-state program
+	summary=The Tasks sidebar keeps a collapsed target section collapsed after a successful task move.
+	source=[DoingView.moveTask](../../src/views/doing.js?symbol=moveTask), [loadDoingView test fixture](../../test/doing.test.js?symbol=loadDoingView), [test file](../../test/doing.test.js), [test script](../../package.json?symbol=test), and [built DoingView.moveTask](../../main.js?symbol=moveTask).
+	revision=content-10e4b2e006b0855fe387ab3ed5ee243b20890f4dc17fa77368b99f64c0ff6edc
+	check=npm test; npm run build; validate the KG pack; verify Context 002 views; verify Stage 50; verify Stage 60.

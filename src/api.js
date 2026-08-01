@@ -64,7 +64,7 @@ async function activeWithin(app, f, cut) {
   const nm = fileNameMs(f);
   if (nm != null && nm >= cut) return true;        // creation in window — no read needed
   let latest = nm || 0;
-  const re = /%%\s?kb (\d{12}) /g;
+  const re = /%%\s?kb (\d{8}-?\d{4}) /g;
   let m;
   for (const line of (await app.vault.cachedRead(f)).split(/\r?\n/)) {
     if ((m = re.exec(line))) { const t = stampToDate(m[1]).getTime(); if (t > latest) latest = t; }

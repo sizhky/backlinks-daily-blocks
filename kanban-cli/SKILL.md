@@ -212,7 +212,7 @@ There is no `kb.create` method — a task is a **checkbox line inside a note**, 
 3. The task line + a move stamp comment. Column tag is `#kb/<col-lowercase>`; the stamp records the move with proper-case column names:
    ```
    - [ ] Task title #kb/doing
-     %% kb <YYYYMMDDHHmm> Backlog > Doing %%
+     %% kb <YYYYMMDD-HHmm> Backlog > Doing %%
 
    Optional freeform prose under the task becomes its note (see kb.note).
    ```

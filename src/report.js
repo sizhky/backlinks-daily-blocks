@@ -1,9 +1,9 @@
 // report fence — daily task Gantt chart
-const { TASK_RE, STAMP_RE, stampToDate, parseKanbanConfig, fmtDur, addTitleCopy } = require('./kanban');
+const { TASK_RE, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig, fmtDur, addTitleCopy } = require('./kanban');
 const { openFileAtLine } = require('./core/render');
 const { MarkdownRenderChild, Modal, Notice, getFrontMatterInfo, parseYaml } = require('obsidian');
 
-const HIST_RE = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
+const HIST_RE = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
 const COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
 const COL_PALETTE = {
   backlog: '#8a8f98', todo: '#d29922', doing: '#2d7ff9',
@@ -125,7 +125,7 @@ async function collectReportData(app, startStr, endStr, paths, isActive) {
       if (hm) {
         const hi = indentWidth(text);
         for (let i = stack.length - 1; i >= 0; i--) {
-          if (stack[i].indent < hi) { stack[i].card.history.push({ stamp: hm[1], from: hm[2], to: hm[3], line: li }); break; }
+          if (stack[i].indent < hi) { stack[i].card.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], line: li }); break; }
         }
         continue;
       }
@@ -215,7 +215,7 @@ async function rewriteReportSegmentTimes(app, task, seg, dateStr, startVal, endV
     const m = lines[li]?.match(HIST_RE);
     if (!m) throw new Error('history line not found');
     const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
-    lines[li] = lines[li].replace(ref.stamp, newStamp);
+    lines[li] = lines[li].replace(m[1], stampWrite(newStamp));
   }
   await app.vault.modify(task.file, lines.join('\n'));
 }

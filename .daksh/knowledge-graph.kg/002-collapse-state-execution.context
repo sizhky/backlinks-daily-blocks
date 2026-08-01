@@ -1,0 +1,141 @@
+@context id=collapse-state-execution seq=2 label="Tasks sidebar collapse-state execution"
+caption=|
+	Context 002 implements the approved collapse-state design and records executable evidence for content revision 10e4b2e006b0.
+
+@attrs
+form:
+  problem: p1
+  strategic-objective: o1
+  stakeholder: s1
+  business-process: bp1
+  business-rule: r1
+  functional-requirement: fr1 fr2
+  output-value-specification: out1
+  undesired-event-handling: u1
+  likely-change: lc1
+  system-element: m1 m2
+  architectural-decision: ad1 ad2 ad3
+  logical-interface: li1
+  access-program: ap1
+  returned-value: rv1
+  data-structure: ds1
+  access-program-effect: ape1
+  returned-value-mapping: rvm1
+  undesired-event-detection: ued1
+  verification-argument: va1
+  executable-program: ep1
+stage:
+  10-Requirements: p1 o1 s1 bp1 r1 fr1 fr2 out1 u1 lc1
+  20-Module-Structure: m1 m2 ad1
+  30-Module-Interfaces: li1 ap1 rv1
+  40-Uses-Hierarchy: ad2
+  50-Module-Internal-Structures: ad3 ds1 ape1 rvm1 ued1 va1
+  60-Write-Programs: ep1
+status:
+  active: p1 o1 s1 bp1 r1 fr1 fr2 out1 u1 lc1 m1 m2 ad1 li1 ap1 rv1 ad2 ad3 ds1 ape1 rvm1 ued1 va1 ep1
+
+@edges
+	s1 -> bp1 used_by
+	p1 -> o1 motivates
+	o1 -> fr1 decomposes_into
+	o1 -> fr2 decomposes_into
+	r1 -> fr2 governs
+	r1 -> out1 governs
+	r1 -> p1 contradicted_by
+	fr1 -> out1 produces
+	fr2 -> out1 produces
+	p1 -> m2 allocates_to
+	o1 -> m2 allocates_to
+	bp1 -> m2 allocates_to
+	r1 -> m2 allocates_to
+	fr1 -> m2 allocates_to
+	fr2 -> m2 allocates_to
+	out1 -> m2 allocates_to
+	u1 -> m2 allocates_to
+	lc1 -> m2 allocates_to
+	m1 -> m2 decomposes_into
+	m2 -> ad1 encapsulates
+	m2 -> li1 produces
+	m1 -> li1 uses
+	li1 -> ap1 decomposes_into
+	ap1 -> rv1 produces
+	u1 -> ap1 constrains
+	m2 -> ad2 encapsulates
+	m2 -> ad3 encapsulates
+	m2 -> ds1 encapsulates
+	ap1 -> ape1 implemented_by
+	rv1 -> rvm1 defined_by
+	u1 -> ued1 detected_by
+	ape1 -> ds1 operates_on
+	rvm1 -> ds1 operates_on
+	ued1 -> ds1 operates_on
+	li1 -> va1 verified_by
+	ds1 -> va1 verified_by
+	ape1 -> va1 verified_by
+	rvm1 -> va1 verified_by
+	ued1 -> va1 verified_by
+	ap1 -> ep1 implemented_by
+
+@views
+overview:
+	group_by=form
+	color_by=status
+	caption="Tasks sidebar collapse-state design."
+	slides:
+		why: Reported state change
+			nodes=p1,o1,s1
+			desc=|
+				A task move currently expands a collapsed target section. The accepted outcome keeps the selected section state.
+		requirements: Sidebar behavior
+			nodes=bp1,r1,fr1,fr2,out1,u1,lc1
+			desc=|
+				Section controls select section state. Task moves update cards and counts while they keep that state.
+		structure: Responsible module
+			nodes=m1,m2,ad1
+			desc=|
+				The Tasks sidebar view owns recent task rendering, moves, and its view-local collapsed key set.
+		interfaces: Tasks sidebar contract
+			nodes=li1
+			desc=|
+				The interface reads a move request and selected section state, then produces the move result and redrawn display.
+		programs: Move operation
+			nodes=ap1,rv1
+			desc=|
+				moveTask moves one card, shows the result, redraws, and returns whether the move succeeded.
+		ordering: Direct correctness order
+			nodes=ad2,ap1
+			desc=|
+				The scoped interface contains one access program and has no access-program dependency.
+		internal-design: State-preservation proof
+			nodes=ad3,ds1,ape1,rvm1,ued1,va1
+			desc=|
+				The move effect does not write the collapsed key set. A focused check compares target membership before and after the move.
+		write-programs: Executable repair
+			nodes=ap1,ep1
+			desc=|
+				The implementation removes the collapsed-key deletion and the focused test exercises moveTask with a collapsed Done target.
+		review-status: Execution approval
+			nodes=o1,fr2,li1,ad3,va1,ep1
+			desc=|
+				Context 002 is validated and waits for user approval of its executable evidence.
+review:
+	group_by=form
+	color_by=status
+	caption="Review the Tasks sidebar collapse-state execution."
+	slides:
+		design: Approved design
+			nodes=ds1,ape1,rvm1,va1
+			desc=|
+				Context 001 approved a move effect that leaves the collapsed Set unchanged.
+		implementation: Executable repair
+			nodes=ap1,ep1
+			desc=|
+				The source removes the target-key deletion and rebuilds the Obsidian plugin bundle.
+		evidence: Rerunnable checks
+			nodes=ued1,va1,ep1
+			desc=|
+				The focused test fails before the repair, passes after it, and the build and Daksh verifiers pass.
+		approval: Execution approval
+			nodes=o1,fr2,ad3,va1,ep1
+			desc=|
+				Approve Context 002 to accept the executable program.

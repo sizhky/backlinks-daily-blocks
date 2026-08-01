@@ -1,0 +1,165 @@
+{
+  "_doc": "Daksh Knowledge Graph grammar. Every edge must read as 'source relation target'; generic lineage relations are excluded.",
+  "closed_vocab": {
+    "status": ["active", "todo", "retired", "blocked"]
+  },
+  "_relations": {
+    "motivates": "A present condition motivates an objective.",
+    "decomposes_into": "A whole decomposes into more specific claims.",
+    "governs": "A rule governs behaviour.",
+    "constrains": "A boundary constrains a claim.",
+    "allocates_to": "A requirement allocates responsibility to design or work.",
+    "encapsulates": "A module encapsulates an architectural decision or internal data structure.",
+    "implemented_by": "An access program is implemented by an internal effect description or executable program.",
+    "defined_by": "A returned value is defined by its internal mapping.",
+    "detected_by": "An undesired event is detected by its internal detection design.",
+    "operates_on": "An internal effect or mapping operates on an internal data structure.",
+    "produces": "A process or work item produces an output.",
+    "blocks": "An unresolved claim or rule blocks work.",
+    "superseded_by": "An earlier claim is superseded by its replacement.",
+    "verified_by": "An accepted claim is checked by later verification evidence.",
+    "contradicted_by": "A standing claim is contradicted by later evidence.",
+    "used_by": "A term, interface, output, or store is used by a downstream claim.",
+    "uses": "A module consumes an interface; an interface uses another interface when its correctness requires the other to be present and correct."
+  },
+  "edge_direction": {
+    "*": {"by": "stage", "order": "numeric", "dir": "downhill", "severity": "error"}
+  },
+  "edge_cardinality": {
+    "superseded_by": {
+      "out_max": 1,
+      "note": "One claim has at most one nearest successor; later claims reach it through lineage."
+    }
+  },
+  "edge_endpoints": {
+    "motivates": {
+      "src": {"form": ["problem", "opportunity", "capability-gap"]},
+      "tgt": {"form": ["strategic-objective"]},
+      "note": "Only a present condition motivates a strategic objective."
+    },
+    "governs": {
+      "src": {"form": ["business-rule"]},
+      "note": "Only a business rule governs another claim."
+    },
+    "constrains": {
+      "src": {"form": ["business-rule", "timing-constraint", "accuracy-constraint", "undesired-event-handling"]},
+      "note": "Only a rule or stated limit constrains another claim."
+    },
+    "encapsulates": {
+      "src": {"form": ["system-element"]},
+      "tgt": {"form": ["architectural-decision", "data-structure"]},
+      "note": "Only a module encapsulates an architectural decision or internal data structure."
+    },
+    "implemented_by": {
+      "src": {"form": ["access-program"]},
+      "tgt": {"form": ["access-program-effect", "executable-program"]},
+      "note": "An access program points to its Stage 50 internal effect description or Stage 60 executable program."
+    },
+    "defined_by": {
+      "src": {"form": ["returned-value"]},
+      "tgt": {"form": ["returned-value-mapping"]},
+      "note": "A returned value points to its Stage 50 internal mapping."
+    },
+    "detected_by": {
+      "src": {"form": ["undesired-event-handling"]},
+      "tgt": {"form": ["undesired-event-detection"]},
+      "note": "An interface undesired event points to its Stage 50 detection design."
+    },
+    "operates_on": {
+      "src": {"form": ["access-program-effect", "returned-value-mapping", "undesired-event-detection"]},
+      "tgt": {"form": ["data-structure"]},
+      "note": "Only an internal effect, mapping, or detection design operates on an internal data structure."
+    },
+    "uses": {
+      "src": {"form": ["system-element", "logical-interface", "access-program"]},
+      "tgt": {"form": ["logical-interface", "access-program"]},
+      "note": "A module points to an interface it consumes; an access program points to a direct correctness dependency. Logical-interface dependencies remain valid in accepted contexts before the access-program correction."
+    }
+  },
+  "requires_attr_when": [
+    {
+      "if": {"status": ["active", "todo", "retired", "blocked"]},
+      "then": "summary",
+      "note": "Every claim carries a short explanation of what it means."
+    },
+    {
+      "if": {"status": ["active", "todo", "retired", "blocked"]},
+      "then": "source",
+      "note": "Every claim keeps the source needed to review its grounding."
+    },
+    {
+      "if": {"status": ["active", "todo", "retired", "blocked"]},
+      "then": "stage",
+      "note": "Every claim records the owning stage whose work introduced it."
+    },
+    {
+      "if": {"form": ["strategic-objective", "timing-constraint", "accuracy-constraint", "non-functional-requirement", "quality-attribute-scenario"]},
+      "then": "measure",
+      "note": "A measurable claim carries the bar used to check it."
+    },
+    {"if": {"status": ["todo"]},
+      "then": "owner",
+      "note": "An unresolved claim must name the person responsible for resolving it."
+    },
+    {"if": {"form": ["work-item"]},
+      "then": "owner",
+      "note": "A work item must name the person responsible for it."
+    },
+    {"if": {"form": ["logical-interface"]},
+      "then": "reads",
+      "note": "A logical interface states what it reads."
+    },
+    {"if": {"form": ["logical-interface"]},
+      "then": "produces",
+      "note": "A logical interface states what it produces."
+    },
+    {"if": {"form": ["logical-interface"]},
+      "then": "guarantees",
+      "note": "A logical interface states what consumers may rely on."
+    },
+    {"if": {"form": ["logical-interface"]},
+      "then": "rejects",
+      "note": "A logical interface states what it refuses."
+    },
+    {"if": {"form": ["logical-interface"]},
+      "then": "check",
+      "note": "A logical interface points to its saved acceptance check."
+    },
+    {"if": {"form": ["access-program"]},
+      "then": "parameters",
+      "note": "An access program states the information its caller supplies."
+    },
+    {"if": {"form": ["access-program"]},
+      "then": "effects",
+      "note": "An access program states its externally visible effects."
+    },
+    {"if": {"form": ["data-structure"]},
+      "then": "representation",
+      "note": "An internal data structure states how its information is represented."
+    },
+    {"if": {"form": ["data-structure"]},
+      "then": "invariant",
+      "note": "An internal data structure states what must remain true."
+    },
+    {"if": {"form": ["access-program-effect", "returned-value-mapping", "undesired-event-detection"]},
+      "then": "representation",
+      "note": "A Stage 50 internal fact names the precise representation used to write it."
+    },
+    {"if": {"form": ["access-program-effect", "returned-value-mapping", "undesired-event-detection"]},
+      "then": "definition",
+      "note": "A Stage 50 internal fact states its precise internal definition."
+    },
+    {"if": {"form": ["verification-argument"]},
+      "then": "argument",
+      "note": "A verification argument explains why the internal design satisfies the interface."
+    },
+    {"if": {"form": ["executable-program"]},
+      "then": "revision",
+      "note": "An executable program identifies the accepted source revision."
+    },
+    {"if": {"form": ["executable-program"]},
+      "then": "check",
+      "note": "An executable program records the rerunnable project commands used to accept it."
+    }
+  ]
+}

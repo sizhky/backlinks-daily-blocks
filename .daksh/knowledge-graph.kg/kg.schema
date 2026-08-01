@@ -1,0 +1,27 @@
+@graph id=backlinks-daily-blocks title="Backlinks Daily Blocks" group_by=form color_by=status hover_attrs=summary,parameters,effects,representation,invariant,definition,argument,reads,produces,guarantees,rejects,check,source,stage,measure,owner,status edge_color_by=relation default_open_depth=-1
+contexts=*.context
+default_context=latest
+@sources
+nodes=kg.nodes
+attrs=kg.attrs
+palette=kg.palette
+@grammar
+path=../references/daksh.grammar
+@relations
+motivates color=relation.motivates
+decomposes_into color=relation.decomposes_into
+governs color=relation.governs
+constrains color=relation.constrains
+allocates_to color=relation.allocates_to
+encapsulates color=relation.encapsulates
+implemented_by color=relation.implemented_by
+defined_by color=relation.defined_by
+detected_by color=relation.detected_by
+operates_on color=relation.operates_on
+produces color=relation.produces
+verified_by color=relation.verified_by
+used_by color=relation.used_by
+uses color=relation.uses
+superseded_by color=relation.superseded_by
+blocks color=relation.blocks
+contradicted_by color=relation.contradicted_by

@@ -654,10 +654,10 @@ var require_kanban = __commonJS({
     var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
     var KB_TAG_RE = /#kb\/([\w-]+)/;
-    var STAMP_RE = /\s+\d{12}\s*$/;
+    var STAMP_RE = /\s+\d{8}-?\d{4}\s*$/;
     var TASK_RE2 = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
-    var HIST_RE2 = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
-    var EI_HIST_RE = /^\s*%%\s?ei (\d{12}) ([\w-]+)\s?%%\s*$/;
+    var HIST_RE2 = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
+    var EI_HIST_RE = /^\s*%%\s?ei (\d{8}-?\d{4}) ([\w-]+)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
     var ICON_RE = /^\s*%%\s?kbicon ([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*)\s?%%\s*$/i;
     var METRIC_RE = /^\s*%%\s?kbmetric (count|sum)\s?%%\s*$/i;
@@ -850,12 +850,12 @@ var require_kanban = __commonJS({
           }
           const hm = text.match(HIST_RE2);
           if (hm) {
-            owner(text)?.history.push({ stamp: hm[1], from: hm[2], to: hm[3] });
+            owner(text)?.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3] });
             continue;
           }
           const em = text.match(EI_HIST_RE);
           if (em) {
-            owner(text)?.eiHistory.push({ stamp: em[1], label: em[2] });
+            owner(text)?.eiHistory.push({ stamp: stampDigits(em[1]), label: em[2] });
             continue;
           }
           const cm = text.match(COLOR_RE);
@@ -993,11 +993,20 @@ var require_kanban = __commonJS({
       const p = (n) => String(n).padStart(2, "0");
       return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`;
     }
+    function stampDigits(s) {
+      return String(s).replace(/\D/g, "");
+    }
+    function stampWrite(s) {
+      const d = stampDigits(s);
+      return `${d.slice(0, 8)}-${d.slice(8, 12)}`;
+    }
     function stampToDate(s) {
+      s = stampDigits(s);
       return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12));
     }
     function terminalStamp(card, col) {
-      return card.body.match(STAMP_RE)?.[0]?.trim() || card.history.reduce((latest, ev) => ev.to === col.name && ev.stamp > latest ? ev.stamp : latest, "");
+      const line = card.body.match(STAMP_RE)?.[0]?.trim();
+      return line && stampDigits(line) || card.history.reduce((latest, ev) => ev.to === col.name && ev.stamp > latest ? ev.stamp : latest, "");
     }
     function hhmmMs(ms) {
       const d = new Date(ms);
@@ -1048,7 +1057,7 @@ var require_kanban = __commonJS({
         return tag ? [tag, ...rest] : rest;
       });
       const indent = lines[line].match(/^\s*/)[0];
-      lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampNow()} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
+      lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow())} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
       await app2.vault.modify(file, lines.join("\n"));
       return true;
     }
@@ -1064,8 +1073,8 @@ var require_kanban = __commonJS({
         if (h) maxMs = Math.max(maxMs, stampToDate(h[1]).getTime());
       }
       const startMs = Math.max(Date.now(), maxMs + 6e4);
-      const start = stampNow(new Date(startMs));
-      const end = stampNow(new Date(startMs + 6e4));
+      const start = stampWrite(stampNow(new Date(startMs)));
+      const end = stampWrite(stampNow(new Date(startMs + 6e4)));
       const indent = lines[line].match(/^\s*/)[0];
       lines.splice(
         normalizeTaskMeta(lines, line),
@@ -1638,6 +1647,8 @@ var require_kanban = __commonJS({
       addTitleCopy,
       stampNow,
       stampToDate,
+      stampDigits,
+      stampWrite,
       fmtDur,
       TASK_RE: TASK_RE2,
       STAMP_RE,
@@ -1844,10 +1855,10 @@ var require_ei = __commonJS({
 // src/report.js
 var require_report = __commonJS({
   "src/report.js"(exports2, module2) {
-    var { TASK_RE: TASK_RE2, STAMP_RE, stampToDate, parseKanbanConfig: parseKanbanConfig2, fmtDur, addTitleCopy } = require_kanban();
+    var { TASK_RE: TASK_RE2, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig: parseKanbanConfig2, fmtDur, addTitleCopy } = require_kanban();
     var { openFileAtLine } = require_render();
     var { MarkdownRenderChild, Modal, Notice: Notice2, getFrontMatterInfo, parseYaml } = require("obsidian");
-    var HIST_RE2 = /^\s*%%\s?kb (\d{12}) (.+?) > (.+?)\s?%%\s*$/;
+    var HIST_RE2 = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -1963,7 +1974,7 @@ var require_report = __commonJS({
             const hi = indentWidth(text);
             for (let i = stack.length - 1; i >= 0; i--) {
               if (stack[i].indent < hi) {
-                stack[i].card.history.push({ stamp: hm[1], from: hm[2], to: hm[3], line: li });
+                stack[i].card.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], line: li });
                 break;
               }
             }
@@ -2051,7 +2062,7 @@ var require_report = __commonJS({
         const m = lines[li]?.match(HIST_RE2);
         if (!m) throw new Error("history line not found");
         const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
-        lines[li] = lines[li].replace(ref.stamp, newStamp);
+        lines[li] = lines[li].replace(m[1], stampWrite(newStamp));
       }
       await app2.vault.modify(task.file, lines.join("\n"));
     }
@@ -2815,7 +2826,7 @@ var require_api = __commonJS({
       const nm = fileNameMs(f);
       if (nm != null && nm >= cut) return true;
       let latest = nm || 0;
-      const re = /%%\s?kb (\d{12}) /g;
+      const re = /%%\s?kb (\d{8}-?\d{4}) /g;
       let m;
       for (const line of (await app2.vault.cachedRead(f)).split(/\r?\n/)) {
         if (m = re.exec(line)) {
@@ -4320,7 +4331,6 @@ var require_doing = __commonJS({
         if (!card || fromCol === toCol) return false;
         const moved = await moveCard2(this.app, card.file, card.line, toCol, config, { fromCol });
         new Notice2(moved ? `Task moved to ${toCol.name}` : "Task could not be moved");
-        if (moved) this.collapsed.delete(toCol.key);
         await this.draw();
         return moved;
       }
