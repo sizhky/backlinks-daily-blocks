@@ -19,9 +19,6 @@ final class BoardStore: ObservableObject {
   @Published private(set) var loaded = false
   @Published private(set) var error: String?
   @Published var saved: [SavedFilter]
-  @Published var grouped = UserDefaults.standard.object(forKey: "kanban.grouped2") as? Bool ?? false {
-    didSet { UserDefaults.standard.set(grouped, forKey: "kanban.grouped2") }
-  }
   /// Selected workspaces; empty = all. "" (Filter.noOrg) selects cards with no org.
   @Published var orgScope: [String] = UserDefaults.standard.stringArray(forKey: "kanban.orgs")
     ?? UserDefaults.standard.string(forKey: "kanban.org").map { [$0] } ?? [] {
@@ -107,7 +104,7 @@ final class BoardStore: ObservableObject {
 
   /// Cards in the order the screen shows them, so arrow keys follow the eye.
   func ordered(_ column: Column) -> [Card] {
-    grouped && mode == .board ? Grouping.byProject(column.cards).flatMap(\.cards) : column.cards
+    mode == .board ? Grouping.byProject(column.cards).flatMap(\.cards) : column.cards
   }
 
   func select(_ ref: String?) {

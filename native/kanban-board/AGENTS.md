@@ -81,9 +81,11 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Board columns with no visible cards render as `CollapsedColumn` strips right after the last
   filled column, inside the horizontal scroller; they stay drop targets. Sidebar Projects and Labels hide zero-count
   rows behind a "Show N empty" row. Cards show no ID (the inspector does); age and org sit on the
-  title line, and the project/labels line renders only when it has content.
+  title line, and the labels line renders only when the card has labels.
   When grouped, a single-org group shows its org on the `GroupHeader` (`CardGroup.orgs`) and its
-  cards hide theirs; mixed-org groups keep the avatar per card. Grouping is the labelled "Group:" menu.
+  cards hide theirs; mixed-org groups keep the avatar per card. The board always groups by project; there is no toggle.
+- `Monogram` shows `Card.initials` (first letter of up to three words) on a two-hue gradient
+  hashed from the name; `Card.identifier` reuses `Card.initials` for multi-word names.
 - Rail order is `store.orgOrder` (persisted) applied by `Ordering.arranged`; drag a tile onto another to move it.
   Cmd-1 selects all, Cmd-2 to Cmd-9 select the first eight orgs in rail order.
 - Sidebar and chip counts come from `store.visible`, so they match the board.

@@ -34,7 +34,7 @@ struct SidebarView: View {
         }
         section("Projects") {
           ForEach(nonEmpty(store.facets(\.projects), "Projects"), id: \.name) { f in
-            item(f.name, leading: AnyView(Monogram(name: f.name, size: 16)), active: false, count: f.count) {
+            item(f.name, leading: AnyView(Monogram(name: f.name, size: 18)), active: false, count: f.count) {
               store.append("project:" + store.quote(f.name))
             }
           }

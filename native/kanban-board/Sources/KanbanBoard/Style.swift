@@ -42,18 +42,36 @@ func nameHue(_ name: String?) -> Double {
   Double((name ?? "").unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
 }
 
-/// Deterministic muted tile per project, so ownership reads without text.
+/// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials.
 struct Monogram: View {
   let name: String?
   var size: CGFloat = 16
 
+  private var letters: String {
+    guard let name else { return "·" }
+    let initials = Card.initials(name)
+    return initials.isEmpty ? String(name.prefix(1)) : initials
+  }
+
+  private var fill: AnyShapeStyle {
+    guard let name else { return AnyShapeStyle(Color.white.opacity(0.08)) }
+    let hue = nameHue(name), shift = nameHue(String(name.reversed())) * 0.16 + 0.04
+    return AnyShapeStyle(LinearGradient(
+      colors: [Color(hue: hue, saturation: 0.55, brightness: 0.72),
+               Color(hue: (hue + shift).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.5)],
+      startPoint: .topLeading, endPoint: .bottomTrailing))
+  }
+
   var body: some View {
-    RoundedRectangle(cornerRadius: size * 0.3)
-      .fill(name == nil ? Color.white.opacity(0.08) : Color(hue: nameHue(name), saturation: 0.45, brightness: 0.62))
+    RoundedRectangle(cornerRadius: size * 0.28)
+      .fill(fill)
+      .overlay(RoundedRectangle(cornerRadius: size * 0.28).strokeBorder(.white.opacity(0.12)))
       .frame(width: size, height: size)
       .overlay {
-        Text(name.map { String($0.prefix(1)).uppercased() } ?? "·")
-          .font(.system(size: size * 0.58, weight: .bold)).foregroundStyle(.white.opacity(0.92))
+        Text(letters)
+          .font(.system(size: size * [0.58, 0.58, 0.47, 0.4][min(3, letters.count)], weight: .bold))
+          .fontWidth(letters.count > 2 ? .condensed : .standard).tracking(-0.2)
+          .foregroundStyle(.white.opacity(0.95)).lineLimit(1).minimumScaleFactor(0.6)
       }
   }
 }

@@ -27,11 +27,18 @@ public struct Card: Identifiable, Equatable, Sendable {
   /// ```
   public var identifier: String {
     let source = projects.first ?? orgs.first ?? "Task"
-    let words = source.split { !$0.isLetter && !$0.isNumber }.map(String.init)
-    let key = words.count >= 2 ? words.prefix(3).compactMap { $0.first.map(String.init) }.joined()
-                               : String(source.filter { $0.isLetter || $0.isNumber }.prefix(3))
+    let initials = Self.initials(source)
+    let key = initials.count >= 2 ? initials : String(source.filter { $0.isLetter || $0.isNumber }.prefix(3))
     let time = file.split(separator: "-").dropFirst().first.map { String($0.prefix(4)) } ?? String(file.prefix(4))
     return key.uppercased() + "-" + time + (line > 0 ? ".\(line)" : "")
+  }
+
+  /// First letter of each word, at most three, upper-cased.
+  /// ```
+  /// "Horizontal Training Pipeline" -> "HTP";  "Obsidian Workflow" -> "OW";  "Vyasa" -> "V";  "??" -> ""
+  /// ```
+  public static func initials(_ name: String) -> String {
+    name.split { !$0.isLetter && !$0.isNumber }.prefix(3).compactMap(\.first).map(String.init).joined().uppercased()
   }
 
   /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b).
