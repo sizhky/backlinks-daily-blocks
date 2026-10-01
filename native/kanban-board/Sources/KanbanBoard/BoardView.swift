@@ -42,7 +42,6 @@ struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
   @FocusState private var focused: Bool
   @State private var pickingOrgs = false
-  @State private var pick = 0
   @State private var tabMonitor: Any?
   private let keys = ["col:", "tag:", "project:", "org:", "stale:", "age:", "no:", "has:"]
 
@@ -73,6 +72,7 @@ struct BoardHeader: View {
     }
     .onChange(of: store.focusFilter) { focused = true }
     .onAppear { installTabMonitor() }
+    .onChange(of: focused) { store.filterFocused = focused }
     .onDisappear { tabMonitor.map(NSEvent.removeMonitor); tabMonitor = nil }
     .background(Button("") { focused = true }.keyboardShortcut("f", modifiers: .command).opacity(0))
   }
@@ -115,15 +115,18 @@ struct BoardHeader: View {
   /// The text field takes Tab for focus traversal before onKeyPress sees it, so catch it at the window.
   private func installTabMonitor() {
     guard tabMonitor == nil else { return }
+    let store = store
     tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
       guard event.keyCode == 48, event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty,
-            let s = suggestions[safe: pick] else { return event }
-      complete(s)
+            store.filterFocused, let s = Array(store.catalog.suggest(store.query).prefix(8))[safe: store.pick] else { return event }
+      Self.complete(s, store)
       return nil
     }
   }
 
-  private func complete(_ s: Suggestion) {
+  private func complete(_ s: Suggestion) { Self.complete(s, store) }
+
+  @MainActor private static func complete(_ s: Suggestion, _ store: BoardStore) {
     if !s.isKey, s.term.lowercased().hasPrefix("view:") { store.accept(s.term); return }
     store.query = Catalog.replacing(store.query, with: s)
   }
@@ -135,10 +138,10 @@ struct BoardHeader: View {
       TextField("Filter", text: $store.query)
         .textFieldStyle(.plain).font(.system(size: 12.5)).focused($focused)
         .onKeyPress(.escape) { focused = false; return .handled }
-        .onKeyPress(.downArrow) { guard !shown.isEmpty else { return .ignored }; pick = min(shown.count - 1, pick + 1); return .handled }
-        .onKeyPress(.upArrow) { guard !shown.isEmpty else { return .ignored }; pick = max(0, pick - 1); return .handled }
-        .onSubmit { if shown.indices.contains(pick) { complete(shown[pick]); focused = true } }
-        .onChange(of: store.query) { pick = 0 }
+        .onKeyPress(.downArrow) { guard !shown.isEmpty else { return .ignored }; store.pick = min(shown.count - 1, store.pick + 1); return .handled }
+        .onKeyPress(.upArrow) { guard !shown.isEmpty else { return .ignored }; store.pick = max(0, store.pick - 1); return .handled }
+        .onSubmit { if shown.indices.contains(store.pick) { complete(shown[store.pick]); focused = true } }
+        .onChange(of: store.query) { store.pick = 0 }
     }
     .padding(.horizontal, 10).padding(.vertical, 5).frame(width: 280)
     .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 7))
@@ -156,7 +159,7 @@ struct BoardHeader: View {
           Spacer()
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(i == pick ? Palette.selected : .clear, in: .rect(cornerRadius: 6))
+        .background(i == store.pick ? Palette.selected : .clear, in: .rect(cornerRadius: 6))
         .contentShape(Rectangle())
         .onTapGesture { complete(s); focused = true }
       }

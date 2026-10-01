@@ -40,6 +40,8 @@ final class BoardStore: ObservableObject {
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
+  @Published var filterFocused = false
+  @Published var pick = 0
   @Published var editing: ViewDraft?
   @Published var query: String {
     didSet { UserDefaults.standard.set(query, forKey: "kanban.query") }
