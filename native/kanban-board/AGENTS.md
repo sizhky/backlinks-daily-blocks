@@ -50,7 +50,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Put new logic in `KanbanCore` with a test first. The app target holds only views and I/O.
 - The user tests the GUI by hand and reports back. Unit tests stay millisecond-scale.
 - Track work as a task in the Kanban Doing column (`node kanban-cli/axi.mjs create ... --org Personal
-  --project "Obsidian Workflow" --col Doing`). Create it before starting a new feature.
+  --project "Kanban App" --col Doing`). Create it before starting a new feature.
 - "go turbo" lifts the ~50-line chunk limit. Without it, stop after about 50 lines and ask for a test.
 
 ## Data contract
