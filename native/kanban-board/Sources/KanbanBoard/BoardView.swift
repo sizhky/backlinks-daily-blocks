@@ -363,7 +363,7 @@ struct GroupHeader: View {
   }
 }
 
-/// Board card: title, then one muted line of project, labels, id (on hover), age and org.
+/// Board card: title with age and org on its first line; project and labels below only when present.
 struct IssueCard: View {
   @EnvironmentObject var store: BoardStore
   let card: Card
@@ -371,29 +371,33 @@ struct IssueCard: View {
 
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
   private var selected: Bool { store.selected == card.ref }
+  private var project: String? { store.grouped ? nil : card.projects.first }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(Palette.text).tint(Palette.link)
-        .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
-      HStack(spacing: 8) {
-        if !store.grouped, let project = card.projects.first {
-          HStack(spacing: 5) { Monogram(name: project, size: 12); Text(project).lineLimit(1) }
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(alignment: .top, spacing: 8) {
+        Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
+          .font(.system(size: 13, weight: .medium))
+          .foregroundStyle(Palette.text).tint(Palette.link)
+          .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 6) {
+          Text(card.age).font(.system(size: 11.5).monospacedDigit()).foregroundStyle(stale ? Palette.amber : Palette.muted)
+          if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 14).clipShape(.circle) }
         }
-        ForEach(card.tags.prefix(2), id: \.self) { tag in
-          Button { store.append("tag:" + tag.dropFirst()) } label: {
-            HStack(spacing: 4) { labelDot(tag); Text(String(tag.dropFirst())).lineLimit(1) }
-          }
-          .buttonStyle(.plain)
-        }
-        Spacer(minLength: 4)
-        if hovering || selected { Text(card.identifier).font(.system(size: 11, design: .monospaced)) }
-        Text(card.age).monospacedDigit().foregroundStyle(stale ? Palette.amber : Palette.muted)
-        if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 14).clipShape(.circle) }
+        .padding(.top, 1.5)
       }
-      .font(.system(size: 11.5)).foregroundStyle(Palette.muted)
+      if project != nil || !card.tags.isEmpty {
+        HStack(spacing: 8) {
+          if let project { HStack(spacing: 5) { Monogram(name: project, size: 12); Text(project).lineLimit(1) } }
+          ForEach(card.tags.prefix(2), id: \.self) { tag in
+            Button { store.append("tag:" + tag.dropFirst()) } label: {
+              HStack(spacing: 4) { labelDot(tag); Text(String(tag.dropFirst())).lineLimit(1) }
+            }
+            .buttonStyle(.plain)
+          }
+        }
+        .font(.system(size: 11.5)).foregroundStyle(Palette.muted)
+      }
     }
     .padding(.horizontal, 11).padding(.vertical, 9)
     .frame(maxWidth: .infinity, alignment: .leading)
