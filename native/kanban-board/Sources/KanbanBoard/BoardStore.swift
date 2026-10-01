@@ -81,6 +81,16 @@ final class BoardStore: ObservableObject {
       hiddenColumns = hide ? hiddenColumns + [column.name] : hiddenColumns.filter { $0 != column.name }
     }
   }
+  /// Drop on a column: a `column:Name` item reorders onto it, card refs move into it.
+  func drop(_ items: [String], on column: Column) -> Bool {
+    if let item = items.first, item.hasPrefix("column:") {
+      let names = visible.map(\.name)
+      withAnimation(.spring(duration: 0.3)) { columnOrder = Ordering.moving(names, String(item.dropFirst(7)), onto: column.name) }
+      return true
+    }
+    items.forEach { move(ref: $0, to: column.name) }
+    return !items.isEmpty
+  }
   /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
   func shiftColumn(_ column: Column, by step: Int) {
     let names = visible.map(\.name)

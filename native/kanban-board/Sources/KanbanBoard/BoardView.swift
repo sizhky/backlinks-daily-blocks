@@ -281,6 +281,12 @@ struct ColumnView: View {
         ColumnMenu(column: column)
       }
       .padding(.horizontal, 8).padding(.top, 6)
+      .contentShape(Rectangle())
+      .draggable("column:" + column.name) {
+        HStack(spacing: 8) { StatusGlyph(column: column.name, size: 14); Text(column.name).font(.system(size: 13, weight: .medium)) }
+          .padding(.horizontal, 12).padding(.vertical, 8)
+          .background(Palette.cardHover, in: .rect(cornerRadius: 8))
+      }
       ScrollViewReader { proxy in
         ScrollView {
           LazyVStack(alignment: .leading, spacing: density.cardGap) {
@@ -309,10 +315,7 @@ struct ColumnView: View {
     .frame(width: density.columnWidth)
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
-    .dropDestination(for: String.self) { refs, _ in
-      refs.forEach { store.move(ref: $0, to: column.name) }
-      return !refs.isEmpty
-    } isTargeted: { targeted = $0 }
+    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: { targeted = $0 }
   }
 }
 
@@ -389,10 +392,7 @@ struct HiddenColumnRow: View {
     .onHover { hovering = $0 }
     .contextMenu { if store.isHidden(column) { Button("Show column") { store.setHidden(column, false) } } }
     .help(store.isHidden(column) ? "\(column.name): hidden" : "\(column.name): no issues")
-    .dropDestination(for: String.self) { refs, _ in
-      refs.forEach { store.move(ref: $0, to: column.name) }
-      return !refs.isEmpty
-    } isTargeted: { targeted = $0 }
+    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: { targeted = $0 }
   }
 }
 
