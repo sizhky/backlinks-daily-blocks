@@ -383,28 +383,27 @@ struct IssueCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: density.cardInner) {
-      HStack(alignment: .top, spacing: 8) {
+      HStack(spacing: 6) {
+        Text(card.identifier).font(.system(size: density.metaSize)).foregroundStyle(Palette.muted)
+        Spacer()
+        if showOrg, store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
+      }
+      HStack(alignment: .firstTextBaseline, spacing: 7) {
+        StatusGlyph(column: card.col, size: 13).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
         Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
-          .font(.system(size: density.titleSize, weight: .medium))
+          .font(.system(size: density.titleSize, weight: .semibold))
           .foregroundStyle(Palette.text).tint(Palette.link)
           .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
-        HStack(spacing: 6) {
-          Text(card.age).font(.system(size: density.metaSize).monospacedDigit()).foregroundStyle(stale ? Palette.amber : Palette.muted)
-          if showOrg, store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 14).clipShape(.circle) }
-        }
-        .padding(.top, 1.5)
       }
-      if !card.tags.isEmpty {
-        HStack(spacing: 8) {
-          ForEach(card.tags.prefix(2), id: \.self) { tag in
-            Button { store.append("tag:" + tag.dropFirst()) } label: {
-              HStack(spacing: 4) { labelDot(tag); Text(String(tag.dropFirst())).lineLimit(1) }
-            }
+      FlowLayout(spacing: 6) {
+        Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
+        if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
+        ForEach(card.tags.prefix(3), id: \.self) { tag in
+          Button { store.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
             .buttonStyle(.plain)
-          }
         }
-        .font(.system(size: density.metaSize)).foregroundStyle(Palette.muted)
       }
+      .padding(.top, 2)
     }
     .padding(.horizontal, density.cardPadH).padding(.vertical, density.cardPadV)
     .frame(maxWidth: .infinity, alignment: .leading)

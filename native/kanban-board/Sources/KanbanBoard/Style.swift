@@ -160,8 +160,9 @@ struct Pill<Lead: View>: View {
   var body: some View {
     HStack(spacing: 5) { lead; Text(text).lineLimit(1) }
       .font(.system(size: 11.5, weight: .medium)).foregroundStyle(color)
-      .padding(.horizontal, 8).padding(.vertical, 3)
-      .overlay(Capsule().strokeBorder(Palette.hairline))
+      .padding(.horizontal, 7).padding(.vertical, 3.5)
+      .background(Color.white.opacity(0.02), in: .rect(cornerRadius: 5))
+      .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Palette.hairline))
   }
 }
 
