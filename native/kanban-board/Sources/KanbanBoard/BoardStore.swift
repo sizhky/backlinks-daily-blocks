@@ -165,6 +165,17 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  var catalog: Catalog {
+    Catalog.make(columns: columns.map(\.name), projects: facets(\.projects).map(\.name), orgs: orgs.map(\.name),
+                 tags: facets(\.tags).map(\.name), views: visibleViews.map(\.name))
+  }
+
+  /// A finished `view:Name` term applies that view; any other term joins the filter.
+  func accept(_ term: String) {
+    guard let t = Query.parse(term).first, t.key == "view", !t.negated else { return append(term) }
+    saved.first { $0.name.caseInsensitiveCompare(t.value) == .orderedSame }.map(apply)
+  }
+
   func quote(_ value: String) -> String { value.contains(" ") ? "\"\(value)\"" : value }
 
   /// Views listed in the sidebar: all-workspace views, plus the current workspace's own

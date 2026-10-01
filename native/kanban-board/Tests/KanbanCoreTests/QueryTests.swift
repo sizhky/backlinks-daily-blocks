@@ -37,3 +37,32 @@ final class TitleTests: XCTestCase {
     XCTAssertEqual(Title.segments("plain", vault: "V"), [.text("plain")])
   }
 }
+
+final class CatalogTests: XCTestCase {
+  let catalog = Catalog.make(columns: ["Doing", "Done"], projects: ["Obsidian Workflow", "Vyasa"], tags: ["#win"], views: ["Stale 7d+"])
+
+  func testKeyPrefixesAndAliases() {
+    XCTAssertEqual(catalog.suggest("vi").map(\.term), ["view:"])
+    XCTAssertEqual(catalog.suggest("crea").map(\.term), ["created:"])
+    XCTAssertEqual(catalog.suggest("p").map(\.term), ["project:"])
+    XCTAssertEqual(catalog.suggest("-no").map(\.term), ["-no:"])
+    XCTAssertEqual(catalog.suggest("").map(\.term), [])
+    XCTAssertEqual(catalog.suggest("zzz").map(\.term), [])
+  }
+
+  func testValuesPrefixThenContainsAndExactDropped() {
+    XCTAssertEqual(catalog.suggest("created:to").map(\.term), ["created:today"])
+    XCTAssertEqual(catalog.suggest("c:ye").map(\.term), ["c:yesterday"])
+    XCTAssertEqual(catalog.suggest("-col:do").map(\.term), ["-col:Doing", "-col:Done"])
+    XCTAssertEqual(catalog.suggest("tag:w").map(\.term), ["tag:#win"])
+    XCTAssertEqual(catalog.suggest("created:today").map(\.term), [])
+    XCTAssertEqual(catalog.suggest("nope:x").map(\.term), [])
+  }
+
+  func testQuotedValuesAndReplacing() {
+    let s = catalog.suggest(#"col:Doing project:"obs"#)
+    XCTAssertEqual(s.map(\.term), [#"project:"Obsidian Workflow""#])
+    XCTAssertEqual(Catalog.replacing(#"col:Doing project:"obs"#, with: s[0]), #"col:Doing project:"Obsidian Workflow" "#)
+    XCTAssertEqual(Catalog.replacing("call vi", with: catalog.suggest("call vi")[0]), "call view:")
+  }
+}

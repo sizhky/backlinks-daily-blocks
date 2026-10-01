@@ -42,6 +42,7 @@ struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
   @FocusState private var focused: Bool
   @State private var pickingOrgs = false
+  @State private var pick = 0
   private let keys = ["col:", "tag:", "project:", "org:", "stale:", "age:", "no:", "has:"]
 
   private var terms: [QueryTerm] { Query.parse(store.query).filter { !$0.value.isEmpty } }
@@ -106,16 +107,50 @@ struct BoardHeader: View {
     }
   }
 
+  private var suggestions: [Suggestion] { focused ? Array(store.catalog.suggest(store.query).prefix(8)) : [] }
+
+  private func complete(_ s: Suggestion) {
+    if !s.isKey, s.term.lowercased().hasPrefix("view:") { store.accept(s.term); return }
+    store.query = Catalog.replacing(store.query, with: s)
+  }
+
   private var filterField: some View {
-    HStack(spacing: 7) {
+    let shown = suggestions
+    return HStack(spacing: 7) {
       Image(systemName: "line.3.horizontal.decrease").font(.system(size: 11)).foregroundStyle(Palette.muted)
       TextField("Filter", text: $store.query)
         .textFieldStyle(.plain).font(.system(size: 12.5)).focused($focused)
         .onKeyPress(.escape) { focused = false; return .handled }
+        .onKeyPress(.downArrow) { guard !shown.isEmpty else { return .ignored }; pick = min(shown.count - 1, pick + 1); return .handled }
+        .onKeyPress(.upArrow) { guard !shown.isEmpty else { return .ignored }; pick = max(0, pick - 1); return .handled }
+        .onKeyPress(.tab) { guard shown.indices.contains(pick) else { return .ignored }; complete(shown[pick]); return .handled }
+        .onSubmit { if shown.indices.contains(pick) { complete(shown[pick]); focused = true } }
+        .onChange(of: store.query) { pick = 0 }
     }
     .padding(.horizontal, 10).padding(.vertical, 5).frame(width: 280)
     .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 7))
     .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(focused ? Palette.indigo : Palette.hairline))
+    .overlay(alignment: .topLeading) { if !shown.isEmpty { suggestionList(shown).offset(y: 32) } }
+    .zIndex(1)
+  }
+
+  private func suggestionList(_ shown: [Suggestion]) -> some View {
+    VStack(spacing: 1) {
+      ForEach(Array(shown.enumerated()), id: \.offset) { i, s in
+        HStack(spacing: 8) {
+          Image(systemName: s.isKey ? "number" : "text.append").font(.system(size: 10)).foregroundStyle(Palette.muted).frame(width: 14)
+          Text(s.label).lineLimit(1).font(.system(size: 12.5, design: s.isKey ? .monospaced : .default))
+          Spacer()
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(i == pick ? Palette.selected : .clear, in: .rect(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onTapGesture { complete(s); focused = true }
+      }
+    }
+    .padding(4).frame(width: 280)
+    .background(Palette.base, in: .rect(cornerRadius: 9))
+    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.hairline))
   }
 
   private var chips: some View {

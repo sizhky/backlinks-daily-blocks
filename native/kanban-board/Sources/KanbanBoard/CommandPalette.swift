@@ -5,6 +5,7 @@ struct Command: Identifiable {
   let id = UUID()
   let title: String
   let icon: String
+  var keepOpen = false
   let run: () -> Void
 }
 
@@ -41,9 +42,18 @@ struct CommandPalette: View {
   @State private var index = 0
   @FocusState private var focused: Bool
 
+  /// A term being typed completes to a filter term; keys keep the palette open for the value.
+  private var completions: [Command] {
+    store.catalog.suggest(text).prefix(6).map { s in
+      Command(title: s.term, icon: s.isKey ? "number" : "line.3.horizontal.decrease", keepOpen: s.isKey) {
+        if s.isKey { text = Catalog.replacing(text, with: s) } else { store.accept(s.term) }
+      }
+    }
+  }
+
   private var results: [Command] {
     let words = text.lowercased().split(separator: " ")
-    return store.commands().filter { c in words.allSatisfy { c.title.lowercased().contains($0) } }
+    return completions + store.commands().filter { c in words.allSatisfy { c.title.lowercased().contains($0) } }
   }
 
   var body: some View {
@@ -89,7 +99,7 @@ struct CommandPalette: View {
 
   private func run(_ shown: [Command]) {
     guard shown.indices.contains(index) else { return }
-    store.paletteOpen = false
+    if !shown[index].keepOpen { store.paletteOpen = false }
     shown[index].run()
   }
 }

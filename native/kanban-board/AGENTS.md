@@ -11,6 +11,7 @@ It does not depend on `native/doing-tasks`.
 Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Card.swift           Card, Column, Board.parse (kb output -> model), identifier, created
   Query.swift          query text -> QueryTerm; format; toggling (single-valued keys)
+  Catalog.swift        keys and values the filter field and palette complete (`Catalog.make`, `suggest`)
   Filter.swift         term matching, org scope, SavedFilter (a "view")
   Grouping.swift       group cards by project
   Title.swift          [[wikilinks]] / [text](url) -> segments
@@ -75,6 +76,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Single-valued query keys (`project`, `org`, `col`) replace on click; `tag` adds. Use
   `Query.toggling`, not string appends.
 - A saved view stores `(query, orgs)`; legacy single `org` is read as a one-item list. Applying a view sets both.
+- Add a new filter key in two places: `Filter.test` and `Catalog.make`. The catalog drives autocomplete in
+  the filter field (Tab or Return accepts) and in cmd-K; `view:Name` applies the view.
 - Sidebar and chip counts come from `store.visible`, so they match the board.
 - Optimistic moves update `columns` inside `withAnimation`, then call `kb`, then refresh.
 - Refresh runs every 6 s. Do not add a second polling loop.
