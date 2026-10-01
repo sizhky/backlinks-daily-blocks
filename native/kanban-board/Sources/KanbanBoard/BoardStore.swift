@@ -88,9 +88,12 @@ final class BoardStore: ObservableObject {
     return counts(in: scoped, pick).map { (name: $0.name, count: shown[$0.name] ?? 0) }
   }
 
-  func doingCount(org: String) -> Int {
-    Filter.scope(columns, orgs: [org]).first { $0.name.caseInsensitiveCompare("Doing") == .orderedSame }?.cards.count ?? 0
+  func count(org: String, in column: String) -> Int {
+    Filter.scope(columns, orgs: [org]).first { $0.name.caseInsensitiveCompare(column) == .orderedSame }?.cards.count ?? 0
   }
+
+  func doingCount(org: String) -> Int { count(org: org, in: "Doing") }
+  func todoCount(org: String) -> Int { count(org: org, in: "Todo") }
 
   var hasUnassigned: Bool { columns.contains { $0.done == false && $0.cards.contains { $0.orgs.isEmpty } } }
 

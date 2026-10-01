@@ -1,14 +1,14 @@
 import KanbanCore
 import SwiftUI
 
-/// Slack-style workspace rail: one tile per org, "All" on top, Doing count as badge, ⌘1 for all, ⌘2-9 for the orgs in order.
+/// Slack-style workspace rail: one tile per org, "All" on top, Doing count top right and Todo count bottom right, ⌘1 for all, ⌘2-9 for the orgs in order.
 struct OrgRail: View {
   @EnvironmentObject var store: BoardStore
 
   var body: some View {
     let orgs = store.orgs
     VStack(spacing: 10) {
-      tile(selected: store.activeOrgs.isEmpty, badge: 0, help: "All workspaces (⌘1)") {
+      tile(selected: store.activeOrgs.isEmpty, badge: 0, todo: 0, help: "All workspaces (⌘1)") {
         RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.1))
           .overlay(Image(systemName: "square.grid.2x2.fill").font(.system(size: 15)).foregroundStyle(Palette.text))
       } action: { _ in store.orgScope = [] }
@@ -16,7 +16,7 @@ struct OrgRail: View {
       ScrollView {
         VStack(spacing: 10) {
           ForEach(Array(orgs.enumerated()), id: \.element.name) { index, org in
-            tile(selected: store.activeOrgs.contains(org.name), badge: store.doingCount(org: org.name),
+            tile(selected: store.activeOrgs.contains(org.name), badge: store.doingCount(org: org.name), todo: store.todoCount(org: org.name),
                  help: "\(org.name)\(index < 8 ? " (⌘\(index + 2))" : "") · ⌘-click to add · drag to reorder") {
               OrgIcon(name: org.name, size: 38)
             } action: { store.selectOrg(org.name, additive: $0) }
@@ -28,7 +28,7 @@ struct OrgRail: View {
             }
           }
           if store.hasUnassigned {
-            tile(selected: store.activeOrgs.contains(Filter.noOrg), badge: store.doingCount(org: Filter.noOrg),
+            tile(selected: store.activeOrgs.contains(Filter.noOrg), badge: store.doingCount(org: Filter.noOrg), todo: store.todoCount(org: Filter.noOrg),
                  help: "No organization", dashed: true) {
               Color.white.opacity(0.06)
                 .overlay(Image(systemName: "tray").font(.system(size: 15)).foregroundStyle(Palette.muted))
@@ -55,7 +55,7 @@ struct OrgRail: View {
     }
   }
 
-  private func tile<Icon: View>(selected: Bool, badge: Int, help: String, dashed: Bool = false,
+  private func tile<Icon: View>(selected: Bool, badge: Int, todo: Int, help: String, dashed: Bool = false,
                                 @ViewBuilder icon: () -> Icon, action: @escaping (Bool) -> Void) -> some View {
     Button { action(NSEvent.modifierFlags.contains(.command) || NSEvent.modifierFlags.contains(.shift)) } label: {
       icon()
@@ -74,6 +74,15 @@ struct OrgRail: View {
               .background(Palette.indigo, in: .capsule)
               .overlay(Capsule().strokeBorder(Palette.base, lineWidth: 2))
               .offset(x: 6, y: -5)
+          }
+        }
+        .overlay(alignment: .bottomTrailing) {
+          if todo > 0 {
+            Text("\(todo)").font(.system(size: 9.5, weight: .bold).monospacedDigit()).foregroundStyle(Palette.text)
+              .padding(.horizontal, 5).frame(minWidth: 16, minHeight: 16)
+              .background(Palette.cardHover, in: .capsule)
+              .overlay(Capsule().strokeBorder(Palette.base, lineWidth: 2))
+              .offset(x: 6, y: 5)
           }
         }
         .animation(.spring(duration: 0.25), value: selected)
