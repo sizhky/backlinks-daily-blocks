@@ -23,6 +23,8 @@ node kanban-cli/axi.mjs list --col Todo --limit 5
 node kanban-cli/axi.mjs plate "Obsidian Workflow" --col Backlog
 node kanban-cli/axi.mjs view 20260616-0946.md:0 [--full]
 node kanban-cli/axi.mjs move 20260616-0946.md:0 Done
+node kanban-cli/axi.mjs scopes --query InfoshareSystems
+node kanban-cli/axi.mjs create "Reply to Srinivas" --org InfoshareSystems --project AAA
 node kanban-cli/axi.mjs done 20260620 [--col Done]
 node kanban-cli/axi.mjs report 20260620      # single date = TOON; --days N / from to = grouped raw
 node kanban-cli/axi.mjs chronicle 20260620   # time stints in Doing (or --col)
@@ -67,6 +69,7 @@ adds the exact ISO move timestamp after `age`. Other `opts`:
 - `col` — only this column (case-insensitive)
 - `tag` — substring match on tags or body
 - `staleDays` — only tasks untouched ≥ N days
+- `since` — only tasks created or last moved within a span such as `24h` or `1d`
 - `limit` — cap row count
 - `timestamps` — append the exact timestamp used to calculate `age`
 
@@ -178,9 +181,28 @@ Examples:
 - whole plate for a project: `kb.plate("Obsidian Workflow")`
 - one project's backlog: `kb.plate("Obsidian Workflow",{col:"Backlog"})`
 
+### `kb.board(opts?)` — configured columns for native clients
+Returns every configured column in order, including empty and terminal columns.
+Each column starts with `@column<TAB>Name`; task rows use the `active()` shape.
+`opts.hours` filters every column except `opts.full` (default `Doing`); default is 24.
+Example: `kb.board({hours:24,full:"Doing"})`
+
 ### `kb.moveTask(filePath, line, toCol)` — move a task to a column
 `toCol` matched case-insensitively against column names. Throws on unknown file/col.
 Returns `ok file:line -> Col` on success.
+
+### `kb.openTask(filePath, line)` — open a task in Obsidian
+Opens the source note, moves the editor cursor to the task line, and scrolls it into view.
+Returns `ok opened file:line`.
+
+### `kb.scopes(opts?)` — active organization/project combinations
+Returns `org<TAB>project<TAB>count<TAB>status`, ranked by observed task-note count.
+Inactive combinations are hidden unless `opts.all` is true. `opts.query` filters both names.
+
+### `kb.createTask(opts)` — create one validated task note
+Requires `text`, `org`, and `project`; `col` defaults to `Backlog`.
+The organization/project combination must exist and remain active in `kb.scopes()`.
+Returns `file<TAB>line<TAB>org<TAB>project<TAB>column<TAB>body`.
 
 ### `kb.habits(opts?)` — habit stats, one line per habit card
 Habits are stopwatch cards (board `columns: Idle~, Doing!`) in files whose frontmatter
@@ -197,7 +219,22 @@ the span. Lets an LLM or a UI button log work without opening the board.
 
 ## Creating a task
 
-There is no `kb.create` method — a task is a **checkbox line inside a note**, never a standalone file with a `# heading` or `Status::` prop. To add one:
+Use `kanban create` or `kb.createTask`; do not construct task Markdown in an agent.
+
+Manage active organizations and projects in the `scopes` code block in
+`90-99 Obsidian Meta/Kanban Scopes.md`. Organization status applies to all its projects.
+Project status remains saved while its organization is inactive. Legacy inactive frontmatter rules remain supported:
+
+```yaml
+kanban-inactive-orgs:
+  - "[[OldOrg]]"
+kanban-inactive-projects:
+  - "[[FinishedProject]]"
+kanban-inactive-scopes:
+  - "CurrentOrg / PausedProject"
+```
+
+A task remains a **checkbox line inside a note**, never a standalone file with a `# heading` or `Status::` prop. The API creates:
 
 1. New note path: `~/Vault/$(date +%Y%m%d-%H%M).md` (a daily note). Keep the hyphen between date and time.
 2. Frontmatter carries the project (and org) the board filters on:

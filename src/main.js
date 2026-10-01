@@ -1,9 +1,10 @@
 const { Plugin, Notice, SuggestModal } = require('obsidian');
 const { renderBacklinksBlock, renderDailyBlock } = require('./blocks');
-const { renderKanbanBlock, parseKanbanConfig, moveCard, TASK_RE, HIST_RE } = require('./kanban');
+const { renderKanbanBlock, parseKanbanConfig, moveCard, TASK_RE, TASK_END_RE, HIST_RE } = require('./kanban');
 const { renderEiBlock } = require('./ei');
 const { renderReportBlock } = require('./report');
 const { renderHabitsBlock, renderHabitPad } = require('./habits');
+const { renderScopesBlock } = require('./scopes');
 const { buildApi } = require('./api');
 const { saveTemplateCommand } = require('./templates');
 const { BdbSettingTab, mergeSettings } = require('./settings');
@@ -17,7 +18,7 @@ const { KanbanView, KANBAN_VIEW_TYPE } = require('./views/kanban');
 function taskMeta(lines, line) {
   const histories = new Set();
   let tag = (lines[line].match(/#kb\/([\w-]+)/) || [])[1];
-  for (let i = line + 1; i < lines.length && !TASK_RE.test(lines[i]); i++) {
+  for (let i = line + 1; i < lines.length && !TASK_END_RE.test(lines[i]); i++) {
     const history = lines[i].match(HIST_RE)?.[0];
     if (history) histories.add(history);
     tag ||= (lines[i].match(/#kb\/([\w-]+)/) || [])[1];
@@ -144,6 +145,10 @@ class BacklinksDailyBlocksPlugin extends Plugin {
 
     this.registerMarkdownCodeBlockProcessor('habit-pad', (src, el, ctx) => {
       return renderHabitPad(this, src, el, ctx);
+    });
+
+    this.registerMarkdownCodeBlockProcessor('scopes', (src, el, ctx) => {
+      return renderScopesBlock(this, src, el, ctx);
     });
 
     this.registerBasesView(CHRONICLE_VIEW_TYPE, {

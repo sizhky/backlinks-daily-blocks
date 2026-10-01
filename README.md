@@ -51,6 +51,8 @@ columns: Todo, Doing, Done=x, Cancelled=-
 - Aging WIP: idle-column cards (except the first column) grow a left stripe — amber past the column's `~N` threshold (days, default 1), red past 3N. e.g. `Waiting~3`.
 - Tags live on a tag line under the task (tags/wikilinks only, one indent deeper); inline tags on the task line still read. All moves write the tag line.
 - Empty block = defaults: all paths, `Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-`, `maxage: 7`.
+- Columns stack vertically by default. Set `layout: horizontal` for side-by-side columns.
+- Inactive organizations and projects are hidden by default. Add `include-inactive: true` to a block to show them.
 - `sweep:` routes, one per indented line below the key (commas also work); each puts a ⤳ button on its From column header that bulk-moves every card to the To column, history lines included. Default `Doing > Parked`. Terminal targets still respect the open-children guard.
   ```
   sweep:
@@ -58,6 +60,17 @@ columns: Todo, Doing, Done=x, Cancelled=-
     Parked > Todo
   ```
 - Columns, one per line: `Name[~N idle][! heartbeat][=x terminal] [@color]`, e.g. `Waiting~3`, `Doing! @#2d7ff9`, `Done=x @green`. No `@color` = built-in palette by name (backlog/todo/doing/parked/review/done/cancelled), cycle for unknown names. Legacy `colors:` key still parses.
+
+### Scope controls
+Embed a live organization/project manager with a `scopes` code block. Organization state applies to all child projects; project state is preserved independently.
+````
+```scopes
+```
+````
+- The widget discovers scopes from note frontmatter and refreshes when notes change.
+- Turning an organization off turns off all its projects. Turning it on turns them all on.
+- Turning on one project activates its organization. The organization turns off when its final active project turns off.
+- Switches update the scope page frontmatter. Existing inactive scope properties remain supported.
 
 ### Ei (triage chute)
 ````

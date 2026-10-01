@@ -1,15 +1,21 @@
 // plugin.api — callable via: obsidian eval "JSON.stringify(await app.plugins.plugins['backlinks-daily-blocks'].api.METHOD())"
 const { scanKanbanTasks, moveCard, parseKanbanConfig, stampToDate, cleanText,
-  TASK_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
+  stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
 const { saveTemplate } = require('./templates');
+const { openFileAtLine } = require('./core/render');
 
 const DEFAULT_COLS = 'columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-';
 const HABIT_COLS = 'columns: Idle~, Doing!';
+const SCOPE_NOTE = '90-99 Obsidian Meta/Kanban Scopes.md';
 
-function makeConfig(opts = {}) {
-  const lines = [DEFAULT_COLS];
-  if (opts.paths) lines.push('paths: ' + opts.paths);
+function makeConfig(opts = {}, plugin) {
+  const defaults = plugin?.settings?.kanban || {};
+  const columns = String(defaults.columns || DEFAULT_COLS.replace('columns: ', ''))
+    .split(/\r?\n|,/).map(s => s.trim()).filter(Boolean).join(', ');
+  const lines = ['columns: ' + columns];
+  const paths = opts.paths || defaults.paths;
+  if (paths) lines.push('paths: ' + paths);
   return parseKanbanConfig(lines.join('\n'));
 }
 
@@ -53,9 +59,13 @@ function hasTask(app, f) {
 
 // creation time from the filename's leading digits (YYYYMMDD[HHMM]); null if none.
 function fileNameMs(f) {
-  const d = f.basename.replace(/[^0-9]/g, '');
-  if (d.length < 8) return null;
-  return stampToDate(d.slice(0, 8) + (d.length >= 12 ? d.slice(8, 12) : '0000')).getTime();
+  const stamp = fileNameStamp(f);
+  return stamp ? stampToDate(stamp).getTime() : null;
+}
+
+function fileNameStamp(f) {
+  const m = f.basename.match(/^(\d{8})(?:-(\d{4}))?/);
+  return m ? m[1] + (m[2] || '0000') : null;
 }
 
 // true if the file shows real activity within the span: filename date (creation) or
@@ -126,6 +136,100 @@ function fmSuffix(app, path, keys) {
   const list = String(keys).split(',').map(s => s.trim()).filter(Boolean);
   if (!list.length) return '';
   return '\t' + list.map(k => `${k}=${(fmVals(fm, k) || []).join('|') || '·'}`).join('; ');
+}
+
+function scopeRules(app, path = SCOPE_NOTE) {
+  const file = app.vault.getAbstractFileByPath(path);
+  return file ? app.metadataCache.getFileCache(file)?.frontmatter || {} : {};
+}
+
+function scopeOrgInactive(rules, org) {
+  return (fmVals(rules, 'kanban-inactive-orgs') || []).some(x => x.toLowerCase() === org.toLowerCase());
+}
+
+function scopeProjectActive(rules, org, project) {
+  const raw = rules['kanban-scope-statuses'];
+  const entries = raw == null ? [] : Array.isArray(raw) ? raw : [raw];
+  const override = entries.find(item =>
+    item && typeof item === 'object'
+    && unwrap(item.org).toLowerCase() === org.toLowerCase()
+    && unwrap(item.project).toLowerCase() === project.toLowerCase());
+  if (override && typeof override.active === 'boolean') return override.active;
+  const has = (key, value) => (fmVals(rules, key) || []).some(x => x.toLowerCase() === value.toLowerCase());
+  return !has('kanban-inactive-projects', project)
+    && !has('kanban-inactive-scopes', `${org} / ${project}`);
+}
+
+function scopeInactive(rules, org, project) {
+  return scopeOrgInactive(rules, org) || !scopeProjectActive(rules, org, project);
+}
+
+async function scopeRows(app, opts = {}) {
+  const scopeNote = opts.scopeNote || SCOPE_NOTE;
+  const rules = scopeRules(app, scopeNote);
+  const files = await fmFiles(app, opts.paths, opts.since, opts.tasks === true);
+  const counts = new Map();
+  for (const file of files) {
+    const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+    for (const org of (fmVals(fm, 'org') || [])) for (const project of (fmVals(fm, 'projects') || [])) {
+      const key = `${org.toLowerCase()}\t${project.toLowerCase()}`;
+      const row = counts.get(key) || { org, project, count: 0 };
+      row.count++;
+      counts.set(key, row);
+    }
+  }
+  const query = String(opts.query || '').toLowerCase();
+  const allRows = [...counts].map(([, { org, project, count }]) => {
+    return { org, project, count, status: scopeInactive(rules, org, project) ? 'inactive' : 'active' };
+  }).sort((a, b) => a.org.localeCompare(b.org) || a.project.localeCompare(b.project));
+  return allRows.filter(row => (opts.all || row.status === 'active') && (!query || `${row.org} ${row.project}`.toLowerCase().includes(query)))
+    .sort((a, b) => b.count - a.count || a.org.localeCompare(b.org) || a.project.localeCompare(b.project));
+}
+
+async function setScopeStatus(app, { org, project, active }, path = SCOPE_NOTE) {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!file) throw new Error(`scope registry not found: ${path}`);
+  const rows = await scopeRows(app, { all: true, scopeNote: path });
+  const members = rows.filter(row => row.org.toLowerCase() === String(org).toLowerCase());
+  await app.fileManager.processFrontMatter(file, fm => {
+    const inactiveOrgs = fm['kanban-inactive-orgs'];
+    const inactive = inactiveOrgs == null ? [] : Array.isArray(inactiveOrgs) ? inactiveOrgs : [inactiveOrgs];
+    const activeOrgs = inactive.filter(value => unwrap(value).toLowerCase() !== org.toLowerCase());
+    if (!project) {
+      if (!active) activeOrgs.push(`[[${org}]]`);
+      fm['kanban-inactive-orgs'] = activeOrgs;
+    }
+    const raw = fm['kanban-scope-statuses'];
+    const entries = raw == null ? [] : Array.isArray(raw) ? raw : [raw];
+    const affected = project ? members.filter(row => row.project.toLowerCase() === project.toLowerCase()) : members;
+    const affectedNames = new Set(affected.map(row => row.project.toLowerCase()));
+    const kept = entries.filter(item => !item || typeof item !== 'object'
+      || unwrap(item.org).toLowerCase() !== org.toLowerCase()
+      || !affectedNames.has(unwrap(item.project).toLowerCase()));
+    for (const row of affected) kept.push({
+      org: row.org,
+      project: row.project,
+      active: !!active,
+    });
+    if (project && active) fm['kanban-inactive-orgs'] = activeOrgs;
+    if (project && !active && !members.some(row =>
+      row.project.toLowerCase() !== project.toLowerCase() && row.status === 'active')) {
+      fm['kanban-inactive-orgs'] = [...activeOrgs, `[[${org}]]`];
+      for (const row of members) {
+        const entry = kept.find(item => item && typeof item === 'object'
+          && unwrap(item.org).toLowerCase() === org.toLowerCase()
+          && unwrap(item.project).toLowerCase() === row.project.toLowerCase());
+        if (entry) entry.active = false;
+      }
+    }
+    fm['kanban-scope-statuses'] = kept;
+  });
+  return `ok ${org}${project ? ` / ${project}` : ''}: ${active ? 'active' : 'inactive'}`;
+}
+
+function taskNote({ text, org, project, col, stamp }) {
+  const body = String(text).replace(/\s+/g, ' ').trim();
+  return `---\norg:\n  - ${JSON.stringify(`[[${org}]]`)}\nprojects:\n  - ${JSON.stringify(`[[${project}]]`)}\n---\n\n- [ ] ${body} #kb/${col.toLowerCase()}\n  %% kb ${stamp} Backlog > ${col} %%\n`;
 }
 
 function relAge(iso) {
@@ -236,14 +340,24 @@ function colSegments(history, want, dateStr) {
 
 function cardJson(card, col) {
   const last = card.history.slice().sort((a, b) => b.stamp.localeCompare(a.stamp))[0] || null;
+  const movedAt = last ? stampToDate(last.stamp).getTime() : 0;
+  const recent = Math.max(fileNameMs(card.file) || 0, movedAt) || null;
   return {
     file: card.file.path,
     line: card.line,
     body: card.body,
     col: col.name,
     tags: card.tags,
-    since: last ? stampToDate(last.stamp).toISOString() : null,
+    since: recent ? new Date(recent).toISOString() : null,
+    recent,
   };
+}
+
+function filterSince(rows, since, now = Date.now()) {
+  const span = spanMs(since);
+  if (span == null) return rows;
+  const cut = now - span;
+  return rows.filter(row => row.recent != null && row.recent >= cut);
 }
 
 function buildApi(plugin) {
@@ -253,7 +367,7 @@ function buildApi(plugin) {
     // Returns tab-lines: col<TAB>file:line<TAB>body<TAB>age[<TAB>timestamp]
     // opts: { paths, col, tag, staleDays, limit, includePaused, timestamps }
     async active(opts = {}) {
-      const config = makeConfig(opts);
+      const config = makeConfig(opts, plugin);
       const byCol = await scanKanbanTasks(plugin.app, config);
       const keepPaused = !!opts.col || !!opts.includePaused;
       let rows = config.columns
@@ -268,12 +382,38 @@ function buildApi(plugin) {
         const cut = Date.now() - opts.staleDays * 864e5;
         rows = rows.filter(r => r.since && new Date(r.since).getTime() <= cut);
       }
+      rows = filterSince(rows, opts.since);
       if (opts.limit) rows = rows.slice(0, opts.limit);
       return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${fmSuffix(plugin.app, r.file, opts.fm)}`).join('\n');
     },
 
+    // Every configured column and its tasks. The `full` column is unfiltered;
+    // other columns only include tasks seen within `hours` (default 24).
+    async board(opts = {}) {
+      const config = makeConfig(opts, plugin);
+      const byCol = await scanKanbanTasks(plugin.app, config);
+      const full = String(opts.full || 'Doing').toLowerCase();
+      const since = `${Math.max(1, Number(opts.hours) || 24)}h`;
+      const lines = [];
+      for (const col of config.columns) {
+        lines.push(`@column\t${col.name}`);
+        let rows = (byCol.get(col.key) || []).map(card => cardJson(card, col));
+        if (col.name.toLowerCase() !== full) rows = filterSince(rows, since);
+        lines.push(...rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}`));
+      }
+      return '\n' + lines.join('\n');
+    },
+
+    async openTask(filePath, line) {
+      const file = plugin.app.vault.getAbstractFileByPath(filePath);
+      if (!file) throw new Error('file not found: ' + filePath);
+      openFileAtLine(plugin.app, file, line, false);
+      return `ok opened ${filePath}:${line}`;
+    },
+
     // Freeform notes for one task: every line between the task and the next task
-    // line (any indent), minus the metadata block (tag/color/%%kb%%/%%ei%%).
+    // line (any indent) or `---` separator, minus the metadata block
+    // (tag/color/%%kb%%/%%ei%%).
     // arg = "file:line" (the file:line other reads emit) or (filePath, line).
     // Returns the trimmed prose, "" when the task has no notes.
     async note(arg, line) {
@@ -287,7 +427,7 @@ function buildApi(plugin) {
       if (!TASK_RE.test(lines[line] || '')) throw new Error(`no task at ${path}:${line}`);
       const meta = t => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE.test(t) || EI_HIST_RE.test(t);
       const out = [];
-      for (let i = line + 1; i < lines.length && !TASK_RE.test(lines[i]); i++) {
+      for (let i = line + 1; i < lines.length && !TASK_END_RE.test(lines[i]); i++) {
         if (!meta(lines[i])) out.push(lines[i]);
       }
       return '\n' + out.join('\n').replace(/^\n+|\n+$/g, '');
@@ -460,17 +600,83 @@ function buildApi(plugin) {
       return '\n' + out.join('\n');
     },
 
+    // Organization/project combinations observed in note properties.
+    // Default excludes combinations disabled by the scope registry note.
+    async scopes(opts = {}) {
+      const rows = await scopeRows(plugin.app, opts);
+      return '\n' + rows.map(row => `${row.org}\t${row.project}\t${row.count}\t${row.status}`).join('\n');
+    },
+
+    async scopeCatalog() {
+      const rows = await scopeRows(plugin.app, { all: true });
+      const groups = new Map();
+      for (const row of rows) {
+        if (!row.org || !row.project) continue;
+        if (!groups.has(row.org)) groups.set(row.org, { org: row.org, active: false, projects: [] });
+        const group = groups.get(row.org);
+        const project = {
+          name: row.project,
+          active: row.status === 'active',
+          count: row.count,
+        };
+        group.projects.push(project);
+        group.active ||= project.active;
+      }
+      return [...groups.values()].sort((a, b) => a.org.localeCompare(b.org));
+    },
+
+    scopeFrontmatterActive(frontmatter) {
+      const orgs = fmVals(frontmatter, 'org') || [];
+      const projects = fmVals(frontmatter, 'projects') || [];
+      if (!orgs.length || !projects.length) return true;
+      const rules = scopeRules(plugin.app);
+      return orgs.some(org => projects.some(project => !scopeInactive(rules, org, project)));
+    },
+
+    async setScopeStatus(opts = {}) {
+      return setScopeStatus(plugin.app, opts);
+    },
+
+    // Create one task note after validating its active organization/project combination.
+    async createTask(opts = {}) {
+      const text = String(opts.text || '').replace(/\s+/g, ' ').trim();
+      if (!text) throw new Error('text is required');
+      const rows = await scopeRows(plugin.app, { all: true, scopeNote: opts.scopeNote });
+      const row = rows.find(x => x.org.toLowerCase() === String(opts.org || '').toLowerCase()
+        && x.project.toLowerCase() === String(opts.project || '').toLowerCase());
+      if (!row) throw new Error(`unknown scope: ${opts.org || '?'} / ${opts.project || '?'}`);
+      if (row.status === 'inactive') throw new Error(`inactive scope: ${row.org} / ${row.project}`);
+      const config = makeConfig({}, plugin);
+      const col = config.columns.find(x => x.name.toLowerCase() === String(opts.col || 'Backlog').toLowerCase());
+      if (!col) throw new Error('unknown col: ' + opts.col);
+      let at = new Date(), filePath;
+      for (let i = 0; i < 60; i++, at = new Date(at.getTime() + 60000)) {
+        filePath = `${stampWrite(stampNow(at))}.md`;
+        if (!plugin.app.vault.getAbstractFileByPath(filePath)) break;
+      }
+      if (plugin.app.vault.getAbstractFileByPath(filePath)) throw new Error('no free daily-note timestamp');
+      const stamp = stampWrite(stampNow());
+      await plugin.app.vault.create(filePath, taskNote({ text, org: row.org, project: row.project, col: col.name, stamp }));
+      return `${filePath}\t7\t${row.org}\t${row.project}\t${col.name}\t${text}`;
+    },
+
     // List available methods.
     help() {
       return '\n' + [
         'active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit,timestamps',
         'getDone(date,opts?)      tasks moved to terminal col on a date',
-        'note("file:line")        freeform notes under a task (prose to next task)',
+        'note("file:line")        freeform notes under a task (prose to next task or ---)',
         'getReport(...)           move timeline; day | from,to | {days:N}',
         'chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}',
         'summary(...)             done counts grouped by fm key; opts: by,col,sample,paths',
         '   note: active/getDone/getReport take opts.fm="projects,org" to append fm cols',
         'plate(project,opts?)     a project\'s live tasks (incl Backlog); opts: prop,col,paths,since,limit',
+        'board(opts?)             configured columns + tasks; opts: hours (24), full (Doing), paths',
+        'openTask(file,line)      open a task at its exact source line',
+        'scopes(opts?)            active org/project combinations; opts: all,query,scopeNote',
+        'scopeCatalog()           orgs with projects and inherited activity settings',
+        'setScopeStatus(opts)     set one organization or organization/project active state',
+        'createTask(opts)         create a validated task note; opts: text,org,project,col',
         'moveTask(file,line,col)  move a task to a column',
         'habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths',
         'toggle(name,opts?)       flip a habit idle<->Doing (start/stop logging); opts: paths',
@@ -537,7 +743,12 @@ function buildApi(plugin) {
     async plate(project, opts = {}) {
       if (project && typeof project === 'object') { opts = project; project = null; } // opts-first call
       const prop = opts.prop || 'projects';
-      let rows = (await this.active({ col: opts.col, includePaused: true, limit: opts.limit })).split('\n').filter(Boolean);
+      let rows = (await this.active({
+        col: opts.col,
+        includePaused: true,
+        limit: opts.limit,
+        since: opts.since,
+      })).split('\n').filter(Boolean);
       if (project) { // filter to notes whose frontmatter `prop` matches `project`
         const files = await fmFiles(plugin.app, opts.paths, opts.since, false);
         const set = new Set(files
@@ -555,7 +766,7 @@ function buildApi(plugin) {
     async moveTask(filePath, line, toCol) {
       const file = plugin.app.vault.getAbstractFileByPath(filePath);
       if (!file) throw new Error('file not found: ' + filePath);
-      const config = makeConfig();
+      const config = makeConfig({}, plugin);
       const col = config.columns.find(c => c.name.toLowerCase() === String(toCol).toLowerCase());
       if (!col) throw new Error('unknown col: ' + toCol);
       await moveCard(plugin.app, file, line, col, config, {});
@@ -609,4 +820,4 @@ function buildApi(plugin) {
   };
 }
 
-module.exports = { buildApi };
+module.exports = { buildApi, fileNameStamp, filterSince, scopeInactive, taskNote };

@@ -285,6 +285,24 @@
 }
 
 /* kanban block */
+.bdb-scopes { display: flex; flex-direction: column; gap: 0.8em; }
+.bdb-scopes-help { color: var(--text-muted); font-size: 0.85em; }
+.bdb-scopes-org { border: 1px solid var(--background-modifier-border); border-radius: 8px; overflow: hidden; }
+.bdb-scopes-org-head,
+.bdb-scopes-project { display: flex; align-items: center; gap: 0.7em; padding: 0.55em 0.75em; }
+.bdb-scopes-org-head { background: var(--background-secondary); cursor: pointer; list-style: none; }
+.bdb-scopes-org-head::-webkit-details-marker { display: none; }
+.bdb-scopes-org-head::before { content: '›'; color: var(--text-muted); transition: transform 0.15s ease; }
+.bdb-scopes-org[open] > .bdb-scopes-org-head::before { transform: rotate(90deg); }
+.bdb-scopes-org-name { font-weight: 700; flex: 1; }
+.bdb-scopes-projects { display: flex; flex-direction: column; }
+.bdb-scopes-project { padding-left: 1.5em; border-top: 1px solid var(--background-modifier-border); }
+.bdb-scopes-project-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.bdb-scopes-count { color: var(--text-faint); font-size: 0.8em; white-space: nowrap; }
+.bdb-scopes-toggle { min-width: 5.5em; border: 1px solid var(--background-modifier-border); border-radius: 1em; padding: 0.15em 0.65em; font-size: 0.8em; }
+.bdb-scopes-toggle.is-active { color: var(--text-success); }
+.bdb-scopes-toggle.is-inactive { color: var(--text-muted); }
+
 .bdb-kanban {
   display: flex;
   flex-direction: column; /* toolbar row on top, board body below */
@@ -297,6 +315,24 @@
   align-items: stretch; /* all columns as tall as the tallest = full-height drop zones */
   overflow-x: auto;
   padding: 0.5em 0.8em; /* half-gap top/bottom so edges match the inter-lane gap */
+}
+
+/* Vertical boards keep each column full width and stack them top to bottom. */
+.bdb-kanban-layout-vertical .bdb-kanban-body:not(.bdb-kanban-lanelist),
+.bdb-kanban-layout-vertical .bdb-kanban-lane-row {
+  flex-direction: column;
+  align-items: stretch;
+  overflow-x: visible;
+}
+.bdb-kanban-layout-vertical .bdb-kanban-col,
+.bdb-kanban-layout-vertical .bdb-kanban-col-folded {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  width: auto;
+}
+.bdb-kanban-layout-vertical .bdb-kanban-col-folded .bdb-kanban-col-title {
+  writing-mode: horizontal-tb;
 }
 
 /* Top action bar: board-wide common actions, separated from the body below. */

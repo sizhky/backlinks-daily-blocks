@@ -13,6 +13,8 @@ const KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
 const KB_TAG_RE = /#kb\/([\w-]+)/;
 const STAMP_RE = /\s+\d{8}-?\d{4}\s*$/;
 const TASK_RE = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
+// A task's notes run until the next task or a `---` separator line.
+const TASK_END_RE = /^(\s*[-*]\s*\[.\]\s*.*|\s*---+\s*)$/;
 // Move history rides under the task as hidden comment lines:
 //     %% kb 20260611-1530 Todo > Doing %%
 // (regex tolerates the older no-space and unhyphenated forms)
@@ -112,12 +114,12 @@ function parseColors(text) {
 //     Doing > Parked
 //     Parked > Todo
 function parseKanbanConfig(src) {
-  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, groupby: null, lanes: [], open: [], hidedonelanes: false, lanesort: null, mode: null, only: [], autoFold: null };
+  const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, groupby: null, lanes: [], open: [], hidedonelanes: false, lanesort: null, mode: null, layout: null, includeInactive: false, only: [], autoFold: null };
   let lastKey = null;
   for (const rawLine of (src || '').split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|groupby|lanes|open|hidedonelanes|lanesort|mode|only|auto-fold|fold)\s*:\s*(.*)$/);
+    const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|groupby|lanes|open|hidedonelanes|lanesort|mode|layout|include-inactive|only|auto-fold|fold)\s*:\s*(.*)$/);
     const key = m ? m[1] : lastKey;
     const value = m ? m[2].trim() : line;
     lastKey = key;
@@ -127,6 +129,10 @@ function parseKanbanConfig(src) {
       config.maxage = Number(value) || 0;
     } else if (key === 'mode') {
       config.mode = value.toLowerCase();
+    } else if (key === 'layout') {
+      config.layout = value.toLowerCase() === 'horizontal' ? 'horizontal' : 'vertical';
+    } else if (key === 'include-inactive') {
+      config.includeInactive = value.toLowerCase() === 'true';
     } else if (key === 'auto-fold' || key === 'fold') {
       config.autoFold = value !== 'false';
     } else if (key === 'hidedonelanes') {
@@ -341,6 +347,15 @@ function editTags(lines, line, fn) {
   else if (out.length) lines.splice(line + 1, 0, indent + out.join(' '));
 }
 
+function taskColumn(lines, line, task, config) {
+  const stateCol = config.columns.find(col => col.state === task[2]);
+  if (stateCol) return stateCol;
+  const at = tagLineAt(lines, line);
+  const tagged = `${task[4]} ${at == null ? '' : lines[at]}`.match(KB_TAG_RE)?.[1];
+  return config.columns.find(col => !col.state && col.key === tagged)
+    || config.columns.find(col => !col.state);
+}
+
 // Keep task metadata ordered as: pinned config, freeform note lines, hidden
 // logs, then any child tasks. Returns where the next kb log should go.
 function normalizeTaskMeta(lines, line) {
@@ -487,6 +502,7 @@ async function moveCard(app, file, line, targetCol, config, { fromCol } = {}) {
   const lines = content.split(/\r?\n/);
   const m = lines[line]?.match(TASK_RE);
   if (!m) return false;
+  fromCol ||= taskColumn(lines, line, m, config);
 
   const [, pre, , close] = m;
   const body = m[4].replace(KB_TAG_GLOBAL_RE, '').replace(STAMP_RE, '').replace(/\s{2,}/g, ' ').trim();
@@ -571,6 +587,7 @@ function resolveKanbanConfig(plugin, src, sourcePath) {
     config.paths = defaults.paths.split(',').map(s => s.trim()).filter(Boolean);
   }
   if (config.maxage == null) config.maxage = defaults.maxage != null ? defaults.maxage : 7;
+  if (config.layout == null) config.layout = defaults.layout === 'horizontal' ? 'horizontal' : 'vertical';
   if (config.autoFold == null) config.autoFold = defaults.autoFold === true || defaults.fold === true;
   if (!config.sweeps.length && defaults.sweep) {
     config.sweeps = parseSweeps(defaults.sweep);
@@ -608,13 +625,20 @@ async function persistLaneState(plugin, ctx, el, selectedNames, openNames, state
 
 async function renderKanbanBlock(plugin, src, el, ctx) {
   el.empty();
-  const config = resolveKanbanConfig(plugin, src, ctx.sourcePath);
+  const scopeFilter = config => {
+    if (config.includeInactive) return config;
+    const previous = config.cacheFilter;
+    config.cacheFilter = (cache, file) => (!previous || previous(cache, file))
+      && plugin.api.scopeFrontmatterActive(cache?.frontmatter);
+    return config;
+  };
+  const config = scopeFilter(resolveKanbanConfig(plugin, src, ctx.sourcePath));
   const states = config.columns.filter(c => c.state).map(c => c.state);
   if (new Set(states).size !== states.length) {
     el.createDiv({ text: 'kanban: two columns share the same state char' });
     return;
   }
-  const board = el.createDiv({ cls: 'bdb-kanban' });
+  const board = el.createDiv({ cls: `bdb-kanban bdb-kanban-layout-${config.layout}` });
   const state = { dragging: false };
   // Lane selection: Set of lowercased lane names, empty Set = none, null = all
   // (back-compat). Seeded from the block's `lanes:` line. A cleared line means
@@ -631,7 +655,9 @@ async function renderKanbanBlock(plugin, src, el, ctx) {
     window.clearTimeout(persistTimer);
     persistTimer = window.setTimeout(() => persistLaneState(plugin, ctx, el, selectedNames, openNames, state), 400);
   };
-  const redraw = () => { if (!state.dragging) drawBoard(plugin, board, resolveKanbanConfig(plugin, src, ctx.sourcePath), state); };
+  const redraw = () => {
+    if (!state.dragging) drawBoard(plugin, board, scopeFilter(resolveKanbanConfig(plugin, src, ctx.sourcePath)), state);
+  };
   // Clock tick: patch the running-card times in place — no teardown, no flash.
   const tick = () => { if (!state.dragging) (state.timeUpdaters || []).forEach(fn => fn()); };
 
@@ -1228,7 +1254,8 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 module.exports = {
   parseKanbanConfig, scanKanbanTasks, moveCard, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
-  openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, STAMP_RE,
+  taskColumn,
+  openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, TASK_END_RE, STAMP_RE,
   TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE, terminalStamp,
   columnColor, colKey,
 };

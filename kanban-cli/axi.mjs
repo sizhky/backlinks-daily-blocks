@@ -17,7 +17,9 @@ function kb(expr) {
     const msg = (e.stderr || e.stdout || e.message || '').toString().trim();
     fail(msg.replace(/^.*Error:\s*/s, '') || 'obsidian eval failed', null, 1);
   }
-  return out.replace(/^=>\s?/, '').replace(/^\n/, '').replace(/\n$/, '');
+  const value = out.replace(/^=>\s?/, '').replace(/^\n/, '').replace(/\n$/, '');
+  if (/^(?:\w*Error:|Error:)/.test(value)) fail(value.replace(/^\w*Error:\s*/, '').replace(/\nundefined$/, ''), null, 1);
+  return value;
 }
 
 // TSV value text -> array of objects keyed by `fields`
@@ -121,10 +123,10 @@ function dashboard() {
 function cmdPlate(argv) {
   const { f, pos } = parseFlags(argv);
   if (f.help) return console.log(
-    'usage: kanban plate [<project>] [--prop <key>] [--col <name>] [--limit <n>] [--paths <p>]\n' +
+    'usage: kanban plate [<project>] [--prop <key>] [--col <name>] [--since <span>] [--limit <n>] [--paths <p>]\n' +
     'Live tasks incl. paused Backlog, optionally scoped to a project (default prop: projects).\n' +
     'examples:\n  kanban plate --col Backlog\n  kanban plate "Obsidian Workflow"');
-  const o = opts({ col: f.col, prop: f.prop, limit: f.limit, paths: f.paths, contains: f.contains });
+  const o = opts({ col: f.col, prop: f.prop, since: f.since, limit: f.limit, paths: f.paths, contains: f.contains });
   const proj = pos[0] ? JSON.stringify(pos[0]) : '';
   const args = proj && o ? `${proj},${o}` : proj || o;
   const data = rows(kb(`plate(${args})`), LIST_FIELDS);
@@ -164,6 +166,28 @@ function cmdMove(argv) {
   const { path, line } = refToArgs(pos[0]);
   const r = kb(`moveTask(${JSON.stringify(path)},${line},${JSON.stringify(pos[1])})`);
   console.log('moved: ' + r.replace(/^ok\s*/, ''));
+}
+
+const SCOPE_FIELDS = ['rank', 'org', 'project', 'count', 'status'];
+function cmdScopes(argv) {
+  const { f } = parseFlags(argv, ['all']);
+  if (f.help) return console.log(
+    'usage: kanban scopes [--query <text>] [--all] [--scope-note <path>]\n' +
+    'List observed organization/project combinations. Inactive combinations are hidden unless --all.');
+  const o = opts({ query: f.query, all: f.all, scopeNote: f['scope-note'] });
+  const data = rows(kb(`scopes(${o})`), SCOPE_FIELDS.slice(1)).map((row, i) => ({ rank: i + 1, ...row }));
+  if (!data.length) return console.log('scopes: 0 matching active combinations');
+  console.log(toon('scopes', SCOPE_FIELDS, data));
+}
+
+function cmdCreate(argv) {
+  const { f, pos } = parseFlags(argv);
+  if (f.help || !pos[0] || !f.org || !f.project) return console.log(
+    'usage: kanban create <text> --org <name> --project <name> [--col <name>] [--scope-note <path>]\n' +
+    'Create one task after validating its active organization/project combination.');
+  const arg = { text: pos[0], org: f.org, project: f.project, col: f.col, scopeNote: f['scope-note'] };
+  const [file, line, org, project, col, body] = kb(`createTask(${JSON.stringify(arg)})`).split('\t');
+  console.log(toon('created', ['ref', 'org', 'project', 'col', 'body'], [{ ref: `${file}:${line}`, org, project, col, body }]));
 }
 
 const DONE_FIELDS = ['col', 'ref', 'body', 'time'];
@@ -296,6 +320,8 @@ switch (cmd) {
   case 'plate': cmdPlate(rest); break;
   case 'view': cmdView(rest); break;
   case 'move': cmdMove(rest); break;
+  case 'scopes': cmdScopes(rest); break;
+  case 'create': cmdCreate(rest); break;
   case 'done': cmdDone(rest); break;
   case 'report': cmdReport(rest); break;
   case 'chronicle': cmdChronicle(rest); break;
@@ -305,8 +331,8 @@ switch (cmd) {
   case 'habits': cmdHabits(rest); break;
   case 'toggle': cmdToggle(rest); break;
   case 'help': case '--help': console.log(`bin: ${BIN}\ndescription: ${DESC}\n` +
-    help(['list', 'plate [project]', 'view <ref>', 'move <ref> <col>', 'done <date>',
+    help(['list', 'plate [project]', 'view <ref>', 'move <ref> <col>', 'scopes', 'create <text> --org X --project Y', 'done <date>',
       'report <date>|--days N', 'chronicle <date>|--days N', 'summary --days N --by <key>',
       'props [since]', 'notes --where k=v', 'habits', 'toggle <name>'].map(c => `kanban ${c}`))); break;
-  default: fail(`unknown command: ${cmd}`, 'kanban [list|plate|view|move|done|report|chronicle|summary|props|notes|habits|toggle]');
+  default: fail(`unknown command: ${cmd}`, 'kanban [list|plate|view|move|scopes|create|done|report|chronicle|summary|props|notes|habits|toggle]');
 }

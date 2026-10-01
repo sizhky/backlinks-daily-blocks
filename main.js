@@ -656,6 +656,7 @@ var require_kanban = __commonJS({
     var KB_TAG_RE = /#kb\/([\w-]+)/;
     var STAMP_RE = /\s+\d{8}-?\d{4}\s*$/;
     var TASK_RE2 = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
+    var TASK_END_RE2 = /^(\s*[-*]\s*\[.\]\s*.*|\s*---+\s*)$/;
     var HIST_RE2 = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
     var EI_HIST_RE = /^\s*%%\s?ei (\d{8}-?\d{4}) ([\w-]+)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
@@ -723,12 +724,12 @@ var require_kanban = __commonJS({
       return out;
     }
     function parseKanbanConfig2(src) {
-      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, groupby: null, lanes: [], open: [], hidedonelanes: false, lanesort: null, mode: null, only: [], autoFold: null };
+      const config = { paths: [], columns: [], maxage: null, colors: {}, sweeps: [], filters: [], lane: null, groupby: null, lanes: [], open: [], hidedonelanes: false, lanesort: null, mode: null, layout: null, includeInactive: false, only: [], autoFold: null };
       let lastKey = null;
       for (const rawLine of (src || "").split(/\r?\n/)) {
         const line = rawLine.trim();
         if (!line) continue;
-        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|groupby|lanes|open|hidedonelanes|lanesort|mode|only|auto-fold|fold)\s*:\s*(.*)$/);
+        const m = line.match(/^(maxage|paths|columns|colors|sweep|filter|lane|groupby|lanes|open|hidedonelanes|lanesort|mode|layout|include-inactive|only|auto-fold|fold)\s*:\s*(.*)$/);
         const key = m ? m[1] : lastKey;
         const value = m ? m[2].trim() : line;
         lastKey = key;
@@ -737,6 +738,10 @@ var require_kanban = __commonJS({
           config.maxage = Number(value) || 0;
         } else if (key === "mode") {
           config.mode = value.toLowerCase();
+        } else if (key === "layout") {
+          config.layout = value.toLowerCase() === "horizontal" ? "horizontal" : "vertical";
+        } else if (key === "include-inactive") {
+          config.includeInactive = value.toLowerCase() === "true";
         } else if (key === "auto-fold" || key === "fold") {
           config.autoFold = value !== "false";
         } else if (key === "hidedonelanes") {
@@ -924,6 +929,13 @@ var require_kanban = __commonJS({
       else if (at != null) lines[at] = indent + out.join(" ");
       else if (out.length) lines.splice(line + 1, 0, indent + out.join(" "));
     }
+    function taskColumn(lines, line, task, config) {
+      const stateCol = config.columns.find((col) => col.state === task[2]);
+      if (stateCol) return stateCol;
+      const at = tagLineAt(lines, line);
+      const tagged = `${task[4]} ${at == null ? "" : lines[at]}`.match(KB_TAG_RE)?.[1];
+      return config.columns.find((col) => !col.state && col.key === tagged) || config.columns.find((col) => !col.state);
+    }
     function normalizeTaskMeta(lines, line) {
       const base = indentWidth(lines[line]);
       let i = line + 1;
@@ -1043,6 +1055,7 @@ var require_kanban = __commonJS({
       const lines = content.split(/\r?\n/);
       const m = lines[line]?.match(TASK_RE2);
       if (!m) return false;
+      fromCol ||= taskColumn(lines, line, m, config);
       const [, pre, , close] = m;
       const body = m[4].replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").replace(/\s{2,}/g, " ").trim();
       const firstOpen = config.columns.find((c) => !c.state);
@@ -1107,6 +1120,7 @@ var require_kanban = __commonJS({
         config.paths = defaults.paths.split(",").map((s) => s.trim()).filter(Boolean);
       }
       if (config.maxage == null) config.maxage = defaults.maxage != null ? defaults.maxage : 7;
+      if (config.layout == null) config.layout = defaults.layout === "horizontal" ? "horizontal" : "vertical";
       if (config.autoFold == null) config.autoFold = defaults.autoFold === true || defaults.fold === true;
       if (!config.sweeps.length && defaults.sweep) {
         config.sweeps = parseSweeps(defaults.sweep);
@@ -1138,13 +1152,19 @@ var require_kanban = __commonJS({
     }
     async function renderKanbanBlock2(plugin, src, el, ctx) {
       el.empty();
-      const config = resolveKanbanConfig(plugin, src, ctx.sourcePath);
+      const scopeFilter = (config2) => {
+        if (config2.includeInactive) return config2;
+        const previous = config2.cacheFilter;
+        config2.cacheFilter = (cache, file) => (!previous || previous(cache, file)) && plugin.api.scopeFrontmatterActive(cache?.frontmatter);
+        return config2;
+      };
+      const config = scopeFilter(resolveKanbanConfig(plugin, src, ctx.sourcePath));
       const states = config.columns.filter((c) => c.state).map((c) => c.state);
       if (new Set(states).size !== states.length) {
         el.createDiv({ text: "kanban: two columns share the same state char" });
         return;
       }
-      const board = el.createDiv({ cls: "bdb-kanban" });
+      const board = el.createDiv({ cls: `bdb-kanban bdb-kanban-layout-${config.layout}` });
       const state = { dragging: false };
       state.selectedLanes = config.lanes.length ? config.lanes.length === 1 && config.lanes[0].toLowerCase() === LANE_NONE ? /* @__PURE__ */ new Set() : new Set(config.lanes.map((n) => n.toLowerCase())) : null;
       state.openLanes = new Set(config.open.map((n) => n.toLowerCase()));
@@ -1154,7 +1174,7 @@ var require_kanban = __commonJS({
         persistTimer = window.setTimeout(() => persistLaneState(plugin, ctx, el, selectedNames, openNames, state), 400);
       };
       const redraw = () => {
-        if (!state.dragging) drawBoard(plugin, board, resolveKanbanConfig(plugin, src, ctx.sourcePath), state);
+        if (!state.dragging) drawBoard(plugin, board, scopeFilter(resolveKanbanConfig(plugin, src, ctx.sourcePath)), state);
       };
       const tick = () => {
         if (!state.dragging) (state.timeUpdaters || []).forEach((fn) => fn());
@@ -1642,6 +1662,7 @@ var require_kanban = __commonJS({
       editTags,
       tagLineAt,
       commentInsertAt,
+      taskColumn,
       openDescendants,
       cleanText,
       addTitleCopy,
@@ -1651,6 +1672,7 @@ var require_kanban = __commonJS({
       stampWrite,
       fmtDur,
       TASK_RE: TASK_RE2,
+      TASK_END_RE: TASK_END_RE2,
       STAMP_RE,
       TAGLINE_RE,
       COLOR_RE,
@@ -2647,6 +2669,74 @@ var require_report = __commonJS({
   }
 });
 
+// src/scopes.js
+var require_scopes = __commonJS({
+  "src/scopes.js"(exports2, module2) {
+    var { MarkdownRenderChild, Notice: Notice2 } = require("obsidian");
+    async function renderScopesBlock2(plugin, src, el, ctx) {
+      const child = new MarkdownRenderChild(el);
+      ctx.addChild(child);
+      const expanded = /* @__PURE__ */ new Set();
+      let timer;
+      const refresh = async () => {
+        el.empty();
+        const groups = await plugin.api.scopeCatalog();
+        const root = el.createDiv({ cls: "bdb-scopes" });
+        for (const group of groups) {
+          const section = root.createEl("details", { cls: "bdb-scopes-org" });
+          section.open = expanded.has(group.org);
+          section.addEventListener("toggle", () => section.open ? expanded.add(group.org) : expanded.delete(group.org));
+          const head = section.createEl("summary", { cls: "bdb-scopes-org-head" });
+          head.createSpan({ cls: "bdb-scopes-org-name", text: group.org });
+          const orgToggle = head.createEl("button", {
+            cls: `bdb-scopes-toggle ${group.active ? "is-active" : "is-inactive"}`,
+            text: group.active ? "Active" : "Inactive",
+            attr: { "aria-pressed": String(group.active), "aria-label": `${group.org} organization is ${group.active ? "active" : "inactive"}` }
+          });
+          orgToggle.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            try {
+              await plugin.api.setScopeStatus({ org: group.org, active: !group.active });
+            } catch (err) {
+              new Notice2(`Scope update failed: ${err.message}`);
+            }
+          });
+          const projects = section.createDiv({ cls: "bdb-scopes-projects" });
+          for (const project of group.projects) {
+            const row = projects.createDiv({ cls: "bdb-scopes-project" });
+            row.createSpan({ cls: "bdb-scopes-project-name", text: project.name });
+            row.createSpan({ cls: "bdb-scopes-count", text: `${project.count} notes` });
+            const toggle = row.createEl("button", {
+              cls: `bdb-scopes-toggle ${project.active ? "is-active" : "is-inactive"}`,
+              text: project.active ? "Active" : "Inactive",
+              attr: { "aria-pressed": String(project.active), "aria-label": `${group.org} / ${project.name} is ${project.active ? "active" : "inactive"}` }
+            });
+            toggle.addEventListener("click", async () => {
+              try {
+                await plugin.api.setScopeStatus({ org: group.org, project: project.name, active: !project.active });
+              } catch (err) {
+                new Notice2(`Scope update failed: ${err.message}`);
+              }
+            });
+          }
+        }
+      };
+      const schedule = () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => refresh().catch((err) => new Notice2(`Scope refresh failed: ${err.message}`)), 350);
+      };
+      child.register(() => window.clearTimeout(timer));
+      for (const event of ["modify", "create", "delete", "rename"]) {
+        child.registerEvent(plugin.app.vault.on(event, (file) => {
+          if (!file || file.extension === "md") schedule();
+        }));
+      }
+      await refresh();
+    }
+    module2.exports = { renderScopesBlock: renderScopesBlock2 };
+  }
+});
+
 // src/templates.js
 var require_templates = __commonJS({
   "src/templates.js"(exports2, module2) {
@@ -2774,7 +2864,10 @@ var require_api = __commonJS({
       parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
       cleanText,
+      stampNow,
+      stampWrite,
       TASK_RE: TASK_RE2,
+      TASK_END_RE: TASK_END_RE2,
       TAGLINE_RE,
       COLOR_RE,
       HIST_RE: HIST_RE2,
@@ -2782,11 +2875,16 @@ var require_api = __commonJS({
     } = require_kanban();
     var { collectDayTasks } = require_report();
     var { saveTemplate } = require_templates();
+    var { openFileAtLine } = require_render();
     var DEFAULT_COLS = "columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-";
     var HABIT_COLS = "columns: Idle~, Doing!";
-    function makeConfig(opts = {}) {
-      const lines = [DEFAULT_COLS];
-      if (opts.paths) lines.push("paths: " + opts.paths);
+    var SCOPE_NOTE = "90-99 Obsidian Meta/Kanban Scopes.md";
+    function makeConfig(opts = {}, plugin) {
+      const defaults = plugin?.settings?.kanban || {};
+      const columns = String(defaults.columns || DEFAULT_COLS.replace("columns: ", "")).split(/\r?\n|,/).map((s) => s.trim()).filter(Boolean).join(", ");
+      const lines = ["columns: " + columns];
+      const paths2 = opts.paths || defaults.paths;
+      if (paths2) lines.push("paths: " + paths2);
       return parseKanbanConfig2(lines.join("\n"));
     }
     function makeHabitConfig(opts = {}) {
@@ -2818,9 +2916,12 @@ var require_api = __commonJS({
       return !!li && li.some((it) => it.task != null);
     }
     function fileNameMs(f) {
-      const d = f.basename.replace(/[^0-9]/g, "");
-      if (d.length < 8) return null;
-      return stampToDate(d.slice(0, 8) + (d.length >= 12 ? d.slice(8, 12) : "0000")).getTime();
+      const stamp = fileNameStamp(f);
+      return stamp ? stampToDate(stamp).getTime() : null;
+    }
+    function fileNameStamp(f) {
+      const m = f.basename.match(/^(\d{8})(?:-(\d{4}))?/);
+      return m ? m[1] + (m[2] || "0000") : null;
     }
     async function activeWithin(app2, f, cut) {
       const nm = fileNameMs(f);
@@ -2880,6 +2981,92 @@ var require_api = __commonJS({
       const list = String(keys).split(",").map((s) => s.trim()).filter(Boolean);
       if (!list.length) return "";
       return "	" + list.map((k) => `${k}=${(fmVals(fm, k) || []).join("|") || "\xB7"}`).join("; ");
+    }
+    function scopeRules(app2, path = SCOPE_NOTE) {
+      const file = app2.vault.getAbstractFileByPath(path);
+      return file ? app2.metadataCache.getFileCache(file)?.frontmatter || {} : {};
+    }
+    function scopeOrgInactive(rules, org) {
+      return (fmVals(rules, "kanban-inactive-orgs") || []).some((x) => x.toLowerCase() === org.toLowerCase());
+    }
+    function scopeProjectActive(rules, org, project) {
+      const raw = rules["kanban-scope-statuses"];
+      const entries = raw == null ? [] : Array.isArray(raw) ? raw : [raw];
+      const override = entries.find((item) => item && typeof item === "object" && unwrap(item.org).toLowerCase() === org.toLowerCase() && unwrap(item.project).toLowerCase() === project.toLowerCase());
+      if (override && typeof override.active === "boolean") return override.active;
+      const has = (key, value) => (fmVals(rules, key) || []).some((x) => x.toLowerCase() === value.toLowerCase());
+      return !has("kanban-inactive-projects", project) && !has("kanban-inactive-scopes", `${org} / ${project}`);
+    }
+    function scopeInactive(rules, org, project) {
+      return scopeOrgInactive(rules, org) || !scopeProjectActive(rules, org, project);
+    }
+    async function scopeRows(app2, opts = {}) {
+      const scopeNote = opts.scopeNote || SCOPE_NOTE;
+      const rules = scopeRules(app2, scopeNote);
+      const files = await fmFiles(app2, opts.paths, opts.since, opts.tasks === true);
+      const counts = /* @__PURE__ */ new Map();
+      for (const file of files) {
+        const fm = app2.metadataCache.getFileCache(file)?.frontmatter;
+        for (const org of fmVals(fm, "org") || []) for (const project of fmVals(fm, "projects") || []) {
+          const key = `${org.toLowerCase()}	${project.toLowerCase()}`;
+          const row = counts.get(key) || { org, project, count: 0 };
+          row.count++;
+          counts.set(key, row);
+        }
+      }
+      const query = String(opts.query || "").toLowerCase();
+      const allRows = [...counts].map(([, { org, project, count }]) => {
+        return { org, project, count, status: scopeInactive(rules, org, project) ? "inactive" : "active" };
+      }).sort((a, b) => a.org.localeCompare(b.org) || a.project.localeCompare(b.project));
+      return allRows.filter((row) => (opts.all || row.status === "active") && (!query || `${row.org} ${row.project}`.toLowerCase().includes(query))).sort((a, b) => b.count - a.count || a.org.localeCompare(b.org) || a.project.localeCompare(b.project));
+    }
+    async function setScopeStatus(app2, { org, project, active }, path = SCOPE_NOTE) {
+      const file = app2.vault.getAbstractFileByPath(path);
+      if (!file) throw new Error(`scope registry not found: ${path}`);
+      const rows = await scopeRows(app2, { all: true, scopeNote: path });
+      const members = rows.filter((row) => row.org.toLowerCase() === String(org).toLowerCase());
+      await app2.fileManager.processFrontMatter(file, (fm) => {
+        const inactiveOrgs = fm["kanban-inactive-orgs"];
+        const inactive = inactiveOrgs == null ? [] : Array.isArray(inactiveOrgs) ? inactiveOrgs : [inactiveOrgs];
+        const activeOrgs = inactive.filter((value) => unwrap(value).toLowerCase() !== org.toLowerCase());
+        if (!project) {
+          if (!active) activeOrgs.push(`[[${org}]]`);
+          fm["kanban-inactive-orgs"] = activeOrgs;
+        }
+        const raw = fm["kanban-scope-statuses"];
+        const entries = raw == null ? [] : Array.isArray(raw) ? raw : [raw];
+        const affected = project ? members.filter((row) => row.project.toLowerCase() === project.toLowerCase()) : members;
+        const affectedNames = new Set(affected.map((row) => row.project.toLowerCase()));
+        const kept = entries.filter((item) => !item || typeof item !== "object" || unwrap(item.org).toLowerCase() !== org.toLowerCase() || !affectedNames.has(unwrap(item.project).toLowerCase()));
+        for (const row of affected) kept.push({
+          org: row.org,
+          project: row.project,
+          active: !!active
+        });
+        if (project && active) fm["kanban-inactive-orgs"] = activeOrgs;
+        if (project && !active && !members.some((row) => row.project.toLowerCase() !== project.toLowerCase() && row.status === "active")) {
+          fm["kanban-inactive-orgs"] = [...activeOrgs, `[[${org}]]`];
+          for (const row of members) {
+            const entry = kept.find((item) => item && typeof item === "object" && unwrap(item.org).toLowerCase() === org.toLowerCase() && unwrap(item.project).toLowerCase() === row.project.toLowerCase());
+            if (entry) entry.active = false;
+          }
+        }
+        fm["kanban-scope-statuses"] = kept;
+      });
+      return `ok ${org}${project ? ` / ${project}` : ""}: ${active ? "active" : "inactive"}`;
+    }
+    function taskNote({ text, org, project, col, stamp }) {
+      const body = String(text).replace(/\s+/g, " ").trim();
+      return `---
+org:
+  - ${JSON.stringify(`[[${org}]]`)}
+projects:
+  - ${JSON.stringify(`[[${project}]]`)}
+---
+
+- [ ] ${body} #kb/${col.toLowerCase()}
+  %% kb ${stamp} Backlog > ${col} %%
+`;
     }
     function relAge(iso) {
       if (!iso) return "?";
@@ -2981,14 +3168,23 @@ var require_api = __commonJS({
     }
     function cardJson(card, col) {
       const last = card.history.slice().sort((a, b) => b.stamp.localeCompare(a.stamp))[0] || null;
+      const movedAt = last ? stampToDate(last.stamp).getTime() : 0;
+      const recent = Math.max(fileNameMs(card.file) || 0, movedAt) || null;
       return {
         file: card.file.path,
         line: card.line,
         body: card.body,
         col: col.name,
         tags: card.tags,
-        since: last ? stampToDate(last.stamp).toISOString() : null
+        since: recent ? new Date(recent).toISOString() : null,
+        recent
       };
+    }
+    function filterSince(rows, since, now = Date.now()) {
+      const span = spanMs(since);
+      if (span == null) return rows;
+      const cut = now - span;
+      return rows.filter((row) => row.recent != null && row.recent >= cut);
     }
     function buildApi2(plugin) {
       return {
@@ -2997,7 +3193,7 @@ var require_api = __commonJS({
         // Returns tab-lines: col<TAB>file:line<TAB>body<TAB>age[<TAB>timestamp]
         // opts: { paths, col, tag, staleDays, limit, includePaused, timestamps }
         async active(opts = {}) {
-          const config = makeConfig(opts);
+          const config = makeConfig(opts, plugin);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const keepPaused = !!opts.col || !!opts.includePaused;
           let rows = config.columns.filter((c) => !c.state && (keepPaused || !c.paused)).flatMap((col) => (byCol.get(col.key) || []).map((card) => cardJson(card, col)));
@@ -3010,11 +3206,35 @@ var require_api = __commonJS({
             const cut = Date.now() - opts.staleDays * 864e5;
             rows = rows.filter((r) => r.since && new Date(r.since).getTime() <= cut);
           }
+          rows = filterSince(rows, opts.since);
           if (opts.limit) rows = rows.slice(0, opts.limit);
           return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
         },
+        // Every configured column and its tasks. The `full` column is unfiltered;
+        // other columns only include tasks seen within `hours` (default 24).
+        async board(opts = {}) {
+          const config = makeConfig(opts, plugin);
+          const byCol = await scanKanbanTasks(plugin.app, config);
+          const full = String(opts.full || "Doing").toLowerCase();
+          const since = `${Math.max(1, Number(opts.hours) || 24)}h`;
+          const lines = [];
+          for (const col of config.columns) {
+            lines.push(`@column	${col.name}`);
+            let rows = (byCol.get(col.key) || []).map((card) => cardJson(card, col));
+            if (col.name.toLowerCase() !== full) rows = filterSince(rows, since);
+            lines.push(...rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}`));
+          }
+          return "\n" + lines.join("\n");
+        },
+        async openTask(filePath, line) {
+          const file = plugin.app.vault.getAbstractFileByPath(filePath);
+          if (!file) throw new Error("file not found: " + filePath);
+          openFileAtLine(plugin.app, file, line, false);
+          return `ok opened ${filePath}:${line}`;
+        },
         // Freeform notes for one task: every line between the task and the next task
-        // line (any indent), minus the metadata block (tag/color/%%kb%%/%%ei%%).
+        // line (any indent) or `---` separator, minus the metadata block
+        // (tag/color/%%kb%%/%%ei%%).
         // arg = "file:line" (the file:line other reads emit) or (filePath, line).
         // Returns the trimmed prose, "" when the task has no notes.
         async note(arg, line) {
@@ -3030,7 +3250,7 @@ var require_api = __commonJS({
           if (!TASK_RE2.test(lines[line] || "")) throw new Error(`no task at ${path}:${line}`);
           const meta = (t) => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE2.test(t) || EI_HIST_RE.test(t);
           const out = [];
-          for (let i = line + 1; i < lines.length && !TASK_RE2.test(lines[i]); i++) {
+          for (let i = line + 1; i < lines.length && !TASK_END_RE2.test(lines[i]); i++) {
             if (!meta(lines[i])) out.push(lines[i]);
           }
           return "\n" + out.join("\n").replace(/^\n+|\n+$/g, "");
@@ -3192,17 +3412,77 @@ var require_api = __commonJS({
           }
           return "\n" + out.join("\n");
         },
+        // Organization/project combinations observed in note properties.
+        // Default excludes combinations disabled by the scope registry note.
+        async scopes(opts = {}) {
+          const rows = await scopeRows(plugin.app, opts);
+          return "\n" + rows.map((row) => `${row.org}	${row.project}	${row.count}	${row.status}`).join("\n");
+        },
+        async scopeCatalog() {
+          const rows = await scopeRows(plugin.app, { all: true });
+          const groups = /* @__PURE__ */ new Map();
+          for (const row of rows) {
+            if (!row.org || !row.project) continue;
+            if (!groups.has(row.org)) groups.set(row.org, { org: row.org, active: false, projects: [] });
+            const group = groups.get(row.org);
+            const project = {
+              name: row.project,
+              active: row.status === "active",
+              count: row.count
+            };
+            group.projects.push(project);
+            group.active ||= project.active;
+          }
+          return [...groups.values()].sort((a, b) => a.org.localeCompare(b.org));
+        },
+        scopeFrontmatterActive(frontmatter) {
+          const orgs = fmVals(frontmatter, "org") || [];
+          const projects = fmVals(frontmatter, "projects") || [];
+          if (!orgs.length || !projects.length) return true;
+          const rules = scopeRules(plugin.app);
+          return orgs.some((org) => projects.some((project) => !scopeInactive(rules, org, project)));
+        },
+        async setScopeStatus(opts = {}) {
+          return setScopeStatus(plugin.app, opts);
+        },
+        // Create one task note after validating its active organization/project combination.
+        async createTask(opts = {}) {
+          const text = String(opts.text || "").replace(/\s+/g, " ").trim();
+          if (!text) throw new Error("text is required");
+          const rows = await scopeRows(plugin.app, { all: true, scopeNote: opts.scopeNote });
+          const row = rows.find((x) => x.org.toLowerCase() === String(opts.org || "").toLowerCase() && x.project.toLowerCase() === String(opts.project || "").toLowerCase());
+          if (!row) throw new Error(`unknown scope: ${opts.org || "?"} / ${opts.project || "?"}`);
+          if (row.status === "inactive") throw new Error(`inactive scope: ${row.org} / ${row.project}`);
+          const config = makeConfig({}, plugin);
+          const col = config.columns.find((x) => x.name.toLowerCase() === String(opts.col || "Backlog").toLowerCase());
+          if (!col) throw new Error("unknown col: " + opts.col);
+          let at = /* @__PURE__ */ new Date(), filePath;
+          for (let i = 0; i < 60; i++, at = new Date(at.getTime() + 6e4)) {
+            filePath = `${stampWrite(stampNow(at))}.md`;
+            if (!plugin.app.vault.getAbstractFileByPath(filePath)) break;
+          }
+          if (plugin.app.vault.getAbstractFileByPath(filePath)) throw new Error("no free daily-note timestamp");
+          const stamp = stampWrite(stampNow());
+          await plugin.app.vault.create(filePath, taskNote({ text, org: row.org, project: row.project, col: col.name, stamp }));
+          return `${filePath}	7	${row.org}	${row.project}	${col.name}	${text}`;
+        },
         // List available methods.
         help() {
           return "\n" + [
             "active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit,timestamps",
             "getDone(date,opts?)      tasks moved to terminal col on a date",
-            'note("file:line")        freeform notes under a task (prose to next task)',
+            'note("file:line")        freeform notes under a task (prose to next task or ---)',
             "getReport(...)           move timeline; day | from,to | {days:N}",
             "chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}",
             "summary(...)             done counts grouped by fm key; opts: by,col,sample,paths",
             '   note: active/getDone/getReport take opts.fm="projects,org" to append fm cols',
             "plate(project,opts?)     a project's live tasks (incl Backlog); opts: prop,col,paths,since,limit",
+            "board(opts?)             configured columns + tasks; opts: hours (24), full (Doing), paths",
+            "openTask(file,line)      open a task at its exact source line",
+            "scopes(opts?)            active org/project combinations; opts: all,query,scopeNote",
+            "scopeCatalog()           orgs with projects and inherited activity settings",
+            "setScopeStatus(opts)     set one organization or organization/project active state",
+            "createTask(opts)         create a validated task note; opts: text,org,project,col",
             "moveTask(file,line,col)  move a task to a column",
             "habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths",
             "toggle(name,opts?)       flip a habit idle<->Doing (start/stop logging); opts: paths",
@@ -3267,7 +3547,12 @@ var require_api = __commonJS({
             project = null;
           }
           const prop = opts.prop || "projects";
-          let rows = (await this.active({ col: opts.col, includePaused: true, limit: opts.limit })).split("\n").filter(Boolean);
+          let rows = (await this.active({
+            col: opts.col,
+            includePaused: true,
+            limit: opts.limit,
+            since: opts.since
+          })).split("\n").filter(Boolean);
           if (project) {
             const files = await fmFiles(plugin.app, opts.paths, opts.since, false);
             const set = new Set(files.filter((f) => {
@@ -3282,7 +3567,7 @@ var require_api = __commonJS({
         async moveTask(filePath, line, toCol) {
           const file = plugin.app.vault.getAbstractFileByPath(filePath);
           if (!file) throw new Error("file not found: " + filePath);
-          const config = makeConfig();
+          const config = makeConfig({}, plugin);
           const col = config.columns.find((c) => c.name.toLowerCase() === String(toCol).toLowerCase());
           if (!col) throw new Error("unknown col: " + toCol);
           await moveCard2(plugin.app, file, line, col, config, {});
@@ -3327,7 +3612,7 @@ var require_api = __commonJS({
         }
       };
     }
-    module2.exports = { buildApi: buildApi2 };
+    module2.exports = { buildApi: buildApi2, fileNameStamp, filterSince, scopeInactive, taskNote };
   }
 });
 
@@ -3343,6 +3628,7 @@ var require_settings = __commonJS({
         maxage: 7,
         sweep: "Doing > Parked",
         lanesort: "total-desc",
+        layout: "vertical",
         autoFold: false
       },
       ei: {
@@ -3423,6 +3709,10 @@ var require_settings = __commonJS({
         this.bind(new Setting(el).setName("Default paths").setDesc("Comma list of path prefixes to scan; empty = whole vault."), "kanban", "paths");
         this.bind(new Setting(el).setName("Max age (days)").setDesc("Hide terminal cards stamped older than this; 0 = show all."), "kanban", "maxage", { number: true });
         this.bind(new Setting(el).setName("Auto-fold empty columns").setDesc("Collapse empty columns by default."), "kanban", "autoFold");
+        new Setting(el).setName("Layout").setDesc("Stack columns vertically, or show them side by side.").addDropdown((d) => d.addOptions({ vertical: "Vertical", horizontal: "Horizontal" }).setValue(this.plugin.settings.kanban.layout === "horizontal" ? "horizontal" : "vertical").onChange(async (v) => {
+          this.plugin.settings.kanban.layout = v;
+          await this.plugin.saveSettings();
+        }));
         this.bind(new Setting(el).setName("Sweep").setDesc('One "From > To" route per line; each adds a bulk-move button on its From column. Empty disables.'), "kanban", "sweep", { area: true });
         new Setting(el).setName("Lane sort").setDesc("Default swimlane order.").addDropdown((d) => d.addOptions({
           "total-desc": "Total cards (most first)",
@@ -3459,6 +3749,7 @@ var require_settings = __commonJS({
         const multi = (key, text) => [`${key}:`, ...text.split(/[,\n]/).map((s) => s.trim()).filter(Boolean).map((s) => `  ${s}`)];
         const lines = multi("columns", k.columns);
         if (k.paths) lines.push(`paths: ${k.paths}`);
+        lines.push(`layout: ${k.layout === "horizontal" ? "horizontal" : "vertical"}`);
         lines.push(`maxage: ${k.maxage}`);
         lines.push(`auto-fold: ${k.autoFold}`);
         if (k.lanesort && k.lanesort !== "total-desc") lines.push(`lanesort: ${k.lanesort}`);
@@ -4525,10 +4816,11 @@ var require_kanban2 = __commonJS({
 // src/main.js
 var { Plugin, Notice, SuggestModal } = require("obsidian");
 var { renderBacklinksBlock, renderDailyBlock } = require_blocks();
-var { renderKanbanBlock, parseKanbanConfig, moveCard, TASK_RE, HIST_RE } = require_kanban();
+var { renderKanbanBlock, parseKanbanConfig, moveCard, TASK_RE, TASK_END_RE, HIST_RE } = require_kanban();
 var { renderEiBlock } = require_ei();
 var { renderReportBlock } = require_report();
 var { renderHabitsBlock, renderHabitPad } = require_habits();
+var { renderScopesBlock } = require_scopes();
 var { buildApi } = require_api();
 var { saveTemplateCommand } = require_templates();
 var { BdbSettingTab, mergeSettings } = require_settings();
@@ -4541,7 +4833,7 @@ var { KanbanView, KANBAN_VIEW_TYPE } = require_kanban2();
 function taskMeta(lines, line) {
   const histories = /* @__PURE__ */ new Set();
   let tag = (lines[line].match(/#kb\/([\w-]+)/) || [])[1];
-  for (let i = line + 1; i < lines.length && !TASK_RE.test(lines[i]); i++) {
+  for (let i = line + 1; i < lines.length && !TASK_END_RE.test(lines[i]); i++) {
     const history = lines[i].match(HIST_RE)?.[0];
     if (history) histories.add(history);
     tag ||= (lines[i].match(/#kb\/([\w-]+)/) || [])[1];
@@ -4649,6 +4941,9 @@ ${columns}`);
     });
     this.registerMarkdownCodeBlockProcessor("habit-pad", (src, el, ctx) => {
       return renderHabitPad(this, src, el, ctx);
+    });
+    this.registerMarkdownCodeBlockProcessor("scopes", (src, el, ctx) => {
+      return renderScopesBlock(this, src, el, ctx);
     });
     this.registerBasesView(CHRONICLE_VIEW_TYPE, {
       name: "Chronicle",

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum ObsidianCLIError: LocalizedError {
@@ -29,10 +30,33 @@ actor ObsidianCLI {
     return Self.parseTasks(output)
   }
 
+  func fetchTaskSections(hours: Int) throws -> [TaskSection] {
+    let output = try evaluate("kb.board({hours:\(hours),full:\"Doing\"})")
+    return Self.parseSections(output)
+  }
+
+  func fetchDoneTaskIDs() throws -> Set<String> {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyyMMdd"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    let output = try evaluate("kb.getDone(\(formatter.string(from: Date())))")
+    return Self.parseDoneTaskIDs(output)
+  }
+
   func move(_ task: DoingTask, to column: String) throws {
     let file = try Self.javaScriptString(task.file)
     let target = try Self.javaScriptString(column)
     _ = try evaluate("kb.moveTask(\(file),\(task.line),\(target))")
+  }
+
+  func open(_ task: DoingTask) throws {
+    let file = try Self.javaScriptString(task.file)
+    _ = try evaluate("kb.openTask(\(file),\(task.line))")
+    guard let obsidian = NSRunningApplication.runningApplications(
+      withBundleIdentifier: "md.obsidian"
+    ).first, obsidian.activate(options: [.activateAllWindows]) else {
+      throw ObsidianCLIError.commandFailed("Could not bring Obsidian to the foreground.")
+    }
   }
 
   static func parseTasks(_ output: String) -> [DoingTask] {
@@ -49,6 +73,28 @@ actor ObsidianCLI {
       ).trimmingCharacters(in: .whitespaces)
       return DoingTask(ref: fields[1], file: file, line: line, body: body, age: fields[3])
     }
+  }
+
+  static func parseSections(_ output: String) -> [TaskSection] {
+    let payload = output.range(of: "=>").map { String(output[$0.upperBound...]) } ?? output
+    var sections: [TaskSection] = []
+    for row in payload.split(whereSeparator: \Character.isNewline) {
+      let fields = row.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+      if fields.first == "@column", fields.count >= 2 {
+        sections.append(TaskSection(name: fields[1], tasks: []))
+      } else if let task = parseTasks(String(row)).first, !sections.isEmpty {
+        sections[sections.count - 1].tasks.append(task)
+      }
+    }
+    return sections
+  }
+
+  static func parseDoneTaskIDs(_ output: String) -> Set<String> {
+    let payload = output.range(of: "=>").map { String(output[$0.upperBound...]) } ?? output
+    return Set(payload.split(whereSeparator: \Character.isNewline).compactMap { row in
+      let fields = row.split(separator: "\t", omittingEmptySubsequences: false)
+      return fields.count >= 2 ? String(fields[1]) : nil
+    })
   }
 
   static func javaScriptString(_ value: String) throws -> String {
