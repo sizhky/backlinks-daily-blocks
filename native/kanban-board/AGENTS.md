@@ -20,6 +20,7 @@ Sources/KanbanBoard/   SwiftUI app
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
+  SettingsView.swift   Settings window (Cmd-,); Density (compact, comfortable) metrics
   Style.swift          Palette, StatusGlyph, Pill, FlowLayout, Monogram, OrgIcon, renderTitle
 Tests/KanbanCoreTests/ XCTest, millisecond-scale
 ```

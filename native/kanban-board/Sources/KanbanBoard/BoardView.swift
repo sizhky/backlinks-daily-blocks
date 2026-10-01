@@ -269,6 +269,7 @@ struct ColumnsScroller: View {
 
 struct ColumnView: View {
   @EnvironmentObject var store: BoardStore
+  @AppStorage(Density.key) private var density: Density = .compact
   let column: Column
   @State private var targeted = false
 
@@ -289,7 +290,7 @@ struct ColumnView: View {
       .padding(.horizontal, 8).padding(.top, 6)
       ScrollViewReader { proxy in
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: 8) {
+          LazyVStack(alignment: .leading, spacing: density.cardGap) {
             if column.cards.isEmpty {
               Text("No issues").font(.system(size: 12)).foregroundStyle(Palette.muted.opacity(0.6))
                 .frame(maxWidth: .infinity).padding(.top, 18)
@@ -312,7 +313,7 @@ struct ColumnView: View {
       }
     }
     .padding(4)
-    .frame(width: 316)
+    .frame(width: density.columnWidth)
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
     .dropDestination(for: String.self) { refs, _ in
@@ -353,6 +354,7 @@ struct CollapsedColumn: View {
 
 struct GroupHeader: View {
   @EnvironmentObject var store: BoardStore
+  @AppStorage(Density.key) private var density: Density = .compact
   let group: CardGroup
 
   var body: some View {
@@ -364,7 +366,7 @@ struct GroupHeader: View {
       if store.activeOrgs.count != 1, group.orgs.count == 1 { OrgIcon(name: group.orgs[0], size: 16).clipShape(.circle) }
     }
     .foregroundStyle(Palette.muted)
-    .padding(.horizontal, 6).padding(.top, 8)
+    .padding(.horizontal, 6).padding(.top, density.groupTop)
   }
 }
 
@@ -374,19 +376,20 @@ struct IssueCard: View {
   let card: Card
   var showOrg = true
   @State private var hovering = false
+  @AppStorage(Density.key) private var density: Density = .compact
 
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
   private var selected: Bool { store.selected == card.ref }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
+    VStack(alignment: .leading, spacing: density.cardInner) {
       HStack(alignment: .top, spacing: 8) {
         Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
-          .font(.system(size: 13, weight: .medium))
+          .font(.system(size: density.titleSize, weight: .medium))
           .foregroundStyle(Palette.text).tint(Palette.link)
           .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
         HStack(spacing: 6) {
-          Text(card.age).font(.system(size: 11.5).monospacedDigit()).foregroundStyle(stale ? Palette.amber : Palette.muted)
+          Text(card.age).font(.system(size: density.metaSize).monospacedDigit()).foregroundStyle(stale ? Palette.amber : Palette.muted)
           if showOrg, store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 14).clipShape(.circle) }
         }
         .padding(.top, 1.5)
@@ -400,10 +403,10 @@ struct IssueCard: View {
             .buttonStyle(.plain)
           }
         }
-        .font(.system(size: 11.5)).foregroundStyle(Palette.muted)
+        .font(.system(size: density.metaSize)).foregroundStyle(Palette.muted)
       }
     }
-    .padding(.horizontal, 11).padding(.vertical, 9)
+    .padding(.horizontal, density.cardPadH).padding(.vertical, density.cardPadV)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(hovering || selected ? Palette.cardHover : Palette.card, in: .rect(cornerRadius: 9))
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))
@@ -474,6 +477,7 @@ struct IssueRow: View {
   @EnvironmentObject var store: BoardStore
   let card: Card
   @State private var hovering = false
+  @AppStorage(Density.key) private var density: Density = .compact
 
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
   private var selected: Bool { store.selected == card.ref }
@@ -492,7 +496,7 @@ struct IssueRow: View {
       Text(card.age).font(.system(size: 12).monospacedDigit())
         .foregroundStyle(stale ? Palette.amber : Palette.muted).frame(width: 36, alignment: .trailing)
     }
-    .padding(.horizontal, 16).frame(height: 38)
+    .padding(.horizontal, 16).frame(height: density.rowHeight)
     .background(selected ? Palette.selected : (hovering ? Palette.hover : .clear))
     .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1) }
     .contentShape(Rectangle())

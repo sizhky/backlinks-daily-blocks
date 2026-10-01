@@ -45,5 +45,7 @@ struct KanbanBoardApp: App {
     }
     .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1500, height: 900)
+
+    Settings { SettingsView().preferredColorScheme(.dark) }
   }
 }
