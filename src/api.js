@@ -678,6 +678,7 @@ function buildApi(plugin) {
         'setScopeStatus(opts)     set one organization or organization/project active state',
         'createTask(opts)         create a validated task note; opts: text,org,project,col',
         'moveTask(file,line,col)  move a task to a column',
+        'moveTasks(refs,col)      move several file:line refs to a column',
         'sweep(from,to,refs?)     bulk-move a column (refs = file:line list)',
         'sweeps()                 sweep routes from settings: From<TAB>To',
         'habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths',
@@ -773,6 +774,22 @@ function buildApi(plugin) {
       if (!col) throw new Error('unknown col: ' + toCol);
       await moveCard(plugin.app, file, line, col, config, {});
       return `ok ${filePath}:${line} -> ${col.name}`;
+    },
+
+    // Move several "file:line" refs to one column. Same-file refs go bottom-up so
+    // each inserted history line cannot shift a ref still to move. Returns "ok <moved>".
+    async moveTasks(refs, toCol) {
+      const config = makeConfig({}, plugin);
+      const col = config.columns.find(c => c.name.toLowerCase() === String(toCol).toLowerCase());
+      if (!col) throw new Error('unknown col: ' + toCol);
+      const parsed = refs.map(r => { const i = r.lastIndexOf(':'); return { path: r.slice(0, i), line: +r.slice(i + 1) }; })
+        .sort((a, b) => a.path === b.path ? b.line - a.line : a.path.localeCompare(b.path));
+      let moved = 0;
+      for (const { path, line } of parsed) {
+        const file = plugin.app.vault.getAbstractFileByPath(path);
+        if (file && await moveCard(plugin.app, file, line, col, config, {})) moved++;
+      }
+      return `ok ${moved}`;
     },
 
     // Bulk-move a column, as the board's sweep button does. refs ("file:line")

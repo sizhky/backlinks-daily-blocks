@@ -44,6 +44,8 @@ final class BoardStore: ObservableObject {
     didSet { UserDefaults.standard.set(inspectorOpen, forKey: "kanban.inspector") }
   }
   @Published private(set) var selected: String?
+  /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
+  @Published var picked: Set<String> = []
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
@@ -88,8 +90,9 @@ final class BoardStore: ObservableObject {
       withAnimation(.spring(duration: 0.3)) { columnOrder = Ordering.moving(names, String(item.dropFirst(7)), onto: column.name) }
       return true
     }
-    items.forEach { move(ref: $0, to: column.name) }
-    return !items.isEmpty
+    let refs = DragPayload.decode(items)
+    move(refs: refs, to: column.name)
+    return !refs.isEmpty
   }
   /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
   func shiftColumn(_ column: Column, by step: Int) {
@@ -174,6 +177,7 @@ final class BoardStore: ObservableObject {
   func refresh() async {
     do {
       columns = try await client.board()
+      picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
       error = nil
     } catch {
       self.error = error.localizedDescription
@@ -181,19 +185,39 @@ final class BoardStore: ObservableObject {
     loaded = true
   }
 
-  func move(ref: String, to column: String) {
-    guard let card = columns.lazy.flatMap(\.cards).first(where: { $0.ref == ref }),
-      card.col.caseInsensitiveCompare(column) != .orderedSame else { return }
+  func move(ref: String, to column: String) { move(refs: [ref], to: column) }
+
+  func move(refs: [String], to column: String) {
+    let wanted = Set(refs)
+    let cards = columns.flatMap(\.cards).filter { wanted.contains($0.ref) && $0.col.caseInsensitiveCompare(column) != .orderedSame }
+    guard !cards.isEmpty else { return }
+    let moving = Set(cards.map(\.ref))
     withAnimation(.spring(duration: 0.38, bounce: 0.14)) {
       for i in columns.indices {
-        columns[i].cards.removeAll { $0.ref == ref }
-        if columns[i].name == column { columns[i].cards.insert(card.moved(to: column), at: 0) }
+        columns[i].cards.removeAll { moving.contains($0.ref) }
+        if columns[i].name == column { columns[i].cards.insert(contentsOf: cards.map { $0.moved(to: column) }, at: 0) }
       }
     }
+    picked.subtract(moving)
     Task {
-      do { try await client.move(card, to: column) } catch { self.error = error.localizedDescription }
+      do {
+        if cards.count == 1 { try await client.move(cards[0], to: column) } else { try await client.move(cards, to: column) }
+      } catch { self.error = error.localizedDescription }
       await refresh()
     }
+  }
+
+  func togglePick(_ ref: String) {
+    if picked.contains(ref) { picked.remove(ref) } else { picked.insert(ref) }
+  }
+  /// Picks every card shown on the board, or only `column`'s.
+  func pickAll(in column: Column? = nil) {
+    let cols = column.map { [$0] } ?? visible.filter { !isHidden($0) }
+    picked.formUnion(cols.flatMap(\.cards).map(\.ref))
+  }
+  /// What a card drag carries: the whole pick when the card is in it.
+  func dragPayload(for card: Card) -> String {
+    picked.contains(card.ref) ? DragPayload.encode(picked.sorted()) : card.ref
   }
 
   /// Sweeps the cards visible in `column` (current scope and filter) to `target`.

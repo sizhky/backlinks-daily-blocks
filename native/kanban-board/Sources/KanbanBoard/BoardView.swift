@@ -328,6 +328,7 @@ struct ColumnMenu: View {
     let names = store.visible.map(\.name)
     Menu {
       Button(store.isHidden(column) ? "Show column" : "Hide column") { store.setHidden(column, !store.isHidden(column)) }
+      Button("Select all in column") { store.pickAll(in: column) }.disabled(column.cards.isEmpty)
       Divider()
       Button("Move left") { store.shiftColumn(column, by: -1) }.disabled(names.first == column.name)
       Button("Move right") { store.shiftColumn(column, by: 1) }.disabled(names.last == column.name)
@@ -424,10 +425,18 @@ struct IssueCard: View {
 
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
   private var selected: Bool { store.selected == card.ref }
+  private var picked: Bool { store.picked.contains(card.ref) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: density.cardInner) {
       HStack(spacing: 6) {
+        if hovering || picked || !store.picked.isEmpty {
+          Button { store.togglePick(card.ref) } label: {
+            Image(systemName: picked ? "checkmark.square.fill" : "square")
+              .font(.system(size: 13)).foregroundStyle(picked ? Palette.indigo : Palette.muted)
+          }
+          .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
+        }
         Text(card.identifier).font(.system(size: density.metaSize)).foregroundStyle(Palette.muted)
         Spacer()
         if showOrg, store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
@@ -451,13 +460,15 @@ struct IssueCard: View {
     }
     .padding(.horizontal, density.cardPadH).padding(.vertical, density.cardPadV)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(hovering || selected ? Palette.cardHover : Palette.card, in: .rect(cornerRadius: 9))
-    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))
+    .background(picked ? Palette.indigo.opacity(0.14) : (hovering || selected ? Palette.cardHover : Palette.card), in: .rect(cornerRadius: 9))
+    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
-    .draggable(card.ref) { DragPreview(card: card) }
+    .draggable(store.dragPayload(for: card)) { DragPreview(card: card, count: picked ? store.picked.count : 1) }
     .onTapGesture(count: 2) { store.open(card) }
-    .onTapGesture { store.select(card.ref) }
+    .onTapGesture {
+      if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
+    }
     .contextMenu { CardMenu(card: card) }
     .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
   }
@@ -478,9 +489,10 @@ struct CardMenu: View {
 /// What follows the cursor while dragging: a lifted, slightly tilted card.
 struct DragPreview: View {
   let card: Card
+  var count = 1
 
   var body: some View {
-    Text(renderTitle(card.title)).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
+    Text(count > 1 ? AttributedString("\(count) issues") : renderTitle(card.title)).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
       .lineLimit(2).padding(.horizontal, 14).padding(.vertical, 10).frame(width: 260, alignment: .leading)
       .background(Palette.cardHover, in: .rect(cornerRadius: 10))
       .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairlineStrong))
@@ -544,7 +556,7 @@ struct IssueRow: View {
     .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1) }
     .contentShape(Rectangle())
     .onHover { hovering = $0 }
-    .draggable(card.ref) { DragPreview(card: card) }
+    .draggable(store.dragPayload(for: card)) { DragPreview(card: card, count: store.picked.contains(card.ref) ? store.picked.count : 1) }
     .onTapGesture(count: 2) { store.open(card) }
     .onTapGesture { store.select(card.ref) }
     .contextMenu { CardMenu(card: card) }

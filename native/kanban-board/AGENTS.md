@@ -74,6 +74,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Column order (`kanban.columnOrder`) and user-hidden columns (`kanban.hiddenColumns`) are by name.
   `store.visible` is already ordered. Hidden or empty columns render in `HiddenColumns` (right panel),
   each row a drop target; list mode skips hidden columns. Column options live in `ColumnMenu`.
+- Multi-select is `store.picked` (refs). A picked card drags `DragPayload.encode(picked)`; `store.drop`
+  decodes it. Several cards move in one `kb.moveTasks` call, never parallel `moveTask` calls,
+  because each move inserts a history line and shifts later line refs in the same file.
   Column headers drag a `column:Name` string; `store.drop` reorders on that prefix, else moves card refs.
 
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses

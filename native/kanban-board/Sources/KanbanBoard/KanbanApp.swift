@@ -55,6 +55,19 @@ struct KanbanBoardApp: App {
     .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1500, height: 900)
     .commands {
+      CommandGroup(replacing: .pasteboard) {
+        Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }.keyboardShortcut("x")
+        Button("Copy") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }.keyboardShortcut("c")
+        Button("Paste") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }.keyboardShortcut("v")
+        Divider()
+        // Text fields keep Cmd-A; elsewhere it picks every shown card.
+        Button("Select All") {
+          if NSApp.keyWindow?.firstResponder is NSText { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+          else { store.pickAll() }
+        }.keyboardShortcut("a")
+        Button("Deselect All") { store.picked.removeAll() }.keyboardShortcut("a", modifiers: [.command, .shift])
+          .disabled(store.picked.isEmpty)
+      }
       CommandGroup(after: .toolbar) {
         Button("Zoom In") { setZoom(zoom + 0.1) }.keyboardShortcut("+", modifiers: .command)
         Button("Zoom Out") { setZoom(zoom - 0.1) }.keyboardShortcut("-", modifiers: .command)

@@ -191,6 +191,10 @@ Example: `kb.board({hours:24,full:"Doing"})`
 `toCol` matched case-insensitively against column names. Throws on unknown file/col.
 Returns `ok file:line -> Col` on success.
 
+### `kb.moveTasks(refs, toCol)` — move several tasks to a column
+`refs` is an array of `file:line`. Same-file refs move bottom-up so line numbers stay valid.
+No open-children guard (same as `moveTask`). Returns `ok <moved>`.
+
 ### `kb.sweep(fromCol, toCol, refs?)` — bulk-move a column
 Same as the board's sweep button: same-file cards move bottom-up, and terminal
 targets skip cards with open children. `refs` (array of `file:line`) limits the

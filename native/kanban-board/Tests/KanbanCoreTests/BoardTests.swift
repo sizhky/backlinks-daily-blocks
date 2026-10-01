@@ -27,6 +27,10 @@ final class BoardTests: XCTestCase {
     XCTAssertEqual(cols[0].sweeps, [])
   }
 
+  func testDragPayloadRoundTrip() {
+    XCTAssertEqual(DragPayload.decode([DragPayload.encode(["a.md:3", "b.md:0"]), "c.md:1"]), ["a.md:3", "b.md:0", "c.md:1"])
+  }
+
   func testIdentifier() {
     let rows = "@column\tX\tlive\nX\t20260613-1844.md:0\tA\t1h\t\tObsidian Workflow\nX\t20260613-0946.md:3\tB\t1h\t\tVyasa"
     let cards = Board.parse(rows)[0].cards

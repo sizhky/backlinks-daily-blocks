@@ -114,3 +114,14 @@ public enum Board {
     return columns
   }
 }
+
+/// Drag payload for one or several card refs, one per line.
+/// ```
+/// DragPayload.decode(DragPayload.encode(["a.md:3", "b.md:0"])) -> ["a.md:3", "b.md:0"]
+/// ```
+public enum DragPayload {
+  public static func encode(_ refs: [String]) -> String { refs.joined(separator: "\n") }
+  public static func decode(_ items: [String]) -> [String] {
+    items.flatMap { $0.split(whereSeparator: \.isNewline).map(String.init) }
+  }
+}

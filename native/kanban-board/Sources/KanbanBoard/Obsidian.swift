@@ -43,6 +43,11 @@ struct ObsidianClient {
     _ = try await eval("kb.moveTask(\(try js(card.file)),\(card.line),\(try js(column)))")
   }
 
+  /// Moves several cards in one call (kb.moveTasks, bottom-up per file).
+  func move(_ cards: [Card], to column: String) async throws {
+    _ = try await eval("kb.moveTasks(\(try js(cards.map(\.ref))),\(try js(column)))")
+  }
+
   /// Bulk-moves these cards with the plugin's sweep (bottom-up, open-children guard).
   func sweep(_ cards: [Card], from: String, to: String) async throws {
     _ = try await eval("kb.sweep(\(try js(from)),\(try js(to)),\(try js(cards.map(\.ref))))")
