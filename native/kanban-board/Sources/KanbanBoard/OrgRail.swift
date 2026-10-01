@@ -1,14 +1,14 @@
 import KanbanCore
 import SwiftUI
 
-/// Slack-style workspace rail: one tile per org, "All" on top, Doing count as badge, ⌘1-9 to switch.
+/// Slack-style workspace rail: one tile per org, "All" on top, Doing count as badge, ⌘1 for all, ⌘2-9 for the orgs in order.
 struct OrgRail: View {
   @EnvironmentObject var store: BoardStore
 
   var body: some View {
     let orgs = store.orgs
     VStack(spacing: 10) {
-      tile(selected: store.activeOrgs.isEmpty, badge: 0, help: "All workspaces (⌘0)") {
+      tile(selected: store.activeOrgs.isEmpty, badge: 0, help: "All workspaces (⌘1)") {
         RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.1))
           .overlay(Image(systemName: "square.grid.2x2.fill").font(.system(size: 15)).foregroundStyle(Palette.text))
       } action: { _ in store.orgScope = [] }
@@ -17,9 +17,15 @@ struct OrgRail: View {
         VStack(spacing: 10) {
           ForEach(Array(orgs.enumerated()), id: \.element.name) { index, org in
             tile(selected: store.activeOrgs.contains(org.name), badge: store.doingCount(org: org.name),
-                 help: "\(org.name) (⌘\(index + 1)) · ⌘-click to add") {
+                 help: "\(org.name)\(index < 8 ? " (⌘\(index + 2))" : "") · ⌘-click to add · drag to reorder") {
               OrgIcon(name: org.name, size: 38)
             } action: { store.selectOrg(org.name, additive: $0) }
+            .draggable("org:" + org.name)
+            .dropDestination(for: String.self) { items, _ in
+              guard let item = items.first, item.hasPrefix("org:") else { return false }
+              store.moveOrg(String(item.dropFirst(4)), onto: org.name)
+              return true
+            }
           }
           if store.hasUnassigned {
             tile(selected: store.activeOrgs.contains(Filter.noOrg), badge: store.doingCount(org: Filter.noOrg),
@@ -39,10 +45,10 @@ struct OrgRail: View {
     .frame(width: 72)
     .background {
       Group {
-        Button("") { store.orgScope = [] }.keyboardShortcut("0", modifiers: .command)
-        ForEach(Array(orgs.prefix(9).enumerated()), id: \.element.name) { index, org in
+        Button("") { store.orgScope = [] }.keyboardShortcut("1", modifiers: .command)
+        ForEach(Array(orgs.prefix(8).enumerated()), id: \.element.name) { index, org in
           Button("") { store.orgScope = [org.name] }
-            .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            .keyboardShortcut(KeyEquivalent(Character("\(index + 2)")), modifiers: .command)
         }
       }
       .opacity(0).frame(width: 0, height: 0)

@@ -78,6 +78,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - A saved view stores `(query, orgs)`; legacy single `org` is read as a one-item list. Applying a view sets both.
 - Add a new filter key in two places: `Filter.test` and `Catalog.make`. The catalog drives autocomplete in
   the filter field (Tab or Return accepts) and in cmd-K; `view:Name` applies the view.
+- Rail order is `store.orgOrder` (persisted) applied by `Ordering.arranged`; drag a tile onto another to move it.
+  Cmd-1 selects all, Cmd-2 to Cmd-9 select the first eight orgs in rail order.
 - Sidebar and chip counts come from `store.visible`, so they match the board.
 - Optimistic moves update `columns` inside `withAnimation`, then call `kb`, then refresh.
 - Refresh runs every 6 s. Do not add a second polling loop.

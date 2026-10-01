@@ -66,3 +66,15 @@ final class CatalogTests: XCTestCase {
     XCTAssertEqual(Catalog.replacing("call vi", with: catalog.suggest("call vi")[0]), "call view:")
   }
 }
+
+final class OrderingTests: XCTestCase {
+  func testArrangedKeepsSavedThenNew() {
+    XCTAssertEqual(Ordering.arranged(["a", "b", "c"], saved: ["c", "x", "a"]), ["c", "a", "b"])
+  }
+
+  func testMovingDownAndUp() {
+    XCTAssertEqual(Ordering.moving(["a", "b", "c"], "a", onto: "c"), ["b", "c", "a"])
+    XCTAssertEqual(Ordering.moving(["a", "b", "c"], "c", onto: "a"), ["c", "a", "b"])
+    XCTAssertEqual(Ordering.moving(["a", "b"], "a", onto: "zz"), ["a", "b"])
+  }
+}

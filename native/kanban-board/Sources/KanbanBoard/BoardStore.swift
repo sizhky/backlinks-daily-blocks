@@ -27,6 +27,9 @@ final class BoardStore: ObservableObject {
     ?? UserDefaults.standard.string(forKey: "kanban.org").map { [$0] } ?? [] {
     didSet { UserDefaults.standard.set(orgScope, forKey: "kanban.orgs") }
   }
+  @Published var orgOrder: [String] = UserDefaults.standard.stringArray(forKey: "kanban.orgOrder") ?? [] {
+    didSet { UserDefaults.standard.set(orgOrder, forKey: "kanban.orgOrder") }
+  }
   @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
     didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
   }
@@ -66,7 +69,16 @@ final class BoardStore: ObservableObject {
   var scoped: [Column] { Filter.scope(columns, orgs: activeOrgs) }
   var visible: [Column] { Filter.apply(scoped, Query.parse(query)) }
   var total: Int { scoped.reduce(0) { $0 + $1.cards.count } }
-  var orgs: [(name: String, count: Int)] { counts(in: columns, \.orgs) }
+  /// Rail order: the user's arrangement first, then new orgs by frequency.
+  var orgs: [(name: String, count: Int)] {
+    let found = counts(in: columns, \.orgs)
+    let order = Ordering.arranged(found.map(\.name), saved: orgOrder)
+    return order.compactMap { name in found.first { $0.name == name } }
+  }
+
+  func moveOrg(_ name: String, onto target: String) {
+    withAnimation(.spring(duration: 0.3)) { orgOrder = Ordering.moving(orgs.map(\.name), name, onto: target) }
+  }
   var shown: Int { visible.reduce(0) { $0 + $1.cards.count } }
 
   /// Counts of a card field over non-done columns, most frequent first.

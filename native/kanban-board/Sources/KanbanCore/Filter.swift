@@ -107,6 +107,27 @@ public enum Filter {
   }
 }
 
+public enum Ordering {
+  /// `names` in the `saved` order; names not saved keep their own order after the saved ones.
+  /// ```
+  /// arranged(["a","b","c"], saved: ["c","x","a"]) -> ["c","a","b"]
+  /// ```
+  public static func arranged(_ names: [String], saved: [String]) -> [String] {
+    saved.filter(names.contains) + names.filter { !saved.contains($0) }
+  }
+
+  /// Moves `name` to the slot of `target`: after it when moving down, before it when moving up.
+  /// ```
+  /// moving(["a","b","c"], "a", onto: "c") -> ["b","c","a"]
+  /// ```
+  public static func moving(_ names: [String], _ name: String, onto target: String) -> [String] {
+    guard name != target, let from = names.firstIndex(of: name), let to = names.firstIndex(of: target) else { return names }
+    var out = names
+    out.insert(out.remove(at: from), at: to)
+    return out
+  }
+}
+
 /// A saved view: a query plus the workspaces it covers (empty = all workspaces, "" = no org).
 public struct SavedFilter: Codable, Identifiable, Equatable, Sendable {
   public var id = UUID()
