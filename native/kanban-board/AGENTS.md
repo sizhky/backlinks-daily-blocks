@@ -78,8 +78,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - A saved view stores `(query, orgs)`; legacy single `org` is read as a one-item list. Applying a view sets both.
 - Add a new filter key in two places: `Filter.test` and `Catalog.make`. The catalog drives autocomplete in
   the filter field (Tab or Return accepts) and in cmd-K; `view:Name` applies the view.
-- Board columns with no visible cards render as `CollapsedColumn` strips pinned to the right edge,
-  outside the horizontal scroller; they stay drop targets. Sidebar Projects and Labels hide zero-count
+- Board columns with no visible cards render as `CollapsedColumn` strips right after the last
+  filled column, inside the horizontal scroller; they stay drop targets. Sidebar Projects and Labels hide zero-count
   rows behind a "Show N empty" row. Card IDs show only on hover or selection.
 - Rail order is `store.orgOrder` (persisted) applied by `Ordering.arranged`; drag a tile onto another to move it.
   Cmd-1 selects all, Cmd-2 to Cmd-9 select the first eight orgs in rail order.

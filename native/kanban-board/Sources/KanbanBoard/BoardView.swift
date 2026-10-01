@@ -225,23 +225,15 @@ struct ColumnsScroller: View {
   private let zone: CGFloat = 150
 
   var body: some View {
-    HStack(alignment: .top, spacing: 0) {
-      scroller
-      let empty = store.visible.filter(\.cards.isEmpty)
-      if !empty.isEmpty {
-        HStack(alignment: .top, spacing: 6) { ForEach(empty) { CollapsedColumn(column: $0) } }
-          .padding(.trailing, 14).padding(.leading, 4)
-      }
-    }
-    .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map(\.cards.isEmpty))
-  }
-
-  private var scroller: some View {
     GeometryReader { geo in
       ScrollView(.horizontal) {
         HStack(alignment: .top, spacing: 10) {
           ForEach(store.visible.filter { !$0.cards.isEmpty }) { ColumnView(column: $0) }
+          HStack(alignment: .top, spacing: 6) {
+            ForEach(store.visible.filter(\.cards.isEmpty)) { CollapsedColumn(column: $0) }
+          }
         }
+        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map(\.cards.isEmpty))
         .scrollTargetLayout()
         .frame(height: geo.size.height)
         .padding(.horizontal, 14)
