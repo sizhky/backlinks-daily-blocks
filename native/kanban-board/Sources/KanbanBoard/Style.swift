@@ -42,15 +42,17 @@ func nameHue(_ name: String?) -> Double {
   Double((name ?? "").unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
 }
 
-/// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials.
+/// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials;
+/// one letter is square, more letters widen the tile.
 struct Monogram: View {
   let name: String?
   var size: CGFloat = 16
+  var maxLetters = 3
 
   private var letters: String {
     guard let name else { return "·" }
     let initials = Card.initials(name)
-    return initials.isEmpty ? String(name.prefix(1)) : initials
+    return String((initials.isEmpty ? String(name.prefix(1)) : initials).prefix(maxLetters))
   }
 
   private var fill: AnyShapeStyle {
@@ -63,16 +65,13 @@ struct Monogram: View {
   }
 
   var body: some View {
-    RoundedRectangle(cornerRadius: size * 0.28)
-      .fill(fill)
+    Text(letters)
+      .font(.system(size: size * 0.55, weight: .bold)).tracking(0.2)
+      .foregroundStyle(.white.opacity(0.95)).lineLimit(1).fixedSize()
+      .padding(.horizontal, letters.count > 1 ? size * 0.22 : 0)
+      .frame(minWidth: size, minHeight: size, maxHeight: size)
+      .background(fill, in: .rect(cornerRadius: size * 0.28))
       .overlay(RoundedRectangle(cornerRadius: size * 0.28).strokeBorder(.white.opacity(0.12)))
-      .frame(width: size, height: size)
-      .overlay {
-        Text(letters)
-          .font(.system(size: size * [0.58, 0.58, 0.47, 0.4][min(3, letters.count)], weight: .bold))
-          .fontWidth(letters.count > 2 ? .condensed : .standard).tracking(-0.2)
-          .foregroundStyle(.white.opacity(0.95)).lineLimit(1).minimumScaleFactor(0.6)
-      }
   }
 }
 
@@ -102,7 +101,7 @@ struct OrgIcon: View {
       Image(nsImage: logo).resizable().scaledToFill().frame(width: size, height: size).clipped()
         .background(Color.white)
     } else {
-      Monogram(name: name, size: size)
+      Monogram(name: name, size: size, maxLetters: 1)
     }
   }
 }
