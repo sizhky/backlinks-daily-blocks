@@ -1,0 +1,95 @@
+import Foundation
+
+public enum Age {
+  /// "30m" -> 0.5, "2d" -> 48; nil when unparseable.
+  public static func hours(_ s: String) -> Double? {
+    guard let unit = s.last, let n = Double(s.dropLast()) else { return nil }
+    switch unit {
+    case "m": return n / 60
+    case "h": return n
+    case "d": return n * 24
+    case "w": return n * 168
+    default: return nil
+    }
+  }
+}
+
+public enum Filter {
+  /// Every term must hold; a negated term must fail.
+  public static func matches(_ card: Card, _ terms: [QueryTerm]) -> Bool {
+    terms.allSatisfy { $0.negated != test(card, $0) }
+  }
+
+  public static func apply(_ columns: [Column], _ terms: [QueryTerm]) -> [Column] {
+    guard !terms.isEmpty else { return columns }
+    return columns.map { var c = $0; c.cards = c.cards.filter { matches($0, terms) }; return c }
+  }
+
+  /// Scope value that selects cards with no org.
+  public static let noOrg = ""
+
+  /// Keeps only cards whose org list contains `org` exactly (case-insensitive); nil keeps all;
+  /// `noOrg` keeps cards with no org.
+  public static func scope(_ columns: [Column], org: String?) -> [Column] {
+    guard let org else { return columns }
+    let keep: (Card) -> Bool = org == noOrg
+      ? { $0.orgs.isEmpty }
+      : { $0.orgs.contains { $0.caseInsensitiveCompare(org) == .orderedSame } }
+    return columns.map { var c = $0; c.cards = c.cards.filter(keep); return c }
+  }
+
+  static func test(_ c: Card, _ t: QueryTerm) -> Bool {
+    let v = t.value.lowercased()
+    let any: ([String]) -> Bool = { $0.contains { $0.lowercased().contains(v) } }
+    switch t.key {
+    case nil: return c.title.lowercased().contains(v) || any(c.tags)
+    case "col", "status", "in": return v.split(separator: ",").contains { c.col.lowercased() == $0 }
+    case "tag", "t": return c.tags.contains { bare($0).hasPrefix(bare(v)) }
+    case "project", "proj", "p": return any(c.projects)
+    case "org", "o": return any(c.orgs)
+    case "age": return compareAge(c, v)
+    case "stale": return compareAge(c, ">=" + v)
+    case "has": return present(c, v)
+    case "no": return !present(c, v)
+    default: return c.title.lowercased().contains("\(t.key ?? ""):\(v)")
+    }
+  }
+
+  static func bare(_ s: String) -> String { s.lowercased().hasPrefix("#") ? String(s.dropFirst()).lowercased() : s.lowercased() }
+
+  static func present(_ c: Card, _ field: String) -> Bool {
+    switch field {
+    case "project": return !c.projects.isEmpty
+    case "org": return !c.orgs.isEmpty
+    case "tag": return !c.tags.isEmpty
+    default: return false
+    }
+  }
+
+  /// `>3d`, `<2h`, `>=1w`, `<=5m`; a bare duration means `>=`.
+  static func compareAge(_ c: Card, _ v: String) -> Bool {
+    var rest = Substring(v), op = ">="
+    for p in [">=", "<=", ">", "<"] where rest.hasPrefix(p) { op = p; rest = rest.dropFirst(p.count); break }
+    guard let limit = Age.hours(String(rest)), let a = c.ageHours else { return false }
+    switch op {
+    case ">": return a > limit
+    case "<": return a < limit
+    case "<=": return a <= limit
+    default: return a >= limit
+    }
+  }
+}
+
+public struct SavedFilter: Codable, Identifiable, Equatable, Sendable {
+  public var id = UUID()
+  public var name: String
+  public var query: String
+  public init(name: String, query: String) { self.name = name; self.query = query }
+
+  public static let defaults = [
+    SavedFilter(name: "Doing", query: "col:Doing"),
+    SavedFilter(name: "Active", query: "-col:done,cancelled,backlog"),
+    SavedFilter(name: "Stale 7d+", query: "stale:7d -col:done,cancelled"),
+    SavedFilter(name: "No project", query: "no:project"),
+  ]
+}
