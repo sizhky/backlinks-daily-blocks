@@ -71,6 +71,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 
 ## Invariants
 
+- Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
+  key `+`, which needs Shift, so a hidden Cmd-= button does the same zoom in. Cmd-0 resets to 1.
+
 - Workspace scope is separate from the query: `store.orgScope` (a list) filters first,
   `store.query` second. Empty = all workspaces; `""` (`Filter.noOrg`) in the list = cards with no org.
   Use `store.activeOrgs`, which drops orgs that no longer exist. Rail click selects one,
