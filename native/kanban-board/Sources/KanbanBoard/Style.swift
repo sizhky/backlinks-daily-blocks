@@ -42,8 +42,8 @@ func nameHue(_ name: String?) -> Double {
   Double((name ?? "").unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
 }
 
-/// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials;
-/// one letter is square, more letters widen the tile.
+/// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials,
+/// in a pill as wide as `maxLetters` letters so rows stay aligned; shorter initials sit centred.
 struct Monogram: View {
   let name: String?
   var size: CGFloat = 16
@@ -65,13 +65,15 @@ struct Monogram: View {
   }
 
   var body: some View {
-    Text(letters)
-      .font(.system(size: size * 0.55, weight: .bold)).tracking(0.2)
-      .foregroundStyle(.white.opacity(0.95)).lineLimit(1).fixedSize()
-      .padding(.horizontal, letters.count > 1 ? size * 0.22 : 0)
-      .frame(minWidth: size, minHeight: size, maxHeight: size)
-      .background(fill, in: .rect(cornerRadius: size * 0.28))
-      .overlay(RoundedRectangle(cornerRadius: size * 0.28).strokeBorder(.white.opacity(0.12)))
+    ZStack {
+      Text(String(repeating: "H", count: maxLetters)).hidden()
+      Text(letters).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(.white.opacity(0.95))
+    }
+    .font(.system(size: size * 0.55, weight: .bold)).tracking(0.2)
+    .padding(.horizontal, maxLetters > 1 ? size * 0.3 : 0)
+    .frame(minWidth: size, minHeight: size, maxHeight: size)
+    .background(fill, in: .capsule)
+    .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
   }
 }
 

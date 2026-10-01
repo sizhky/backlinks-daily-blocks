@@ -85,7 +85,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   When grouped, a single-org group shows its org on the `GroupHeader` (`CardGroup.orgs`) and its
   cards hide theirs; mixed-org groups keep the avatar per card. The board always groups by project; there is no toggle.
 - `Monogram` shows `Card.initials` (first letter of up to three words) on a two-hue gradient
-  hashed from the name; the tile is square for one letter and widens with more; `Card.identifier` reuses `Card.initials` for multi-word names.
+  hashed from the name; every project pill is as wide as three letters (alignment), shorter initials centred; `Card.identifier` reuses `Card.initials` for multi-word names.
 - Rail order is `store.orgOrder` (persisted) applied by `Ordering.arranged`; drag a tile onto another to move it.
   Cmd-1 selects all, Cmd-2 to Cmd-9 select the first eight orgs in rail order.
 - Sidebar and chip counts come from `store.visible`, so they match the board.
