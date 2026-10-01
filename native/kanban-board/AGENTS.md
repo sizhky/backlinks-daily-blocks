@@ -79,6 +79,23 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Optimistic moves update `columns` inside `withAnimation`, then call `kb`, then refresh.
 - Refresh runs every 6 s. Do not add a second polling loop.
 
+## Think Apple
+
+Before building or wording any UI, ask what Apple would do and do that.
+
+- Use the system's own control, behaviour, or SF Symbol before inventing one. Match macOS conventions
+  for menus, popovers, sheets, focus rings, key equivalents, and context menus.
+- The interface explains itself through structure and state, not through instructions on screen.
+  Remove any label that explains how to use a control.
+- Fewer words, sentence case, no jargon, no punctuation for effect. Name things by what the user
+  sees, not by how the code works.
+- Defaults are right for most people. Add a setting only when the default cannot be right.
+- Every state is designed: empty, loading, error, hover, pressed, selected, disabled, dragging.
+- Motion is short, springy, and explains a change (a card moving to a column). It never decorates.
+- Respect accessibility: sufficient contrast, full keyboard use, VoiceOver labels via `.help` and
+  `.accessibilityLabel` on icon-only buttons.
+- When Linear's look and Apple's behaviour disagree, keep Linear's look and Apple's behaviour.
+
 ## Design rules (Linear clone, by request)
 
 - Flat near-black. Window `#08090a`, main sheet `#0f1011`, 1 pt hairline borders, no shadows on content.
