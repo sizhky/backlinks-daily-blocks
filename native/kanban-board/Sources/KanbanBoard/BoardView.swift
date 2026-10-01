@@ -139,6 +139,12 @@ struct BoardHeader: View {
       Image(systemName: "line.3.horizontal.decrease").font(.system(size: 11)).foregroundStyle(Palette.muted)
       TextField("Filter", text: $store.query)
         .textFieldStyle(.plain).font(.system(size: 12.5)).focused($focused)
+        .foregroundStyle(focused || terms.isEmpty ? Palette.text : .clear)
+        .overlay(alignment: .leading) {
+          if !focused && !terms.isEmpty {
+            Text("Filter").font(.system(size: 12.5)).foregroundStyle(Palette.muted).allowsHitTesting(false)
+          }
+        }
         .onKeyPress(.escape) { focused = false; return .handled }
         .onKeyPress(.downArrow) { guard !shown.isEmpty else { return .ignored }; store.pick = min(shown.count - 1, store.pick + 1); return .handled }
         .onKeyPress(.upArrow) { guard !shown.isEmpty else { return .ignored }; store.pick = max(0, store.pick - 1); return .handled }
@@ -219,10 +225,22 @@ struct ColumnsScroller: View {
   private let zone: CGFloat = 150
 
   var body: some View {
+    HStack(alignment: .top, spacing: 0) {
+      scroller
+      let empty = store.visible.filter(\.cards.isEmpty)
+      if !empty.isEmpty {
+        HStack(alignment: .top, spacing: 6) { ForEach(empty) { CollapsedColumn(column: $0) } }
+          .padding(.trailing, 14).padding(.leading, 4)
+      }
+    }
+    .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map(\.cards.isEmpty))
+  }
+
+  private var scroller: some View {
     GeometryReader { geo in
       ScrollView(.horizontal) {
         HStack(alignment: .top, spacing: 10) {
-          ForEach(store.visible) { ColumnView(column: $0) }
+          ForEach(store.visible.filter { !$0.cards.isEmpty }) { ColumnView(column: $0) }
         }
         .scrollTargetLayout()
         .frame(height: geo.size.height)
@@ -309,6 +327,35 @@ struct ColumnView: View {
   }
 }
 
+/// Empty column as a narrow strip pinned to the right edge; still a drop target.
+struct CollapsedColumn: View {
+  @EnvironmentObject var store: BoardStore
+  let column: Column
+  @State private var targeted = false
+
+  var body: some View {
+    VStack(spacing: 10) {
+      StatusGlyph(column: column.name, size: 14)
+      Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.secondary)
+        .fixedSize().rotationEffect(.degrees(90)).frame(width: 18, height: 80)
+      Text("0").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
+      Spacer()
+    }
+    .padding(.top, 10)
+    .frame(width: 40)
+    .frame(maxHeight: .infinity)
+    .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
+    .padding(.vertical, 4)
+    .help("\(column.name): no issues")
+    .accessibilityElement(children: .combine)
+    .dropDestination(for: String.self) { refs, _ in
+      refs.forEach { store.move(ref: $0, to: column.name) }
+      return !refs.isEmpty
+    } isTargeted: { targeted = $0 }
+  }
+}
+
 struct GroupHeader: View {
   let group: CardGroup
 
@@ -324,7 +371,7 @@ struct GroupHeader: View {
   }
 }
 
-/// Board card: id and org avatar on top, title, then property pills.
+/// Board card: title, then one muted line of project, labels, id (on hover), age and org.
 struct IssueCard: View {
   @EnvironmentObject var store: BoardStore
   let card: Card
@@ -334,30 +381,29 @@ struct IssueCard: View {
   private var selected: Bool { store.selected == card.ref }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 9) {
-      HStack {
-        Text(card.identifier).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted)
-        Spacer()
-        if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
-      }
+    VStack(alignment: .leading, spacing: 6) {
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
-        .font(.system(size: 13.5, weight: .medium)).tracking(-0.1)
+        .font(.system(size: 13, weight: .medium))
         .foregroundStyle(Palette.text).tint(Palette.link)
         .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
-      FlowLayout(spacing: 5) {
+      HStack(spacing: 8) {
         if !store.grouped, let project = card.projects.first {
-          Pill(text: project) { Monogram(name: project, size: 13) }
+          HStack(spacing: 5) { Monogram(name: project, size: 12); Text(project).lineLimit(1) }
         }
-        ForEach(card.tags.prefix(3), id: \.self) { tag in
-          Button { store.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
-            .buttonStyle(.plain)
+        ForEach(card.tags.prefix(2), id: \.self) { tag in
+          Button { store.append("tag:" + tag.dropFirst()) } label: {
+            HStack(spacing: 4) { labelDot(tag); Text(String(tag.dropFirst())).lineLimit(1) }
+          }
+          .buttonStyle(.plain)
         }
-        Pill(text: card.age, color: stale ? Palette.amber : Palette.muted) {
-          Image(systemName: "clock").font(.system(size: 9.5))
-        }
+        Spacer(minLength: 4)
+        if hovering || selected { Text(card.identifier).font(.system(size: 11, design: .monospaced)) }
+        Text(card.age).monospacedDigit().foregroundStyle(stale ? Palette.amber : Palette.muted)
+        if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 14).clipShape(.circle) }
       }
+      .font(.system(size: 11.5)).foregroundStyle(Palette.muted)
     }
-    .padding(12)
+    .padding(.horizontal, 11).padding(.vertical, 9)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(hovering || selected ? Palette.cardHover : Palette.card, in: .rect(cornerRadius: 9))
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))

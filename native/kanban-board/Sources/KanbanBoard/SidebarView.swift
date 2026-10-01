@@ -5,6 +5,7 @@ import SwiftUI
 struct SidebarView: View {
   @EnvironmentObject var store: BoardStore
   @State private var collapsed: Set<String> = []
+  @State private var expanded: Set<String> = []
 
   var body: some View {
     ScrollView {
@@ -32,23 +33,40 @@ struct SidebarView: View {
           }
         }
         section("Projects") {
-          ForEach(store.facets(\.projects), id: \.name) { f in
+          ForEach(nonEmpty(store.facets(\.projects), "Projects"), id: \.name) { f in
             item(f.name, leading: AnyView(Monogram(name: f.name, size: 16)), active: false, count: f.count) {
               store.append("project:" + store.quote(f.name))
             }
           }
+          showAll(store.facets(\.projects), "Projects")
         }
         section("Labels") {
-          ForEach(store.facets(\.tags).prefix(15), id: \.name) { f in
+          ForEach(nonEmpty(Array(store.facets(\.tags).prefix(15)), "Labels"), id: \.name) { f in
             item(String(f.name.dropFirst()), leading: AnyView(labelDot(f.name).frame(width: 16)), active: false, count: f.count) {
               store.append("tag:" + f.name.dropFirst())
             }
           }
+          showAll(Array(store.facets(\.tags).prefix(15)), "Labels")
         }
       }
       .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 16)
     }
     .scrollIndicators(.never)
+  }
+
+  /// Rows with a zero count stay hidden until the section is expanded.
+  private func nonEmpty(_ facets: [(name: String, count: Int)], _ section: String) -> [(name: String, count: Int)] {
+    expanded.contains(section) ? facets : facets.filter { $0.count > 0 }
+  }
+
+  @ViewBuilder private func showAll(_ facets: [(name: String, count: Int)], _ section: String) -> some View {
+    let hidden = facets.filter { $0.count == 0 }.count
+    if hidden > 0 {
+      let open = expanded.contains(section)
+      item(open ? "Hide empty" : "Show \(hidden) empty", icon: open ? "chevron.up" : "ellipsis", active: false, count: nil) {
+        if open { expanded.remove(section) } else { expanded.insert(section) }
+      }
+    }
   }
 
   private var title: String {
