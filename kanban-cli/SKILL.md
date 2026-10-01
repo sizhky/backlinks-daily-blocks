@@ -191,6 +191,14 @@ Example: `kb.board({hours:24,full:"Doing"})`
 `toCol` matched case-insensitively against column names. Throws on unknown file/col.
 Returns `ok file:line -> Col` on success.
 
+### `kb.sweep(fromCol, toCol, refs?)` — bulk-move a column
+Same as the board's sweep button: same-file cards move bottom-up, and terminal
+targets skip cards with open children. `refs` (array of `file:line`) limits the
+sweep to those cards; omit it to sweep the whole column. Returns `ok <moved> <blocked>`.
+
+### `kb.sweeps()` — sweep routes from settings
+Tab lines `From<TAB>To`, one per configured route (settings `kanban.sweep`).
+
 ### `kb.openTask(filePath, line)` — open a task in Obsidian
 Opens the source note, moves the editor cursor to the task line, and scrolls it into view.
 Returns `ok opened file:line`.

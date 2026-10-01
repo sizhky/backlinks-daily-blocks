@@ -20,6 +20,13 @@ final class BoardTests: XCTestCase {
     XCTAssertEqual(Board.parse("=> @column\tBacklog\tlive\nBacklog\ta.md:1\tX\t1h\t\t").first?.cards.count, 1)
   }
 
+  func testSweepRowsAttachToFromColumn() {
+    let cols = Board.parse(output + "\n@sweep\tdoing\tParked\n@sweep\tDoing\tDone\n@sweep\tNope\tDone")
+    XCTAssertEqual(cols[1].sweeps, ["Parked", "Done"])
+    XCTAssertEqual(cols[1].cards.count, 1)
+    XCTAssertEqual(cols[0].sweeps, [])
+  }
+
   func testIdentifier() {
     let rows = "@column\tX\tlive\nX\t20260613-1844.md:0\tA\t1h\t\tObsidian Workflow\nX\t20260613-0946.md:3\tB\t1h\t\tVyasa"
     let cards = Board.parse(rows)[0].cards

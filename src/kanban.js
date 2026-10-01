@@ -494,6 +494,7 @@ async function sweepColumn(app, config, fromCol, toCol, colCards) {
     if (await moveCard(app, card.file, card.line, toCol, config, { fromCol })) moved++;
   }
   new Notice(`kanban: swept ${moved} to ${toCol.name}${blocked ? `, ${blocked} blocked` : ''}`);
+  return { moved, blocked };
 }
 
 // Rewrite one task line for its new column. Verifies the line is still a task.
@@ -1252,7 +1253,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 }
 
 module.exports = {
-  parseKanbanConfig, scanKanbanTasks, moveCard, logTapSpan, renderKanbanBlock, drawBoard,
+  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
   taskColumn,
   openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, TASK_END_RE, STAMP_RE,

@@ -84,11 +84,14 @@ public struct Column: Identifiable, Equatable, Sendable {
   public let name: String
   public let done: Bool
   public var cards: [Card]
+  /// Target column names of the plugin's sweep routes from this column.
+  public var sweeps: [String] = []
   public var id: String { name }
 }
 
 public enum Board {
   /// Parses the `@column<TAB>Name<TAB>live|done` + card-row output of the board script.
+  /// `@sweep<TAB>From<TAB>To` rows add To to the From column's `sweeps`.
   /// ```
   /// "=> \n@column\tDoing\tlive\nDoing\ta.md:3\tWrite #x\t2h\tOrg\tProj"
   ///   -> [Column(Doing, [Card(title: "Write", tags: ["#x"], projects: ["Proj"])])]
@@ -99,7 +102,10 @@ public enum Board {
     var columns: [Column] = []
     for row in payload.split(whereSeparator: \.isNewline) {
       let f = row.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-      if f.first == "@column", f.count >= 2 {
+      if f.first == "@sweep", f.count >= 3 {
+        columns.firstIndex { $0.name.caseInsensitiveCompare(f[1]) == .orderedSame }
+          .map { columns[$0].sweeps.append(f[2]) }
+      } else if f.first == "@column", f.count >= 2 {
         columns.append(Column(name: f[1], done: f.count > 2 && f[2] == "done", cards: []))
       } else if !columns.isEmpty, let card = Card(fields: f) {
         columns[columns.count - 1].cards.append(card)

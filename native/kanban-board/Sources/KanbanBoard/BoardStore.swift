@@ -164,6 +164,15 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  /// Sweeps the cards visible in `column` (current scope and filter) to `target`.
+  func sweep(_ column: Column, to target: String) {
+    guard !column.cards.isEmpty else { return }
+    Task {
+      do { try await client.sweep(column.cards, from: column.name, to: target) } catch { self.error = error.localizedDescription }
+      await refresh()
+    }
+  }
+
   func open(_ card: Card) {
     Task { do { try await client.open(card) } catch { self.error = error.localizedDescription } }
   }

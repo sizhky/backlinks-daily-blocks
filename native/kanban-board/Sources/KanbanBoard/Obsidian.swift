@@ -27,6 +27,7 @@ struct ObsidianClient {
     for(const c of (d.term?brd:act).filter(c=>c[0].toLowerCase()===d.name.toLowerCase())){
     const f=app.metadataCache.getCache(c[1].replace(/:\d+$/,""))?.frontmatter;
     out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects")].join("\t"));}}
+    for(const r of kb.sweeps().split("\n").filter(Boolean))out.push("@sweep\t"+r);
     return out.join("\n")})()
     """#.replacingOccurrences(of: "\n", with: " ")
   }
@@ -42,6 +43,11 @@ struct ObsidianClient {
     _ = try await eval("kb.moveTask(\(try js(card.file)),\(card.line),\(try js(column)))")
   }
 
+  /// Bulk-moves these cards with the plugin's sweep (bottom-up, open-children guard).
+  func sweep(_ cards: [Card], from: String, to: String) async throws {
+    _ = try await eval("kb.sweep(\(try js(from)),\(try js(to)),\(try js(cards.map(\.ref))))")
+  }
+
   /// Freeform prose under a task (kb.note), without the CLI's `=>` prefix.
   func note(_ card: Card) async throws -> String {
     let out = try await eval("kb.note(\(try js(card.ref)))").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,7 +60,7 @@ struct ObsidianClient {
       .activate(options: [.activateAllWindows])
   }
 
-  private func js(_ s: String) throws -> String {
+  private func js(_ s: some Encodable) throws -> String {
     String(decoding: try JSONEncoder().encode(s), as: UTF8.self)
   }
 

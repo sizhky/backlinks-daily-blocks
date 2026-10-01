@@ -61,6 +61,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - The CLI prefixes output with `=> `. `Board.parse` must strip it and the space after it, or the
   first column is silently dropped (this happened; a test covers it).
 - `ref` = `file:line` is the card id. Moves call `kb.moveTask(file, line, column)`.
+- The board script ends with `@sweep<TAB>From<TAB>To` rows from `kb.sweeps()`. Each becomes a
+  header button on From that calls `kb.sweep(from, to, refs)` with the column's visible cards only.
 - Created time is parsed from the note file name `YYYYMMDD-HHmm`. There is no created field.
 - Vault name for `obsidian://` links is `Vault` (`Style.swift`). Org logos:
   `~/Vault/40-49 Areas/43 Orgs/<Org>/Logo.<ext>`, folder name equals the org name.

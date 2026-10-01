@@ -1049,6 +1049,7 @@ var require_kanban = __commonJS({
         if (await moveCard2(app2, card.file, card.line, toCol, config, { fromCol })) moved++;
       }
       new Notice2(`kanban: swept ${moved} to ${toCol.name}${blocked ? `, ${blocked} blocked` : ""}`);
+      return { moved, blocked };
     }
     async function moveCard2(app2, file, line, targetCol, config, { fromCol } = {}) {
       const content = await app2.vault.read(file);
@@ -1653,8 +1654,10 @@ var require_kanban = __commonJS({
     }
     module2.exports = {
       parseKanbanConfig: parseKanbanConfig2,
+      parseSweeps,
       scanKanbanTasks,
       moveCard: moveCard2,
+      sweepColumn,
       logTapSpan,
       renderKanbanBlock: renderKanbanBlock2,
       drawBoard,
@@ -2861,6 +2864,7 @@ var require_api = __commonJS({
     var {
       scanKanbanTasks,
       moveCard: moveCard2,
+      sweepColumn,
       parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
       cleanText,
@@ -3484,6 +3488,8 @@ projects:
             "setScopeStatus(opts)     set one organization or organization/project active state",
             "createTask(opts)         create a validated task note; opts: text,org,project,col",
             "moveTask(file,line,col)  move a task to a column",
+            "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
+            "sweeps()                 sweep routes from settings: From<TAB>To",
             "habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths",
             "toggle(name,opts?)       flip a habit idle<->Doing (start/stop logging); opts: paths",
             "props(opts?)             frontmatter schema of task files; opts: paths,sample,since,tasks",
@@ -3572,6 +3578,26 @@ projects:
           if (!col) throw new Error("unknown col: " + toCol);
           await moveCard2(plugin.app, file, line, col, config, {});
           return `ok ${filePath}:${line} -> ${col.name}`;
+        },
+        // Bulk-move a column, as the board's sweep button does. refs ("file:line")
+        // limits it to those cards. Returns "ok <moved> <blocked>".
+        async sweep(fromCol, toCol, refs) {
+          const config = makeConfig({}, plugin);
+          const find = (n) => config.columns.find((c) => c.name.toLowerCase() === String(n).toLowerCase());
+          const from = find(fromCol), to = find(toCol);
+          if (!from || !to) throw new Error("unknown col: " + (from ? toCol : fromCol));
+          const byCol = await scanKanbanTasks(plugin.app, config);
+          let cards = byCol.get(from.key) || [];
+          if (refs) {
+            const keep = new Set(refs);
+            cards = cards.filter((c) => keep.has(`${c.file.path}:${c.line}`));
+          }
+          const { moved, blocked } = await sweepColumn(plugin.app, config, from, to, cards);
+          return `ok ${moved} ${blocked}`;
+        },
+        // Sweep routes from settings, one "From<TAB>To" line each (names as typed).
+        sweeps() {
+          return "\n" + String(plugin.settings?.kanban?.sweep || "").split(/[,\n]/).map((r) => r.split(">").map((s) => s.trim())).filter(([f, t]) => f && t).map(([f, t]) => `${f}	${t}`).join("\n");
         },
         // Habit stats — one line per habit card. opts: { paths }.
         // Lines: name<TAB>state(idle|DOING)<TAB>today<TAB>7d<TAB>streak

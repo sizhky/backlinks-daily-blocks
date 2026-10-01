@@ -279,6 +279,12 @@ struct ColumnView: View {
         Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
         Text("\(column.cards.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.muted)
         Spacer()
+        ForEach(column.sweeps, id: \.self) { target in
+          Button("⤳ \(target)") { store.sweep(column, to: target) }
+            .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.muted)
+            .disabled(column.cards.isEmpty)
+            .help("Sweep the \(column.cards.count) shown cards to \(target)")
+        }
       }
       .padding(.horizontal, 8).padding(.top, 6)
       ScrollViewReader { proxy in
