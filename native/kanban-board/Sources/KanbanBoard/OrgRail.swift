@@ -18,7 +18,7 @@ struct OrgRail: View {
           ForEach(Array(orgs.enumerated()), id: \.element.name) { index, org in
             tile(selected: store.activeOrg == org.name, badge: store.doingCount(org: org.name),
                  help: "\(org.name) (⌘\(index + 1))") {
-              Monogram(name: org.name, size: 38)
+              OrgIcon(name: org.name, size: 38)
             } action: { store.org = org.name }
           }
           if store.hasUnassigned {

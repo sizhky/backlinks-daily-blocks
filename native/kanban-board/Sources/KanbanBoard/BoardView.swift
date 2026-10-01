@@ -3,6 +3,11 @@ import SwiftUI
 
 struct BoardView: View {
   @EnvironmentObject var store: BoardStore
+  @State private var position = ScrollPosition()
+  @State private var offsetX: CGFloat = 0
+  @State private var maxX: CGFloat = 0
+  private let timer = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
+  private let zone: CGFloat = 150
 
   var body: some View {
     ZStack {
@@ -17,11 +22,33 @@ struct BoardView: View {
             .padding(.horizontal, 20)
           }
           .scrollIndicators(.never)
+          .scrollPosition($position)
+          .onScrollGeometryChange(for: CGPoint.self) {
+            CGPoint(x: $0.contentOffset.x, y: max(0, $0.contentSize.width - $0.containerSize.width))
+          } action: { _, new in (offsetX, maxX) = (new.x, new.y) }
+          .onReceive(timer) { _ in autoscroll(in: geo.frame(in: .global)) }
         }
         StatusLine()
       }
       .padding(.top, 14)
     }
+  }
+
+  /// While the mouse button is held (a card drag), the outer `zone` points of the board
+  /// scroll it sideways; speed grows quadratically with depth into the zone.
+  private func autoscroll(in frame: CGRect) {
+    guard NSEvent.pressedMouseButtons & 1 != 0, let win = NSApp.keyWindow, let content = win.contentView else { return }
+    let mouse = win.mouseLocationOutsideOfEventStream
+    let y = content.bounds.height - mouse.y
+    let x = mouse.x - frame.minX
+    var direction = 0, depth: CGFloat = 0
+    if y >= frame.minY && y <= frame.maxY {
+      if x < zone { direction = -1; depth = min(1, (zone - x) / zone) }
+      else if x > frame.width - zone { direction = 1; depth = min(1, (x - (frame.width - zone)) / zone) }
+    }
+    guard direction != 0 else { return }
+    let next = min(maxX, max(0, offsetX + CGFloat(direction) * depth * depth * 28))
+    if next != offsetX { offsetX = next; position.scrollTo(x: next) }
   }
 }
 
@@ -167,8 +194,8 @@ struct RowView: View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: 5) {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-          Text(card.title.isEmpty ? "(untitled)" : card.title)
-            .font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
+          Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
+            .font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link)
             .lineLimit(3).lineSpacing(1.5)
           Spacer(minLength: 0)
           HStack(spacing: 3) {

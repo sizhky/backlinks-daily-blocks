@@ -91,6 +91,12 @@ final class BoardStore: ObservableObject {
   }
 
   func append(_ term: String) {
+    if let t = Query.parse(term).first, let key = t.key, !t.value.isEmpty,
+       Query.singleValued.contains(Query.canonical(key)) {
+      let next = Query.toggling(query, term: term)
+      query = next.isEmpty ? "" : next + " "
+      return
+    }
     let spaced = query.isEmpty || query.hasSuffix(" ") ? query : query + " "
     if !Query.parse(query).contains(where: { "\($0.key ?? ""):\($0.value)" == term.replacingOccurrences(of: "\"", with: "") }) {
       query = spaced + term + (term.hasSuffix(":") ? "" : " ")
