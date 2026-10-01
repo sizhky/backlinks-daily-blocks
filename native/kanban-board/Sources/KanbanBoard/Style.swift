@@ -43,7 +43,7 @@ func nameHue(_ name: String?) -> Double {
 }
 
 /// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials,
-/// in a pill as wide as `maxLetters` letters so rows stay aligned; shorter initials sit centred.
+/// in a rounded tile as wide as `maxLetters` letters so rows stay aligned; shorter initials sit centred.
 struct Monogram: View {
   let name: String?
   var size: CGFloat = 16
@@ -72,8 +72,8 @@ struct Monogram: View {
     .font(.system(size: size * 0.55, weight: .bold)).tracking(0.2)
     .padding(.horizontal, maxLetters > 1 ? size * 0.3 : 0)
     .frame(minWidth: size, minHeight: size, maxHeight: size)
-    .background(fill, in: .capsule)
-    .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+    .background(fill, in: .rect(cornerRadius: size * 0.3))
+    .overlay(RoundedRectangle(cornerRadius: size * 0.3).strokeBorder(.white.opacity(0.12)))
   }
 }
 
