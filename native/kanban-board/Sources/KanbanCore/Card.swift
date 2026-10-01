@@ -7,6 +7,20 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var id: String { ref }
   public var ageHours: Double? { Age.hours(age) }
 
+  /// Creation time from the daily-note file name `YYYYMMDD-HHmm[...].md`.
+  public var created: Date? {
+    let parts = file.split(separator: "-")
+    guard parts.count >= 2, parts[0].count == 8, parts[1].count >= 4 else { return nil }
+    return Self.stamp.date(from: String(parts[0]) + String(parts[1].prefix(4)))
+  }
+
+  static let stamp: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "yyyyMMddHHmm"
+    return f
+  }()
+
   /// Linear-style short id: project key + HHmm of the note, `.line` when not the first task.
   /// ```
   /// Obsidian Workflow, 20260613-1844.md:0 -> "OW-1844";  Vyasa, x-0946.md:3 -> "VYA-0946.3"

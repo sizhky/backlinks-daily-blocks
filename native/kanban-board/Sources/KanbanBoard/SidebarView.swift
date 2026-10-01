@@ -18,12 +18,17 @@ struct SidebarView: View {
 
         item("All issues", icon: "tray.full", active: store.query.isEmpty, count: nil) { store.query = "" }
 
-        section("Views") {
-          ForEach(store.saved) { filter in
-            item(filter.name, icon: "line.3.horizontal.decrease", active: store.query == filter.query, count: nil) {
-              store.query = filter.query
+        section("Views", add: { store.newView() }) {
+          ForEach(store.visibleViews) { view in
+            item(view.name, leading: viewIcon(view), active: store.activeView?.id == view.id, count: nil) {
+              store.apply(view)
             }
-            .contextMenu { Button("Delete view", role: .destructive) { store.delete(filter) } }
+            .contextMenu {
+              Button("Edit…") { store.edit(view) }
+              Button("Update to current filter") { store.updateToCurrent(view) }
+              Divider()
+              Button("Delete view", role: .destructive) { store.delete(view) }
+            }
           }
         }
         section("Projects") {
@@ -54,7 +59,16 @@ struct SidebarView: View {
     }
   }
 
-  private func section<Content: View>(_ name: String, @ViewBuilder _ content: () -> Content) -> some View {
+  /// All-workspace views show the grid icon; workspace views show their org.
+  private func viewIcon(_ view: SavedFilter) -> AnyView {
+    switch view.org {
+    case nil, Filter.noOrg?: AnyView(Image(systemName: view.org == nil ? "square.grid.2x2" : "tray").font(.system(size: 12))
+      .foregroundStyle(Palette.muted).frame(width: 16))
+    case let org?: AnyView(OrgIcon(name: org, size: 16).clipShape(.circle))
+    }
+  }
+
+  private func section<Content: View>(_ name: String, add: (() -> Void)? = nil, @ViewBuilder _ content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 2) {
       Button {
         if collapsed.contains(name) { collapsed.remove(name) } else { collapsed.insert(name) }
@@ -68,6 +82,9 @@ struct SidebarView: View {
         .foregroundStyle(Palette.muted).padding(.horizontal, 8).padding(.top, 16).padding(.bottom, 4)
       }
       .buttonStyle(.plain)
+      .overlay(alignment: .trailing) {
+        if let add { IconButton(icon: "plus", help: "New view", action: add).padding(.top, 12) }
+      }
       if !collapsed.contains(name) { content() }
     }
   }

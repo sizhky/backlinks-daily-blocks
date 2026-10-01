@@ -41,14 +41,12 @@ struct BoardView: View {
 struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
   @FocusState private var focused: Bool
-  @State private var naming = false
-  @State private var name = ""
   private let keys = ["col:", "tag:", "project:", "org:", "stale:", "age:", "no:", "has:"]
 
   private var terms: [QueryTerm] { Query.parse(store.query).filter { !$0.value.isEmpty } }
   private var viewName: String {
     let q = store.query.trimmingCharacters(in: .whitespaces)
-    return store.saved.first { $0.query == q }?.name ?? (q.isEmpty ? "All issues" : "Filtered")
+    return store.activeView?.name ?? (q.isEmpty ? "All issues" : "Filtered")
   }
 
   var body: some View {
@@ -72,11 +70,6 @@ struct BoardHeader: View {
     }
     .onChange(of: store.focusFilter) { focused = true }
     .background(Button("") { focused = true }.keyboardShortcut("f", modifiers: .command).opacity(0))
-    .alert("Save view", isPresented: $naming) {
-      TextField("Name", text: $name)
-      Button("Save") { store.save(name: name); name = "" }
-      Button("Cancel", role: .cancel) { name = "" }
-    } message: { Text(store.query) }
   }
 
   private var breadcrumb: some View {
@@ -112,13 +105,13 @@ struct BoardHeader: View {
     FlowLayout(spacing: 6) {
       ForEach(Array(terms.enumerated()), id: \.offset) { index, term in chip(term, index) }
       if !terms.isEmpty {
-        Button("Save view") { naming = true }.buttonStyle(.plain).foregroundStyle(Palette.muted)
-        Button("Clear") { store.query = "" }.buttonStyle(.plain).foregroundStyle(Palette.muted)
+        Button("Save view") { store.newView(query: store.query) }.buttonStyle(.plain).foregroundStyle(Palette.muted).frame(height: 24)
+        Button("Clear") { store.query = "" }.buttonStyle(.plain).foregroundStyle(Palette.muted).frame(height: 24)
       }
       if focused {
         ForEach(keys, id: \.self) { key in
           Button(key) { store.append(key); focused = true }
-            .buttonStyle(.plain).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.muted.opacity(0.8))
+            .buttonStyle(.plain).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.muted.opacity(0.8)).frame(height: 24)
         }
       }
     }

@@ -16,13 +16,13 @@ public enum Age {
 
 public enum Filter {
   /// Every term must hold; a negated term must fail.
-  public static func matches(_ card: Card, _ terms: [QueryTerm]) -> Bool {
-    terms.allSatisfy { $0.negated != test(card, $0) }
+  public static func matches(_ card: Card, _ terms: [QueryTerm], now: Date = Date()) -> Bool {
+    terms.allSatisfy { $0.negated != test(card, $0, now) }
   }
 
-  public static func apply(_ columns: [Column], _ terms: [QueryTerm]) -> [Column] {
+  public static func apply(_ columns: [Column], _ terms: [QueryTerm], now: Date = Date()) -> [Column] {
     guard !terms.isEmpty else { return columns }
-    return columns.map { var c = $0; c.cards = c.cards.filter { matches($0, terms) }; return c }
+    return columns.map { var c = $0; c.cards = c.cards.filter { matches($0, terms, now: now) }; return c }
   }
 
   /// Scope value that selects cards with no org.
@@ -38,7 +38,7 @@ public enum Filter {
     return columns.map { var c = $0; c.cards = c.cards.filter(keep); return c }
   }
 
-  static func test(_ c: Card, _ t: QueryTerm) -> Bool {
+  static func test(_ c: Card, _ t: QueryTerm, _ now: Date) -> Bool {
     let v = t.value.lowercased()
     let any: ([String]) -> Bool = { $0.contains { $0.lowercased().contains(v) } }
     switch t.key {
@@ -49,6 +49,7 @@ public enum Filter {
     case "org", "o": return any(c.orgs)
     case "age": return compareAge(c, v)
     case "stale": return compareAge(c, ">=" + v)
+    case "created", "c": return created(c, v, now)
     case "has": return present(c, v)
     case "no": return !present(c, v)
     default: return c.title.lowercased().contains("\(t.key ?? ""):\(v)")
@@ -66,6 +67,28 @@ public enum Filter {
     }
   }
 
+  /// `today`, `yesterday`, `week`, `month`, `2026-06-13`, `<3d` (within), `>3d` (older); bare `3d` = within.
+  static func created(_ c: Card, _ v: String, _ now: Date) -> Bool {
+    guard let made = c.created else { return false }
+    let cal = Calendar.current
+    switch v {
+    case "today": return cal.isDate(made, inSameDayAs: now)
+    case "yesterday": return cal.date(byAdding: .day, value: -1, to: now).map { cal.isDate(made, inSameDayAs: $0) } ?? false
+    case "week": return cal.dateInterval(of: .weekOfYear, for: now)?.contains(made) ?? false
+    case "month": return cal.dateInterval(of: .month, for: now)?.contains(made) ?? false
+    default: break
+    }
+    var rest = Substring(v), op = "<"
+    for p in [">", "<"] where rest.hasPrefix(p) { op = p; rest = rest.dropFirst(); break }
+    if let limit = Age.hours(String(rest)) {
+      let hours = now.timeIntervalSince(made) / 3600
+      return op == ">" ? hours > limit : hours <= limit
+    }
+    let digits = rest.filter(\.isNumber)
+    guard digits.count == 8, let day = Card.stamp.date(from: digits + "0000") else { return false }
+    return cal.isDate(made, inSameDayAs: day)
+  }
+
   /// `>3d`, `<2h`, `>=1w`, `<=5m`; a bare duration means `>=`.
   static func compareAge(_ c: Card, _ v: String) -> Bool {
     var rest = Substring(v), op = ">="
@@ -80,13 +103,19 @@ public enum Filter {
   }
 }
 
+/// A saved view: a query plus the workspace it lives in (nil = all workspaces, "" = no org).
 public struct SavedFilter: Codable, Identifiable, Equatable, Sendable {
   public var id = UUID()
   public var name: String
   public var query: String
-  public init(name: String, query: String) { self.name = name; self.query = query }
+  public var org: String?
+  public init(id: UUID = UUID(), name: String, query: String, org: String? = nil) {
+    self.id = id; self.name = name; self.query = query; self.org = org
+  }
 
   public static let defaults = [
+    SavedFilter(name: "Created today", query: "created:today"),
+    SavedFilter(name: "Created this week", query: "created:week"),
     SavedFilter(name: "Doing", query: "col:Doing"),
     SavedFilter(name: "Active", query: "-col:done,cancelled,backlog"),
     SavedFilter(name: "Stale 7d+", query: "stale:7d -col:done,cancelled"),

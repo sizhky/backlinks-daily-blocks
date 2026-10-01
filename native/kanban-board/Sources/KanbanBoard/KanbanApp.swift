@@ -36,6 +36,7 @@ struct KanbanBoardApp: App {
         .opacity(0).frame(width: 0, height: 0)
       }
       .overlay { if store.paletteOpen { CommandPalette() } }
+      .sheet(item: $store.editing) { ViewEditor(draft: $0).environmentObject(store) }
       .environmentObject(store)
       .frame(minWidth: 1000, minHeight: 620)
       .preferredColorScheme(.dark)

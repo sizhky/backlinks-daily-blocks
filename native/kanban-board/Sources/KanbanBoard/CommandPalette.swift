@@ -18,7 +18,8 @@ extension BoardStore {
       }
     }
     out.append(Command(title: "Clear filter", icon: "xmark.circle") { self.query = "" })
-    for f in saved { out.append(Command(title: "Filter: \(f.name)", icon: "star") { self.query = f.query }) }
+    out.append(Command(title: "New view…", icon: "plus") { self.newView(query: self.query) })
+    for v in visibleViews { out.append(Command(title: "View: \(v.name)", icon: "line.3.horizontal.decrease") { self.apply(v) }) }
     out.append(Command(title: "Show all organizations", icon: "square.grid.2x2") { self.org = nil })
     for o in orgs { out.append(Command(title: "Switch to \(o.name)", icon: "building.2") { self.org = o.name }) }
     for p in facets(\.projects) { out.append(Command(title: "Project: \(p.name)", icon: "folder") { self.append("project:" + self.quote(p.name)) }) }

@@ -4,6 +4,15 @@ import SwiftUI
 
 enum ViewMode: String { case board, list }
 
+/// Unsaved state of the view editor; `org` nil = all workspaces, "" = no org.
+struct ViewDraft: Identifiable {
+  var id = UUID()
+  var existing = false
+  var name = ""
+  var query = ""
+  var org: String?
+}
+
 @MainActor
 final class BoardStore: ObservableObject {
   @Published private(set) var columns: [Column] = []
@@ -29,6 +38,7 @@ final class BoardStore: ObservableObject {
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
+  @Published var editing: ViewDraft?
   @Published var query: String {
     didSet { UserDefaults.standard.set(query, forKey: "kanban.query") }
   }
@@ -152,10 +162,44 @@ final class BoardStore: ObservableObject {
 
   func quote(_ value: String) -> String { value.contains(" ") ? "\"\(value)\"" : value }
 
-  func save(name: String) {
-    guard !name.isEmpty, !query.isEmpty else { return }
-    saved.append(SavedFilter(name: name, query: query))
+  /// Views listed in the sidebar: all-workspace views, plus the current workspace's own
+  /// (every view while no workspace is selected).
+  var visibleViews: [SavedFilter] { saved.filter { $0.org == nil || activeOrg == nil || $0.org == activeOrg } }
+
+  var activeView: SavedFilter? {
+    let q = query.trimmingCharacters(in: .whitespaces)
+    return saved.first { $0.query == q && $0.org == activeOrg }
+  }
+
+  func apply(_ view: SavedFilter) {
+    org = view.org
+    query = view.query
+  }
+
+  func newView(query: String = "") { editing = ViewDraft(query: query, org: activeOrg) }
+
+  func edit(_ view: SavedFilter) {
+    editing = ViewDraft(id: view.id, existing: true, name: view.name, query: view.query, org: view.org)
+  }
+
+  func saveDraft(_ draft: ViewDraft) {
+    let view = SavedFilter(id: draft.id, name: draft.name.trimmingCharacters(in: .whitespaces),
+                           query: draft.query.trimmingCharacters(in: .whitespaces), org: draft.org)
+    guard !view.name.isEmpty else { return }
+    if let i = saved.firstIndex(where: { $0.id == view.id }) { saved[i] = view } else { saved.append(view); apply(view) }
     persistSaved()
+    editing = nil
+  }
+
+  func updateToCurrent(_ view: SavedFilter) {
+    guard let i = saved.firstIndex(where: { $0.id == view.id }) else { return }
+    saved[i].query = query.trimmingCharacters(in: .whitespaces)
+    saved[i].org = activeOrg
+    persistSaved()
+  }
+
+  func matchCount(query: String, org: String?) -> Int {
+    Filter.apply(Filter.scope(columns, org: org), Query.parse(query)).reduce(0) { $0 + $1.cards.count }
   }
 
   func delete(_ filter: SavedFilter) {

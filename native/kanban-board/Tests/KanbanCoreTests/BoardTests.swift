@@ -61,3 +61,20 @@ final class ScopeTests: XCTestCase {
     XCTAssertEqual(Filter.scope(cols, org: nil).flatMap(\.cards).count, 2)
   }
 }
+
+final class CreatedTests: XCTestCase {
+  func testCreatedFilters() {
+    let rows = "@column\tX\tlive\nX\t20260613-0900.md:0\tToday\t1h\t\t\nX\t20260612-2300.md:0\tYesterday\t1h\t\t\nX\t20260601-1000.md:0\tOld\t1h\t\t"
+    var c = DateComponents(); c.year = 2026; c.month = 6; c.day = 13; c.hour = 18
+    let now = Calendar.current.date(from: c)!
+    func titles(_ q: String) -> [String] {
+      Filter.apply(Board.parse(rows), Query.parse(q), now: now).flatMap(\.cards).map(\.title)
+    }
+    XCTAssertEqual(titles("created:today"), ["Today"])
+    XCTAssertEqual(titles("created:yesterday"), ["Yesterday"])
+    XCTAssertEqual(titles("created:<2d"), ["Today", "Yesterday"])
+    XCTAssertEqual(titles("created:>7d"), ["Old"])
+    XCTAssertEqual(titles("created:2026-06-01"), ["Old"])
+    XCTAssertEqual(titles("-created:today"), ["Yesterday", "Old"])
+  }
+}
