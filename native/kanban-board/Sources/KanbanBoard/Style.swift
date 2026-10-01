@@ -70,8 +70,9 @@ struct Monogram: View {
       Text(letters).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(.white.opacity(0.95))
     }
     .font(.system(size: size * 0.55, weight: .bold)).tracking(0.2)
-    .padding(.horizontal, maxLetters > 1 ? size * 0.3 : 0)
-    .frame(minWidth: size, minHeight: size, maxHeight: size)
+    .padding(.horizontal, maxLetters > 1 ? size * 0.2 : 0)
+    .padding(.vertical, maxLetters > 1 ? size * 0.38 : 0)
+    .frame(minWidth: size, minHeight: size)
     .background(fill, in: .rect(cornerRadius: size * 0.3))
     .overlay(RoundedRectangle(cornerRadius: size * 0.3).strokeBorder(.white.opacity(0.12)))
   }
