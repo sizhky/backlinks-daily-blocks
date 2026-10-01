@@ -53,12 +53,19 @@ final class GroupingTests: XCTestCase {
 }
 
 final class ScopeTests: XCTestCase {
-  func testScopeByOrgIsExact() {
-    let rows = "@column\tX\tlive\nX\ta.md:1\tA\t1h\tPersonal\t\nX\ta.md:2\tB\t1h\tPersonal Extra\t"
+  func testScopeByOrgsIsExactAndMulti() {
+    let rows = "@column\tX\tlive\nX\ta.md:1\tA\t1h\tPersonal\t\nX\ta.md:2\tB\t1h\tPersonal Extra\t\nX\ta.md:3\tC\t1h\t\t\nX\ta.md:4\tD\t1h\tDivami\t"
     let cols = Board.parse(rows)
-    XCTAssertEqual(Filter.scope(cols, org: "personal").flatMap(\.cards).map(\.title), ["A"])
-    XCTAssertEqual(Filter.scope(Board.parse(rows + "\nX\ta.md:3\tC\t1h\t\t"), org: Filter.noOrg).flatMap(\.cards).map(\.title), ["C"])
-    XCTAssertEqual(Filter.scope(cols, org: nil).flatMap(\.cards).count, 2)
+    func titles(_ orgs: [String]) -> [String] { Filter.scope(cols, orgs: orgs).flatMap(\.cards).map(\.title) }
+    XCTAssertEqual(titles(["personal"]), ["A"])
+    XCTAssertEqual(titles(["Personal", "Divami"]), ["A", "D"])
+    XCTAssertEqual(titles([Filter.noOrg, "Divami"]), ["C", "D"])
+    XCTAssertEqual(titles([]), ["A", "B", "C", "D"])
+  }
+
+  func testSavedFilterReadsLegacyOrgField() throws {
+    let json = #"{"id":"5B0C1D2E-0000-4000-8000-000000000001","name":"N","query":"q","org":"Divami"}"#
+    XCTAssertEqual(try JSONDecoder().decode(SavedFilter.self, from: Data(json.utf8)).orgs, ["Divami"])
   }
 }
 

@@ -10,7 +10,7 @@ struct ViewDraft: Identifiable {
   var existing = false
   var name = ""
   var query = ""
-  var org: String?
+  var orgs: [String] = []
 }
 
 @MainActor
@@ -22,8 +22,10 @@ final class BoardStore: ObservableObject {
   @Published var grouped = UserDefaults.standard.object(forKey: "kanban.grouped2") as? Bool ?? false {
     didSet { UserDefaults.standard.set(grouped, forKey: "kanban.grouped2") }
   }
-  @Published var org: String? = UserDefaults.standard.string(forKey: "kanban.org") {
-    didSet { UserDefaults.standard.set(org, forKey: "kanban.org") }
+  /// Selected workspaces; empty = all. "" (Filter.noOrg) selects cards with no org.
+  @Published var orgScope: [String] = UserDefaults.standard.stringArray(forKey: "kanban.orgs")
+    ?? UserDefaults.standard.string(forKey: "kanban.org").map { [$0] } ?? [] {
+    didSet { UserDefaults.standard.set(orgScope, forKey: "kanban.orgs") }
   }
   @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
     didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
@@ -53,8 +55,11 @@ final class BoardStore: ObservableObject {
   }
 
   /// Selected org, ignored once it no longer exists on the board.
-  var activeOrg: String? { org.flatMap { o in o == Filter.noOrg || orgs.contains { $0.name == o } || !loaded ? o : nil } }
-  var scoped: [Column] { Filter.scope(columns, org: activeOrg) }
+  var activeOrgs: [String] {
+    let known = Set(orgs.map(\.name))
+    return orgScope.filter { $0 == Filter.noOrg || known.contains($0) || !loaded }
+  }
+  var scoped: [Column] { Filter.scope(columns, orgs: activeOrgs) }
   var visible: [Column] { Filter.apply(scoped, Query.parse(query)) }
   var total: Int { scoped.reduce(0) { $0 + $1.cards.count } }
   var orgs: [(name: String, count: Int)] { counts(in: columns, \.orgs) }
@@ -67,8 +72,8 @@ final class BoardStore: ObservableObject {
     return counts(in: scoped, pick).map { (name: $0.name, count: shown[$0.name] ?? 0) }
   }
 
-  func doingCount(org: String?) -> Int {
-    Filter.scope(columns, org: org).first { $0.name.caseInsensitiveCompare("Doing") == .orderedSame }?.cards.count ?? 0
+  func doingCount(org: String) -> Int {
+    Filter.scope(columns, orgs: [org]).first { $0.name.caseInsensitiveCompare("Doing") == .orderedSame }?.cards.count ?? 0
   }
 
   var hasUnassigned: Bool { columns.contains { $0.done == false && $0.cards.contains { $0.orgs.isEmpty } } }
@@ -164,27 +169,35 @@ final class BoardStore: ObservableObject {
 
   /// Views listed in the sidebar: all-workspace views, plus the current workspace's own
   /// (every view while no workspace is selected).
-  var visibleViews: [SavedFilter] { saved.filter { $0.org == nil || activeOrg == nil || $0.org == activeOrg } }
+  var visibleViews: [SavedFilter] {
+    saved.filter { $0.orgs.isEmpty || activeOrgs.isEmpty || !Set($0.orgs).isDisjoint(with: activeOrgs) }
+  }
 
   var activeView: SavedFilter? {
     let q = query.trimmingCharacters(in: .whitespaces)
-    return saved.first { $0.query == q && $0.org == activeOrg }
+    return saved.first { $0.query == q && Set($0.orgs) == Set(activeOrgs) }
   }
 
   func apply(_ view: SavedFilter) {
-    org = view.org
+    orgScope = view.orgs
     query = view.query
   }
 
-  func newView(query: String = "") { editing = ViewDraft(query: query, org: activeOrg) }
+  /// Plain click selects one workspace; command-click adds or removes it.
+  func selectOrg(_ name: String, additive: Bool) {
+    guard additive else { orgScope = [name]; return }
+    if orgScope.contains(name) { orgScope.removeAll { $0 == name } } else { orgScope.append(name) }
+  }
+
+  func newView(query: String = "") { editing = ViewDraft(query: query, orgs: activeOrgs) }
 
   func edit(_ view: SavedFilter) {
-    editing = ViewDraft(id: view.id, existing: true, name: view.name, query: view.query, org: view.org)
+    editing = ViewDraft(id: view.id, existing: true, name: view.name, query: view.query, orgs: view.orgs)
   }
 
   func saveDraft(_ draft: ViewDraft) {
     let view = SavedFilter(id: draft.id, name: draft.name.trimmingCharacters(in: .whitespaces),
-                           query: draft.query.trimmingCharacters(in: .whitespaces), org: draft.org)
+                           query: draft.query.trimmingCharacters(in: .whitespaces), orgs: draft.orgs)
     guard !view.name.isEmpty else { return }
     if let i = saved.firstIndex(where: { $0.id == view.id }) { saved[i] = view } else { saved.append(view); apply(view) }
     persistSaved()
@@ -194,12 +207,12 @@ final class BoardStore: ObservableObject {
   func updateToCurrent(_ view: SavedFilter) {
     guard let i = saved.firstIndex(where: { $0.id == view.id }) else { return }
     saved[i].query = query.trimmingCharacters(in: .whitespaces)
-    saved[i].org = activeOrg
+    saved[i].orgs = activeOrgs
     persistSaved()
   }
 
-  func matchCount(query: String, org: String?) -> Int {
-    Filter.apply(Filter.scope(columns, org: org), Query.parse(query)).reduce(0) { $0 + $1.cards.count }
+  func matchCount(query: String, orgs: [String]) -> Int {
+    Filter.apply(Filter.scope(columns, orgs: orgs), Query.parse(query)).reduce(0) { $0 + $1.cards.count }
   }
 
   func delete(_ filter: SavedFilter) {

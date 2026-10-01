@@ -41,6 +41,7 @@ struct BoardView: View {
 struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
   @FocusState private var focused: Bool
+  @State private var pickingOrgs = false
   private let keys = ["col:", "tag:", "project:", "org:", "stale:", "age:", "no:", "has:"]
 
   private var terms: [QueryTerm] { Query.parse(store.query).filter { !$0.value.isEmpty } }
@@ -74,19 +75,35 @@ struct BoardHeader: View {
 
   private var breadcrumb: some View {
     HStack(spacing: 7) {
-      if let org = store.activeOrg {
-        if org == Filter.noOrg {
-          Text("No organization").foregroundStyle(Palette.secondary)
-        } else {
-          OrgIcon(name: org, size: 16).clipShape(.circle)
-          Text(org).foregroundStyle(Palette.secondary)
+      if !store.activeOrgs.isEmpty {
+        Button { pickingOrgs.toggle() } label: {
+          HStack(spacing: 6) {
+            ForEach(store.activeOrgs.prefix(3), id: \.self) { org in
+              if org == Filter.noOrg { Image(systemName: "tray").font(.system(size: 11)) }
+              else { OrgIcon(name: org, size: 16).clipShape(.circle) }
+            }
+            Text(store.activeOrgs.count == 1 ? OrgPicker.label(store.activeOrgs[0]) : "\(store.activeOrgs.count) workspaces")
+              .foregroundStyle(Palette.secondary)
+          }
         }
+        .buttonStyle(.plain)
         Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.muted)
       }
       Text(viewName).foregroundStyle(Palette.text)
       Text("\(store.shown)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
+      Button { pickingOrgs.toggle() } label: {
+        Image(systemName: "building.2").font(.system(size: 11)).foregroundStyle(Palette.muted)
+      }
+      .buttonStyle(.plain).help("Choose workspaces")
     }
     .font(.system(size: 13, weight: .medium))
+    .popover(isPresented: $pickingOrgs, arrowEdge: .bottom) {
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Workspaces").font(.system(size: 12)).foregroundStyle(Palette.muted)
+        OrgPicker(selected: $store.orgScope)
+      }
+      .padding(14).frame(width: 340)
+    }
   }
 
   private var filterField: some View {
@@ -268,7 +285,7 @@ struct IssueCard: View {
       HStack {
         Text(card.identifier).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted)
         Spacer()
-        if store.activeOrg == nil, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
+        if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
       }
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).tracking(-0.1)
@@ -372,7 +389,7 @@ struct IssueRow: View {
       Spacer(minLength: 12)
       ForEach(card.tags.prefix(2), id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
       if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
-      if store.activeOrg == nil, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
+      if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
       Text(card.age).font(.system(size: 12).monospacedDigit())
         .foregroundStyle(stale ? Palette.amber : Palette.muted).frame(width: 36, alignment: .trailing)
     }

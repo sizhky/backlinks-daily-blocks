@@ -20,8 +20,8 @@ extension BoardStore {
     out.append(Command(title: "Clear filter", icon: "xmark.circle") { self.query = "" })
     out.append(Command(title: "New view…", icon: "plus") { self.newView(query: self.query) })
     for v in visibleViews { out.append(Command(title: "View: \(v.name)", icon: "line.3.horizontal.decrease") { self.apply(v) }) }
-    out.append(Command(title: "Show all organizations", icon: "square.grid.2x2") { self.org = nil })
-    for o in orgs { out.append(Command(title: "Switch to \(o.name)", icon: "building.2") { self.org = o.name }) }
+    out.append(Command(title: "Show all organizations", icon: "square.grid.2x2") { self.orgScope = [] })
+    for o in orgs { out.append(Command(title: "Switch to \(o.name)", icon: "building.2") { self.orgScope = [o.name] }) }
     for p in facets(\.projects) { out.append(Command(title: "Project: \(p.name)", icon: "folder") { self.append("project:" + self.quote(p.name)) }) }
     out.append(Command(title: mode == .board ? "Switch to list view" : "Switch to board view", icon: "rectangle.3.group") {
       self.mode = self.mode == .board ? .list : .board

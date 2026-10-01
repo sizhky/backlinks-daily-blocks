@@ -67,11 +67,14 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 
 ## Invariants
 
-- Org scope is separate from the query: `store.org` filters first, `store.query` second.
-  `nil` = all workspaces, `""` (`Filter.noOrg`) = cards with no org.
+- Workspace scope is separate from the query: `store.orgScope` (a list) filters first,
+  `store.query` second. Empty = all workspaces; `""` (`Filter.noOrg`) in the list = cards with no org.
+  Use `store.activeOrgs`, which drops orgs that no longer exist. Rail click selects one,
+  command/shift-click toggles; `OrgPicker` (type, select, multiple) edits the list in the view
+  editor and the header popover.
 - Single-valued query keys (`project`, `org`, `col`) replace on click; `tag` adds. Use
   `Query.toggling`, not string appends.
-- A saved view stores `(query, org)`. Applying a view sets both.
+- A saved view stores `(query, orgs)`; legacy single `org` is read as a one-item list. Applying a view sets both.
 - Sidebar and chip counts come from `store.visible`, so they match the board.
 - Optimistic moves update `columns` inside `withAnimation`, then call `kb`, then refresh.
 - Refresh runs every 6 s. Do not add a second polling loop.

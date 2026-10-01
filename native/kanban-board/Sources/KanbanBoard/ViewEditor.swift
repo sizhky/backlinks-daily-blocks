@@ -28,16 +28,12 @@ struct ViewEditor: View {
           .buttonStyle(.plain)
         }
       }
-      field("Workspace") {
-        Picker("", selection: $draft.org) {
-          Text("All workspaces").tag(String?.none)
-          ForEach(store.orgs, id: \.name) { Text($0.name).tag(String?.some($0.name)) }
-          Text("No organization").tag(String?.some(Filter.noOrg))
-        }
-        .labelsHidden().pickerStyle(.menu)
+      VStack(alignment: .leading, spacing: 6) {
+        Text("Workspaces").font(.system(size: 12)).foregroundStyle(Palette.muted)
+        OrgPicker(selected: $draft.orgs)
       }
       HStack {
-        Text("\(store.matchCount(query: draft.query, org: draft.org)) issues match")
+        Text("\(store.matchCount(query: draft.query, orgs: draft.orgs)) issues match")
           .font(.system(size: 12)).foregroundStyle(Palette.muted)
         Spacer()
         Button("Cancel") { store.editing = nil }.keyboardShortcut(.cancelAction)

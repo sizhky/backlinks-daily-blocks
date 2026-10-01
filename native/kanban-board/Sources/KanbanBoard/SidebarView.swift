@@ -52,20 +52,20 @@ struct SidebarView: View {
   }
 
   private var title: String {
-    switch store.activeOrg {
-    case nil: "All workspaces"
-    case Filter.noOrg?: "No organization"
-    case let org?: org
+    switch store.activeOrgs.count {
+    case 0: "All workspaces"
+    case 1: OrgPicker.label(store.activeOrgs[0])
+    default: "\(store.activeOrgs.count) workspaces"
     }
   }
 
   /// All-workspace views show the grid icon; workspace views show their org.
   private func viewIcon(_ view: SavedFilter) -> AnyView {
-    switch view.org {
-    case nil, Filter.noOrg?: AnyView(Image(systemName: view.org == nil ? "square.grid.2x2" : "tray").font(.system(size: 12))
-      .foregroundStyle(Palette.muted).frame(width: 16))
-    case let org?: AnyView(OrgIcon(name: org, size: 16).clipShape(.circle))
+    if view.orgs.count == 1, view.orgs[0] != Filter.noOrg {
+      return AnyView(OrgIcon(name: view.orgs[0], size: 16).clipShape(.circle))
     }
+    let icon = view.orgs.isEmpty ? "square.grid.2x2" : (view.orgs.count == 1 ? "tray" : "rectangle.stack")
+    return AnyView(Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Palette.muted).frame(width: 16))
   }
 
   private func section<Content: View>(_ name: String, add: (() -> Void)? = nil, @ViewBuilder _ content: () -> Content) -> some View {

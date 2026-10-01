@@ -28,13 +28,17 @@ public enum Filter {
   /// Scope value that selects cards with no org.
   public static let noOrg = ""
 
-  /// Keeps only cards whose org list contains `org` exactly (case-insensitive); nil keeps all;
-  /// `noOrg` keeps cards with no org.
-  public static func scope(_ columns: [Column], org: String?) -> [Column] {
-    guard let org else { return columns }
-    let keep: (Card) -> Bool = org == noOrg
-      ? { $0.orgs.isEmpty }
-      : { $0.orgs.contains { $0.caseInsensitiveCompare(org) == .orderedSame } }
+  /// Keeps cards that belong to any of `orgs` (case-insensitive); empty keeps all;
+  /// `noOrg` in the list also keeps cards with no org.
+  /// ```
+  /// scope(cards, orgs: ["Divami", noOrg]) -> Divami cards + cards without an org
+  /// ```
+  public static func scope(_ columns: [Column], orgs: [String]) -> [Column] {
+    guard !orgs.isEmpty else { return columns }
+    let wanted = Set(orgs.map { $0.lowercased() })
+    let keep: (Card) -> Bool = { card in
+      card.orgs.isEmpty ? wanted.contains(noOrg) : card.orgs.contains { wanted.contains($0.lowercased()) }
+    }
     return columns.map { var c = $0; c.cards = c.cards.filter(keep); return c }
   }
 
@@ -103,14 +107,32 @@ public enum Filter {
   }
 }
 
-/// A saved view: a query plus the workspace it lives in (nil = all workspaces, "" = no org).
+/// A saved view: a query plus the workspaces it covers (empty = all workspaces, "" = no org).
 public struct SavedFilter: Codable, Identifiable, Equatable, Sendable {
   public var id = UUID()
   public var name: String
   public var query: String
-  public var org: String?
-  public init(id: UUID = UUID(), name: String, query: String, org: String? = nil) {
-    self.id = id; self.name = name; self.query = query; self.org = org
+  public var orgs: [String]
+  public init(id: UUID = UUID(), name: String, query: String, orgs: [String] = []) {
+    self.id = id; self.name = name; self.query = query; self.orgs = orgs
+  }
+
+  enum CodingKeys: String, CodingKey { case id, name, query, orgs, org }
+
+  /// Reads the older single-workspace `org` field as a one-item list.
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(UUID.self, forKey: .id)
+    name = try c.decode(String.self, forKey: .name)
+    query = try c.decode(String.self, forKey: .query)
+    if let list = try c.decodeIfPresent([String].self, forKey: .orgs) { orgs = list }
+    else { orgs = try c.decodeIfPresent(String.self, forKey: .org).map { [$0] } ?? [] }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(id, forKey: .id); try c.encode(name, forKey: .name)
+    try c.encode(query, forKey: .query); try c.encode(orgs, forKey: .orgs)
   }
 
   public static let defaults = [
