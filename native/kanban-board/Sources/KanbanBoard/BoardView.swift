@@ -43,6 +43,7 @@ struct BoardHeader: View {
   @FocusState private var focused: Bool
   @State private var pickingOrgs = false
   @State private var pick = 0
+  @State private var tabMonitor: Any?
   private let keys = ["col:", "tag:", "project:", "org:", "stale:", "age:", "no:", "has:"]
 
   private var terms: [QueryTerm] { Query.parse(store.query).filter { !$0.value.isEmpty } }
@@ -71,6 +72,8 @@ struct BoardHeader: View {
       Divider().overlay(Palette.hairline)
     }
     .onChange(of: store.focusFilter) { focused = true }
+    .onAppear { installTabMonitor() }
+    .onDisappear { tabMonitor.map(NSEvent.removeMonitor); tabMonitor = nil }
     .background(Button("") { focused = true }.keyboardShortcut("f", modifiers: .command).opacity(0))
   }
 
@@ -109,6 +112,17 @@ struct BoardHeader: View {
 
   private var suggestions: [Suggestion] { focused ? Array(store.catalog.suggest(store.query).prefix(8)) : [] }
 
+  /// The text field takes Tab for focus traversal before onKeyPress sees it, so catch it at the window.
+  private func installTabMonitor() {
+    guard tabMonitor == nil else { return }
+    tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+      guard event.keyCode == 48, event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty,
+            let s = suggestions[safe: pick] else { return event }
+      complete(s)
+      return nil
+    }
+  }
+
   private func complete(_ s: Suggestion) {
     if !s.isKey, s.term.lowercased().hasPrefix("view:") { store.accept(s.term); return }
     store.query = Catalog.replacing(store.query, with: s)
@@ -123,7 +137,6 @@ struct BoardHeader: View {
         .onKeyPress(.escape) { focused = false; return .handled }
         .onKeyPress(.downArrow) { guard !shown.isEmpty else { return .ignored }; pick = min(shown.count - 1, pick + 1); return .handled }
         .onKeyPress(.upArrow) { guard !shown.isEmpty else { return .ignored }; pick = max(0, pick - 1); return .handled }
-        .onKeyPress(.tab) { guard shown.indices.contains(pick) else { return .ignored }; complete(shown[pick]); return .handled }
         .onSubmit { if shown.indices.contains(pick) { complete(shown[pick]); focused = true } }
         .onChange(of: store.query) { pick = 0 }
     }
@@ -455,4 +468,8 @@ struct StatusLine: View {
     }
     .font(.system(size: 11)).frame(height: 28)
   }
+}
+
+extension Array {
+  subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
