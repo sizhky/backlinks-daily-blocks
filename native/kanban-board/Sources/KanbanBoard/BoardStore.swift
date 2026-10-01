@@ -1,5 +1,8 @@
 import Foundation
 import KanbanCore
+import SwiftUI
+
+enum ViewMode: String { case board, list }
 
 @MainActor
 final class BoardStore: ObservableObject {
@@ -7,12 +10,25 @@ final class BoardStore: ObservableObject {
   @Published private(set) var loaded = false
   @Published private(set) var error: String?
   @Published var saved: [SavedFilter]
-  @Published var grouped = UserDefaults.standard.object(forKey: "kanban.grouped") as? Bool ?? true {
-    didSet { UserDefaults.standard.set(grouped, forKey: "kanban.grouped") }
+  @Published var grouped = UserDefaults.standard.object(forKey: "kanban.grouped2") as? Bool ?? false {
+    didSet { UserDefaults.standard.set(grouped, forKey: "kanban.grouped2") }
   }
   @Published var org: String? = UserDefaults.standard.string(forKey: "kanban.org") {
     didSet { UserDefaults.standard.set(org, forKey: "kanban.org") }
   }
+  @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
+    didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
+  }
+  @Published var showSidebar = UserDefaults.standard.object(forKey: "kanban.sidebar") as? Bool ?? true {
+    didSet { UserDefaults.standard.set(showSidebar, forKey: "kanban.sidebar") }
+  }
+  @Published var inspectorOpen = UserDefaults.standard.object(forKey: "kanban.inspector") as? Bool ?? true {
+    didSet { UserDefaults.standard.set(inspectorOpen, forKey: "kanban.inspector") }
+  }
+  @Published private(set) var selected: String?
+  @Published private(set) var notes: [String: String] = [:]
+  @Published var paletteOpen = false
+  @Published var focusFilter = 0
   @Published var query: String {
     didSet { UserDefaults.standard.set(query, forKey: "kanban.query") }
   }
@@ -53,6 +69,35 @@ final class BoardStore: ObservableObject {
     return counts.map { (name: $0.key, count: $0.value) }.sorted { ($1.count, $0.name) < ($0.count, $1.name) }
   }
 
+  var selectedCard: Card? { selected.flatMap { ref in columns.lazy.flatMap(\.cards).first { $0.ref == ref } } }
+
+  /// Cards in the order the screen shows them, so arrow keys follow the eye.
+  func ordered(_ column: Column) -> [Card] {
+    grouped && mode == .board ? Grouping.byProject(column.cards).flatMap(\.cards) : column.cards
+  }
+
+  func select(_ ref: String?) {
+    selected = ref
+    guard let card = selectedCard else { return }
+    Task { notes[card.ref] = (try? await client.note(card)) ?? "" }
+  }
+
+  /// dx walks to the neighbouring non-empty column; dy walks within a column.
+  func moveSelection(dx: Int, dy: Int) {
+    let cols = visible.map(ordered)
+    guard let ref = selected, let ci = cols.firstIndex(where: { $0.contains { $0.ref == ref } }),
+          let ri = cols[ci].firstIndex(where: { $0.ref == ref }) else {
+      if let first = cols.first(where: { !$0.isEmpty })?.first { select(first.ref) }
+      return
+    }
+    if dy != 0 { select(cols[ci][min(cols[ci].count - 1, max(0, ri + dy))].ref); return }
+    var next = ci + dx
+    while cols.indices.contains(next), cols[next].isEmpty { next += dx }
+    if cols.indices.contains(next) { select(cols[next][min(ri, cols[next].count - 1)].ref) }
+  }
+
+  func openSelected() { selectedCard.map(open) }
+
   func start() {
     guard loop == nil else { return }
     loop = Task { [weak self] in
@@ -76,9 +121,11 @@ final class BoardStore: ObservableObject {
   func move(ref: String, to column: String) {
     guard let card = columns.lazy.flatMap(\.cards).first(where: { $0.ref == ref }),
       card.col.caseInsensitiveCompare(column) != .orderedSame else { return }
-    for i in columns.indices {
-      columns[i].cards.removeAll { $0.ref == ref }
-      if columns[i].name == column { columns[i].cards.insert(card.moved(to: column), at: 0) }
+    withAnimation(.spring(duration: 0.38, bounce: 0.14)) {
+      for i in columns.indices {
+        columns[i].cards.removeAll { $0.ref == ref }
+        if columns[i].name == column { columns[i].cards.insert(card.moved(to: column), at: 0) }
+      }
     }
     Task {
       do { try await client.move(card, to: column) } catch { self.error = error.localizedDescription }

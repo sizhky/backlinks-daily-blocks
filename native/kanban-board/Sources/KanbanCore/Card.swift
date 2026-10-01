@@ -7,6 +7,19 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var id: String { ref }
   public var ageHours: Double? { Age.hours(age) }
 
+  /// Linear-style short id: project key + HHmm of the note, `.line` when not the first task.
+  /// ```
+  /// Obsidian Workflow, 20260613-1844.md:0 -> "OW-1844";  Vyasa, x-0946.md:3 -> "VYA-0946.3"
+  /// ```
+  public var identifier: String {
+    let source = projects.first ?? orgs.first ?? "Task"
+    let words = source.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    let key = words.count >= 2 ? words.prefix(3).compactMap { $0.first.map(String.init) }.joined()
+                               : String(source.filter { $0.isLetter || $0.isNumber }.prefix(3))
+    let time = file.split(separator: "-").dropFirst().first.map { String($0.prefix(4)) } ?? String(file.prefix(4))
+    return key.uppercased() + "-" + time + (line > 0 ? ".\(line)" : "")
+  }
+
   /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b).
   init?(fields f: [String]) {
     guard f.count >= 4, let colon = f[1].lastIndex(of: ":"),

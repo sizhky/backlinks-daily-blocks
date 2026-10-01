@@ -3,7 +3,6 @@ import SwiftUI
 @main
 struct KanbanBoardApp: App {
   @StateObject private var store = BoardStore()
-  @AppStorage("kanban.sidebar") private var showSidebar = true
   @AppStorage("kanban.sidebarWidth") private var sidebarWidth = 232.0
   @State private var dragStart: Double?
 
@@ -11,11 +10,9 @@ struct KanbanBoardApp: App {
     WindowGroup("Kanban Board") {
       HStack(spacing: 0) {
         OrgRail()
-        if showSidebar {
+        if store.showSidebar {
           SidebarView()
             .frame(width: sidebarWidth)
-            .background(Color.white.opacity(0.02))
-            .overlay(alignment: .trailing) { Rectangle().fill(Palette.hairline).frame(width: 1) }
             .overlay(alignment: .trailing) {
               Color.clear.frame(width: 8).contentShape(Rectangle()).offset(x: 4)
                 .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
@@ -31,7 +28,14 @@ struct KanbanBoardApp: App {
         BoardView()
       }
       .background(Backdrop().ignoresSafeArea())
-      .background(Button("") { showSidebar.toggle() }.keyboardShortcut("\\", modifiers: .command).opacity(0))
+      .background {
+        Group {
+          Button("") { store.showSidebar.toggle() }.keyboardShortcut("\\", modifiers: .command)
+          Button("") { store.paletteOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
+        }
+        .opacity(0).frame(width: 0, height: 0)
+      }
+      .overlay { if store.paletteOpen { CommandPalette() } }
       .environmentObject(store)
       .frame(minWidth: 1000, minHeight: 620)
       .preferredColorScheme(.dark)

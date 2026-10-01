@@ -20,6 +20,12 @@ final class BoardTests: XCTestCase {
     XCTAssertEqual(Board.parse("=> @column\tBacklog\tlive\nBacklog\ta.md:1\tX\t1h\t\t").first?.cards.count, 1)
   }
 
+  func testIdentifier() {
+    let rows = "@column\tX\tlive\nX\t20260613-1844.md:0\tA\t1h\t\tObsidian Workflow\nX\t20260613-0946.md:3\tB\t1h\t\tVyasa"
+    let cards = Board.parse(rows)[0].cards
+    XCTAssertEqual(cards.map(\.identifier), ["OW-1844", "VYA-0946.3"])
+  }
+
   func apply(_ q: String) -> [String] {
     Filter.apply(Board.parse(output), Query.parse(q)).flatMap(\.cards).map(\.title)
   }

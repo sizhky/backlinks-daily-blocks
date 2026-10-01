@@ -37,8 +37,6 @@ struct OrgRail: View {
     }
     .padding(.top, 52).padding(.horizontal, 12)
     .frame(width: 72)
-    .background(Color.black.opacity(0.35))
-    .overlay(alignment: .trailing) { Rectangle().fill(Palette.hairline).frame(width: 1) }
     .background {
       Group {
         Button("") { store.org = nil }.keyboardShortcut("0", modifiers: .command)

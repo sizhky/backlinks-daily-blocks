@@ -1,43 +1,45 @@
 import KanbanCore
 import SwiftUI
 
-/// Status dot only; the board itself stays achromatic (Linear-style restraint).
+/// Linear-style status colours.
 func accent(for column: String) -> Color {
   switch column.lowercased() {
-  case "backlog": Color(white: 0.45)
-  case "todo": Color(red: 0.62, green: 0.66, blue: 0.95)
-  case "doing": Color(red: 0.96, green: 0.72, blue: 0.30)
+  case "backlog": Color(red: 0.54, green: 0.56, blue: 0.60)
+  case "todo": Color(red: 0.88, green: 0.89, blue: 0.90)
+  case "doing": Color(red: 0.95, green: 0.78, blue: 0.30)
   case "parked": Color(red: 0.62, green: 0.50, blue: 0.90)
-  case "waiting": Color(red: 0.92, green: 0.45, blue: 0.42)
-  case "done": Color(red: 0.40, green: 0.78, blue: 0.55)
-  case "cancelled": Color(white: 0.32)
+  case "waiting": Color(red: 0.95, green: 0.55, blue: 0.30)
+  case "done": Color(red: 0.37, green: 0.42, blue: 0.82)
+  case "cancelled": Color(white: 0.40)
   default: Color(red: 0.37, green: 0.42, blue: 0.82)
   }
 }
 
 enum Palette {
-  static let base = Color(red: 0.043, green: 0.047, blue: 0.055)
-  static let column = Color.white.opacity(0.025)
-  static let card = Color(red: 0.086, green: 0.094, blue: 0.106)
-  static let cardHover = Color(red: 0.113, green: 0.122, blue: 0.137)
-  static let hairline = Color.white.opacity(0.07)
-  static let hairlineStrong = Color.white.opacity(0.18)
+  static let window = Color(red: 0.031, green: 0.035, blue: 0.039)
+  static let base = Color(red: 0.059, green: 0.063, blue: 0.067)
+  static let card = Color(red: 0.082, green: 0.086, blue: 0.094)
+  static let cardHover = Color(red: 0.104, green: 0.108, blue: 0.120)
+  static let hairline = Color.white.opacity(0.08)
+  static let hairlineStrong = Color.white.opacity(0.17)
+  static let hover = Color.white.opacity(0.05)
+  static let active = Color.white.opacity(0.09)
   static let text = Color(red: 0.97, green: 0.97, blue: 0.97)
+  static let secondary = Color(red: 0.82, green: 0.84, blue: 0.88)
   static let muted = Color(red: 0.54, green: 0.56, blue: 0.60)
   static let amber = Color(red: 0.96, green: 0.72, blue: 0.30)
   static let link = Color(red: 0.56, green: 0.63, blue: 0.98)
+  static let selected = Color(red: 0.37, green: 0.42, blue: 0.82).opacity(0.2)
   static let indigo = Color(red: 0.37, green: 0.42, blue: 0.82)
 }
 
-/// Near-black base with one faint indigo glow for the glass layer to refract.
+/// Flat window colour; the main panel sits on it as an inset rounded sheet.
 struct Backdrop: View {
-  var body: some View {
-    ZStack {
-      Palette.base
-      RadialGradient(colors: [Palette.indigo.opacity(0.22), .clear],
-                     center: .init(x: 0.5, y: -0.1), startRadius: 0, endRadius: 520)
-    }
-  }
+  var body: some View { Palette.window }
+}
+
+func nameHue(_ name: String?) -> Double {
+  Double((name ?? "").unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
 }
 
 /// Deterministic muted tile per project, so ownership reads without text.
@@ -45,13 +47,9 @@ struct Monogram: View {
   let name: String?
   var size: CGFloat = 16
 
-  private var hue: Double {
-    Double((name ?? "").unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
-  }
-
   var body: some View {
     RoundedRectangle(cornerRadius: size * 0.3)
-      .fill(name == nil ? Color.white.opacity(0.08) : Color(hue: hue, saturation: 0.45, brightness: 0.62))
+      .fill(name == nil ? Color.white.opacity(0.08) : Color(hue: nameHue(name), saturation: 0.45, brightness: 0.62))
       .frame(width: size, height: size)
       .overlay {
         Text(name.map { String($0.prefix(1)).uppercased() } ?? "–")
@@ -107,4 +105,93 @@ func renderTitle(_ title: String) -> AttributedString {
     }
   }
   return out
+}
+
+/// Leading state icon; one glyph per column, so status reads without text.
+struct StatusGlyph: View {
+  let column: String
+  var size: CGFloat = 13
+
+  private var symbol: String {
+    switch column.lowercased() {
+    case "backlog": "circle.dashed"
+    case "todo": "circle"
+    case "doing": "circle.lefthalf.filled"
+    case "parked": "pause.circle"
+    case "waiting": "hourglass.circle"
+    case "done": "checkmark.circle.fill"
+    case "cancelled": "xmark.circle"
+    default: "circle"
+    }
+  }
+
+  var body: some View {
+    Image(systemName: symbol).font(.system(size: size, weight: .medium))
+      .foregroundStyle(accent(for: column)).frame(width: size + 3)
+  }
+}
+
+/// Bordered capsule used for labels, project and age on cards and rows.
+struct Pill<Lead: View>: View {
+  let text: String
+  var color: Color = Palette.secondary
+  @ViewBuilder var lead: Lead
+
+  var body: some View {
+    HStack(spacing: 5) { lead; Text(text).lineLimit(1) }
+      .font(.system(size: 11.5, weight: .medium)).foregroundStyle(color)
+      .padding(.horizontal, 8).padding(.vertical, 3)
+      .overlay(Capsule().strokeBorder(Palette.hairline))
+  }
+}
+
+func labelDot(_ tag: String) -> some View {
+  Circle().fill(Color(hue: nameHue(tag), saturation: 0.55, brightness: 0.8)).frame(width: 7, height: 7)
+}
+
+/// Wraps children onto new lines, like Linear's property chips.
+struct FlowLayout: Layout {
+  var spacing: CGFloat = 6
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    layout(proposal.width ?? .infinity, subviews).size
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    for (view, origin) in zip(subviews, layout(bounds.width, subviews).origins) {
+      view.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+    }
+  }
+
+  private func layout(_ width: CGFloat, _ subviews: Subviews) -> (size: CGSize, origins: [CGPoint]) {
+    var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
+    var origins: [CGPoint] = []
+    for view in subviews {
+      let size = view.sizeThatFits(.unspecified)
+      if x > 0 && x + size.width > width { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+      origins.append(CGPoint(x: x, y: y))
+      x += size.width + spacing
+      rowHeight = max(rowHeight, size.height)
+      maxX = max(maxX, x - spacing)
+    }
+    return (CGSize(width: maxX, height: y + rowHeight), origins)
+  }
+}
+
+struct IconButton: View {
+  let icon: String
+  var help = ""
+  var active = false
+  let action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: icon).font(.system(size: 12.5, weight: .medium))
+        .foregroundStyle(active ? Palette.text : Palette.muted)
+        .frame(width: 28, height: 26)
+        .background(active ? Palette.active : (hovering ? Palette.hover : .clear), in: .rect(cornerRadius: 6))
+    }
+    .buttonStyle(.plain).help(help).onHover { hovering = $0 }
+  }
 }

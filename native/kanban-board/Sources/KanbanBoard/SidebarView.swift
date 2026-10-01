@@ -1,46 +1,109 @@
+import KanbanCore
 import SwiftUI
 
+/// Linear-style sidebar: workspace title, then collapsible Views, Projects, Labels.
 struct SidebarView: View {
   @EnvironmentObject var store: BoardStore
+  @State private var collapsed: Set<String> = []
 
   var body: some View {
-    List {
-      Section("Saved") {
-        ForEach(store.saved) { filter in
-          row(filter.name, active: store.query == filter.query, count: nil, icon: "star") { store.query = filter.query }
-            .contextMenu { Button("Delete", role: .destructive) { store.delete(filter) } }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 8) {
+          Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Palette.text).lineLimit(1)
+          Spacer()
+          IconButton(icon: "magnifyingglass", help: "Commands (⌘K)") { store.paletteOpen = true }
+        }
+        .padding(.horizontal, 8).padding(.bottom, 10)
+
+        item("All issues", icon: "tray.full", active: store.query.isEmpty, count: nil) { store.query = "" }
+
+        section("Views") {
+          ForEach(store.saved) { filter in
+            item(filter.name, icon: "line.3.horizontal.decrease", active: store.query == filter.query, count: nil) {
+              store.query = filter.query
+            }
+            .contextMenu { Button("Delete view", role: .destructive) { store.delete(filter) } }
+          }
+        }
+        section("Projects") {
+          ForEach(store.facets(\.projects), id: \.name) { f in
+            item(f.name, leading: AnyView(Monogram(name: f.name, size: 16)), active: false, count: f.count) {
+              store.append("project:" + store.quote(f.name))
+            }
+          }
+        }
+        section("Labels") {
+          ForEach(store.facets(\.tags).prefix(15), id: \.name) { f in
+            item(String(f.name.dropFirst()), leading: AnyView(labelDot(f.name).frame(width: 16)), active: false, count: f.count) {
+              store.append("tag:" + f.name.dropFirst())
+            }
+          }
         }
       }
-      Section("Projects") {
-        ForEach(store.facets(\.projects), id: \.name) { f in
-          row(f.name, active: false, count: f.count, icon: "folder", project: true) { store.append("project:" + store.quote(f.name)) }
-        }
-      }
-      Section("Tags") {
-        ForEach(store.facets(\.tags).prefix(15), id: \.name) { f in
-          row(f.name, active: false, count: f.count, icon: "number") { store.append("tag:" + f.name.dropFirst()) }
-        }
-      }
+      .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 16)
     }
-    .listStyle(.sidebar)
-    .scrollContentBackground(.hidden)
-    .padding(.top, 40)
+    .scrollIndicators(.never)
   }
 
-  private func row(_ title: String, active: Bool, count: Int?, icon: String, project: Bool = false, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-      HStack {
-        if project {
-          HStack(spacing: 8) { Monogram(name: title, size: 16); Text(title).lineLimit(1) }
-        } else {
-          Label(title, systemImage: icon).lineLimit(1)
-        }
-        Spacer()
-        if let count { Text("\(count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
-      }
-      .fontWeight(active ? .semibold : .regular)
-      .opacity(count == 0 ? 0.4 : 1)
+  private var title: String {
+    switch store.activeOrg {
+    case nil: "All workspaces"
+    case Filter.noOrg?: "No organization"
+    case let org?: org
     }
-    .buttonStyle(.plain)
+  }
+
+  private func section<Content: View>(_ name: String, @ViewBuilder _ content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Button {
+        if collapsed.contains(name) { collapsed.remove(name) } else { collapsed.insert(name) }
+      } label: {
+        HStack(spacing: 4) {
+          Text(name).font(.system(size: 12, weight: .medium))
+          Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold))
+            .rotationEffect(.degrees(collapsed.contains(name) ? 0 : 90))
+          Spacer()
+        }
+        .foregroundStyle(Palette.muted).padding(.horizontal, 8).padding(.top, 16).padding(.bottom, 4)
+      }
+      .buttonStyle(.plain)
+      if !collapsed.contains(name) { content() }
+    }
+  }
+
+  private func item(_ title: String, icon: String, active: Bool, count: Int?, action: @escaping () -> Void) -> some View {
+    item(title, leading: AnyView(Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Palette.muted).frame(width: 16)),
+         active: active, count: count, action: action)
+  }
+
+  private func item(_ title: String, leading: AnyView, active: Bool, count: Int?, action: @escaping () -> Void) -> some View {
+    SidebarRow(title: title, leading: leading, active: active, count: count, action: action)
+  }
+}
+
+struct SidebarRow: View {
+  let title: String
+  let leading: AnyView
+  let active: Bool
+  let count: Int?
+  let action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 9) {
+        leading
+        Text(title).font(.system(size: 13, weight: active ? .medium : .regular)).lineLimit(1)
+          .foregroundStyle(active ? Palette.text : Palette.secondary)
+        Spacer(minLength: 4)
+        if let count { Text("\(count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted) }
+      }
+      .padding(.horizontal, 8).frame(height: 28)
+      .background(active ? Palette.active : (hovering ? Palette.hover : .clear), in: .rect(cornerRadius: 6))
+      .opacity(count == 0 ? 0.45 : 1)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain).onHover { hovering = $0 }
   }
 }

@@ -42,6 +42,12 @@ struct ObsidianClient {
     _ = try await eval("kb.moveTask(\(try js(card.file)),\(card.line),\(try js(column)))")
   }
 
+  /// Freeform prose under a task (kb.note), without the CLI's `=>` prefix.
+  func note(_ card: Card) async throws -> String {
+    let out = try await eval("kb.note(\(try js(card.ref)))").trimmingCharacters(in: .whitespacesAndNewlines)
+    return (out.hasPrefix("=>") ? String(out.dropFirst(2)) : out).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
   func open(_ card: Card) async throws {
     _ = try await eval("kb.openTask(\(try js(card.file)),\(card.line))")
     NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").first?
