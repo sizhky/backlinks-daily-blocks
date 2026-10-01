@@ -27,6 +27,13 @@ final class BoardStore: ObservableObject {
   @Published var orgOrder: [String] = UserDefaults.standard.stringArray(forKey: "kanban.orgOrder") ?? [] {
     didSet { UserDefaults.standard.set(orgOrder, forKey: "kanban.orgOrder") }
   }
+  /// Column order and user-hidden columns, by name.
+  @Published var columnOrder: [String] = UserDefaults.standard.stringArray(forKey: "kanban.columnOrder") ?? [] {
+    didSet { UserDefaults.standard.set(columnOrder, forKey: "kanban.columnOrder") }
+  }
+  @Published var hiddenColumns: [String] = UserDefaults.standard.stringArray(forKey: "kanban.hiddenColumns") ?? [] {
+    didSet { UserDefaults.standard.set(hiddenColumns, forKey: "kanban.hiddenColumns") }
+  }
   @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
     didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
   }
@@ -64,7 +71,22 @@ final class BoardStore: ObservableObject {
     return orgScope.filter { $0 == Filter.noOrg || known.contains($0) || !loaded }
   }
   var scoped: [Column] { Filter.scope(columns, orgs: activeOrgs) }
-  var visible: [Column] { Filter.apply(scoped, Query.parse(query)) }
+  var visible: [Column] {
+    let cols = Filter.apply(scoped, Query.parse(query))
+    return Ordering.arranged(cols.map(\.name), saved: columnOrder).compactMap { n in cols.first { $0.name == n } }
+  }
+  func isHidden(_ column: Column) -> Bool { hiddenColumns.contains(column.name) }
+  func setHidden(_ column: Column, _ hide: Bool) {
+    withAnimation(.spring(duration: 0.3)) {
+      hiddenColumns = hide ? hiddenColumns + [column.name] : hiddenColumns.filter { $0 != column.name }
+    }
+  }
+  /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
+  func shiftColumn(_ column: Column, by step: Int) {
+    let names = visible.map(\.name)
+    guard let i = names.firstIndex(of: column.name), names.indices.contains(i + step) else { return }
+    withAnimation(.spring(duration: 0.3)) { columnOrder = Ordering.moving(names, column.name, onto: names[i + step]) }
+  }
   var total: Int { scoped.reduce(0) { $0 + $1.cards.count } }
   /// Rail order: the user's arrangement first, then new orgs by frequency.
   var orgs: [(name: String, count: Int)] {

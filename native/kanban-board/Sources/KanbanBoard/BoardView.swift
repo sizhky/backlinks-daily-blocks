@@ -227,12 +227,10 @@ struct ColumnsScroller: View {
     GeometryReader { geo in
       ScrollView(.horizontal) {
         HStack(alignment: .top, spacing: 10) {
-          ForEach(store.visible.filter { !$0.cards.isEmpty }) { ColumnView(column: $0) }
-          HStack(alignment: .top, spacing: 6) {
-            ForEach(store.visible.filter(\.cards.isEmpty)) { CollapsedColumn(column: $0) }
-          }
+          ForEach(store.visible.filter { !store.isHidden($0) && !$0.cards.isEmpty }) { ColumnView(column: $0) }
+          HiddenColumns(columns: store.visible.filter { store.isHidden($0) || $0.cards.isEmpty })
         }
-        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map(\.cards.isEmpty))
+        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map { "\($0.name)\($0.cards.isEmpty)\(store.isHidden($0))" })
         .scrollTargetLayout()
         .frame(height: geo.size.height)
         .padding(.horizontal, 14)
@@ -280,12 +278,7 @@ struct ColumnView: View {
         Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
         Text("\(column.cards.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.muted)
         Spacer()
-        ForEach(column.sweeps, id: \.self) { target in
-          Button("⤳ \(target)") { store.sweep(column, to: target) }
-            .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.muted)
-            .disabled(column.cards.isEmpty)
-            .help("Sweep the \(column.cards.count) shown cards to \(target)")
-        }
+        ColumnMenu(column: column)
       }
       .padding(.horizontal, 8).padding(.top, 6)
       ScrollViewReader { proxy in
@@ -323,28 +316,79 @@ struct ColumnView: View {
   }
 }
 
-/// Empty column as a narrow strip pinned to the right edge; still a drop target.
-struct CollapsedColumn: View {
+/// Column header options: hide, move left or right, and the plugin's sweep routes.
+struct ColumnMenu: View {
+  @EnvironmentObject var store: BoardStore
+  let column: Column
+
+  var body: some View {
+    let names = store.visible.map(\.name)
+    Menu {
+      Button(store.isHidden(column) ? "Show column" : "Hide column") { store.setHidden(column, !store.isHidden(column)) }
+      Divider()
+      Button("Move left") { store.shiftColumn(column, by: -1) }.disabled(names.first == column.name)
+      Button("Move right") { store.shiftColumn(column, by: 1) }.disabled(names.last == column.name)
+      if !column.sweeps.isEmpty {
+        Divider()
+        ForEach(column.sweeps, id: \.self) { target in
+          Button("Move \(column.cards.count) shown to \(target)") { store.sweep(column, to: target) }
+            .disabled(column.cards.isEmpty)
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
+        .frame(width: 22, height: 22).contentShape(Rectangle())
+    }
+    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+  }
+}
+
+/// Linear's right-hand list of hidden and empty columns; each row is still a drop target.
+struct HiddenColumns: View {
+  let columns: [Column]
+  @AppStorage("kanban.hiddenOpen") private var open = true
+
+  var body: some View {
+    if !columns.isEmpty {
+      VStack(alignment: .leading, spacing: 8) {
+        Button { withAnimation(.spring(duration: 0.25)) { open.toggle() } } label: {
+          HStack(spacing: 8) {
+            Image(systemName: "triangle.fill").font(.system(size: 7)).rotationEffect(.degrees(open ? 180 : 90))
+            Text("Hidden columns").font(.system(size: 13, weight: .medium))
+            Text("\(columns.count)").font(.system(size: 13).monospacedDigit())
+          }
+          .foregroundStyle(Palette.muted).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).padding(.horizontal, 6).padding(.top, 10)
+        if open { ForEach(columns) { HiddenColumnRow(column: $0) } }
+      }
+      .frame(width: 260, alignment: .leading)
+    }
+  }
+}
+
+struct HiddenColumnRow: View {
   @EnvironmentObject var store: BoardStore
   let column: Column
   @State private var targeted = false
+  @State private var hovering = false
 
   var body: some View {
-    VStack(spacing: 10) {
+    HStack(spacing: 10) {
       StatusGlyph(column: column.name, size: 14)
-      Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.secondary)
-        .fixedSize().rotationEffect(.degrees(90)).frame(width: 18, height: 80)
-      Text("0").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
+      Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
+      if !column.cards.isEmpty {
+        Text("\(column.cards.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.muted)
+      }
       Spacer()
+      if hovering { ColumnMenu(column: column) }
     }
-    .padding(.top, 10)
-    .frame(width: 40)
-    .frame(maxHeight: .infinity)
-    .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
-    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
-    .padding(.vertical, 4)
-    .help("\(column.name): no issues")
-    .accessibilityElement(children: .combine)
+    .padding(.horizontal, 12).frame(height: 40)
+    .background(targeted ? accent(for: column.name).opacity(0.10) : Palette.card, in: .rect(cornerRadius: 8))
+    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : Palette.hairline))
+    .onHover { hovering = $0 }
+    .contextMenu { if store.isHidden(column) { Button("Show column") { store.setHidden(column, false) } } }
+    .help(store.isHidden(column) ? "\(column.name): hidden" : "\(column.name): no issues")
     .dropDestination(for: String.self) { refs, _ in
       refs.forEach { store.move(ref: $0, to: column.name) }
       return !refs.isEmpty
@@ -453,7 +497,7 @@ struct ListMode: View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(spacing: 0) {
-          ForEach(store.visible.filter { !$0.cards.isEmpty }) { column in
+          ForEach(store.visible.filter { !$0.cards.isEmpty && !store.isHidden($0) }) { column in
             HStack(spacing: 8) {
               StatusGlyph(column: column.name, size: 14)
               Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)

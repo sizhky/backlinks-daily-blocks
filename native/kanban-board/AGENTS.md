@@ -71,6 +71,10 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 
 ## Invariants
 
+- Column order (`kanban.columnOrder`) and user-hidden columns (`kanban.hiddenColumns`) are by name.
+  `store.visible` is already ordered. Hidden or empty columns render in `HiddenColumns` (right panel),
+  each row a drop target; list mode skips hidden columns. Column options live in `ColumnMenu`.
+
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
   key `+`, which needs Shift, so a hidden Cmd-= button does the same zoom in. Cmd-0 resets to 1.
 
