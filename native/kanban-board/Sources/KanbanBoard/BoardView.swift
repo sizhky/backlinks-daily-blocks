@@ -118,7 +118,9 @@ struct BoardHeader: View {
     let store = store
     tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
       guard event.keyCode == 48, event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty,
-            store.filterFocused, let s = Array(store.catalog.suggest(store.query).prefix(8))[safe: store.pick] else { return event }
+            NSApp.keyWindow?.firstResponder is NSTextView else { return event }
+      if store.paletteOpen { return store.paletteTab() ? nil : event }
+      guard let s = Array(store.catalog.suggest(store.query).prefix(8))[safe: store.pick] else { return event }
       Self.complete(s, store)
       return nil
     }
@@ -476,3 +478,4 @@ struct StatusLine: View {
 extension Array {
   subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
+

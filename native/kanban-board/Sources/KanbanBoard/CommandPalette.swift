@@ -10,6 +10,23 @@ struct Command: Identifiable {
 }
 
 extension BoardStore {
+  /// A term being typed completes to a filter term; keys keep the palette open for the value.
+  func completions() -> [Command] {
+    catalog.suggest(paletteText).prefix(6).map { s in
+      Command(title: s.term, icon: s.isKey ? "number" : "line.3.horizontal.decrease", keepOpen: s.isKey) {
+        if s.isKey { self.paletteText = Catalog.replacing(self.paletteText, with: s) } else { self.accept(s.term) }
+      }
+    }
+  }
+
+  /// Tab runs the highlighted completion; false when the highlight is an ordinary command.
+  func paletteTab() -> Bool {
+    guard let c = completions()[safe: paletteIndex] else { return false }
+    if !c.keepOpen { paletteOpen = false }
+    c.run()
+    return true
+  }
+
   func commands() -> [Command] {
     var out: [Command] = []
     if let card = selectedCard {
@@ -38,22 +55,13 @@ extension BoardStore {
 /// ⌘K: type to filter every action; ↑↓ choose, ↵ run, esc close.
 struct CommandPalette: View {
   @EnvironmentObject var store: BoardStore
-  @State private var text = ""
-  @State private var index = 0
+  private var text: String { store.paletteText }
+  private var index: Int { store.paletteIndex }
   @FocusState private var focused: Bool
-
-  /// A term being typed completes to a filter term; keys keep the palette open for the value.
-  private var completions: [Command] {
-    store.catalog.suggest(text).prefix(6).map { s in
-      Command(title: s.term, icon: s.isKey ? "number" : "line.3.horizontal.decrease", keepOpen: s.isKey) {
-        if s.isKey { text = Catalog.replacing(text, with: s) } else { store.accept(s.term) }
-      }
-    }
-  }
 
   private var results: [Command] {
     let words = text.lowercased().split(separator: " ")
-    return completions + store.commands().filter { c in words.allSatisfy { c.title.lowercased().contains($0) } }
+    return store.completions() + store.commands().filter { c in words.allSatisfy { c.title.lowercased().contains($0) } }
   }
 
   var body: some View {
@@ -63,13 +71,13 @@ struct CommandPalette: View {
       VStack(spacing: 0) {
         HStack(spacing: 10) {
           Image(systemName: "command").foregroundStyle(Palette.muted)
-          TextField("Type a command", text: $text).textFieldStyle(.plain).font(.system(size: 15))
+          TextField("Type a command", text: $store.paletteText).textFieldStyle(.plain).font(.system(size: 15))
             .focused($focused)
             .onSubmit { run(shown) }
-            .onKeyPress(.downArrow) { index = min(shown.count - 1, index + 1); return .handled }
-            .onKeyPress(.upArrow) { index = max(0, index - 1); return .handled }
+            .onKeyPress(.downArrow) { store.paletteIndex = min(shown.count - 1, index + 1); return .handled }
+            .onKeyPress(.upArrow) { store.paletteIndex = max(0, index - 1); return .handled }
             .onKeyPress(.escape) { store.paletteOpen = false; return .handled }
-            .onChange(of: text) { index = 0 }
+            .onChange(of: store.paletteText) { store.paletteIndex = 0 }
         }
         .padding(.horizontal, 18).padding(.vertical, 14)
         if !shown.isEmpty {
@@ -84,7 +92,7 @@ struct CommandPalette: View {
               .font(.system(size: 13)).padding(.horizontal, 12).padding(.vertical, 8)
               .background(i == index ? Palette.selected : .clear, in: .rect(cornerRadius: 10))
               .contentShape(Rectangle())
-              .onTapGesture { index = i; run(shown) }
+              .onTapGesture { store.paletteIndex = i; run(shown) }
             }
           }
           .padding(8)
@@ -94,7 +102,7 @@ struct CommandPalette: View {
       .glassEffect(.regular, in: .rect(cornerRadius: 22))
       .padding(.top, 110)
     }
-    .onAppear { focused = true }
+    .onAppear { store.paletteText = ""; store.paletteIndex = 0; focused = true }
   }
 
   private func run(_ shown: [Command]) {
