@@ -44,7 +44,7 @@ extension BoardStore {
     out.append(Command(title: mode == .board ? "Switch to list view" : "Switch to board view", icon: "rectangle.3.group") {
       self.mode = self.mode == .board ? .list : .board
     })
-    out.append(Command(title: "Toggle grouping by project", icon: "rectangle.grid.1x2") { self.grouped.toggle() })
+    out.append(Command(title: "Toggle grouping by project", icon: "rectangle.3.group") { self.grouped.toggle() })
     out.append(Command(title: "Toggle sidebar", icon: "sidebar.left") { self.showSidebar.toggle() })
     out.append(Command(title: "Toggle inspector", icon: "sidebar.right") { self.inspectorOpen.toggle() })
     out.append(Command(title: "Refresh", icon: "arrow.clockwise") { Task { await self.refresh() } })

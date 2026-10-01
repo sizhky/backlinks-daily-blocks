@@ -62,7 +62,7 @@ struct BoardHeader: View {
           IconButton(icon: "rectangle.split.3x1", help: "Board", active: store.mode == .board) { store.mode = .board }
           IconButton(icon: "list.bullet", help: "List", active: store.mode == .list) { store.mode = .list }
         }
-        IconButton(icon: "rectangle.grid.1x2", help: "Group by project", active: store.grouped) { store.grouped.toggle() }
+        groupMenu
         IconButton(icon: "sidebar.right", help: "Inspector (space)", active: store.inspectorOpen) { store.inspectorOpen.toggle() }
         IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
       }
@@ -75,6 +75,23 @@ struct BoardHeader: View {
     .onChange(of: focused) { store.filterFocused = focused }
     .onDisappear { tabMonitor.map(NSEvent.removeMonitor); tabMonitor = nil }
     .background(Button("") { focused = true }.keyboardShortcut("f", modifiers: .command).opacity(0))
+  }
+
+  private var groupMenu: some View {
+    Menu {
+      Toggle("No grouping", isOn: Binding(get: { !store.grouped }, set: { if $0 { store.grouped = false } }))
+      Toggle("Project", isOn: Binding(get: { store.grouped }, set: { if $0 { store.grouped = true } }))
+    } label: {
+      HStack(spacing: 5) {
+        Image(systemName: "rectangle.3.group").font(.system(size: 11.5))
+        Text(store.grouped ? "Group: Project" : "Group: None").font(.system(size: 12))
+      }
+      .foregroundStyle(store.grouped ? Palette.text : Palette.muted)
+    }
+    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+    .padding(.horizontal, 8).frame(height: 26)
+    .background(store.grouped ? Palette.active : .clear, in: .rect(cornerRadius: 6))
+    .help("Group cards in each column")
   }
 
   private var breadcrumb: some View {
@@ -291,7 +308,7 @@ struct ColumnView: View {
             } else if store.grouped {
               ForEach(Grouping.byProject(column.cards)) { group in
                 GroupHeader(group: group)
-                ForEach(group.cards) { IssueCard(card: $0) }
+                ForEach(group.cards) { IssueCard(card: $0, showOrg: group.orgs.count > 1) }
               }
             } else {
               ForEach(column.cards) { IssueCard(card: $0) }
@@ -349,6 +366,7 @@ struct CollapsedColumn: View {
 }
 
 struct GroupHeader: View {
+  @EnvironmentObject var store: BoardStore
   let group: CardGroup
 
   var body: some View {
@@ -357,6 +375,7 @@ struct GroupHeader: View {
       Text(group.name ?? "No project").font(.system(size: 12, weight: .medium)).lineLimit(1)
       Text("\(group.cards.count)").font(.system(size: 12).monospacedDigit())
       Spacer()
+      if store.activeOrgs.count != 1, group.orgs.count == 1 { OrgIcon(name: group.orgs[0], size: 14).clipShape(.circle) }
     }
     .foregroundStyle(Palette.muted)
     .padding(.horizontal, 6).padding(.top, 8)
@@ -367,6 +386,7 @@ struct GroupHeader: View {
 struct IssueCard: View {
   @EnvironmentObject var store: BoardStore
   let card: Card
+  var showOrg = true
   @State private var hovering = false
 
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
@@ -382,7 +402,7 @@ struct IssueCard: View {
           .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
         HStack(spacing: 6) {
           Text(card.age).font(.system(size: 11.5).monospacedDigit()).foregroundStyle(stale ? Palette.amber : Palette.muted)
-          if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 14).clipShape(.circle) }
+          if showOrg, store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 14).clipShape(.circle) }
         }
         .padding(.top, 1.5)
       }

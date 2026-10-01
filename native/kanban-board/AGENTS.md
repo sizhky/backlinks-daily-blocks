@@ -82,6 +82,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   filled column, inside the horizontal scroller; they stay drop targets. Sidebar Projects and Labels hide zero-count
   rows behind a "Show N empty" row. Cards show no ID (the inspector does); age and org sit on the
   title line, and the project/labels line renders only when it has content.
+  When grouped, a single-org group shows its org on the `GroupHeader` (`CardGroup.orgs`) and its
+  cards hide theirs; mixed-org groups keep the avatar per card. Grouping is the labelled "Group:" menu.
 - Rail order is `store.orgOrder` (persisted) applied by `Ordering.arranged`; drag a tile onto another to move it.
   Cmd-1 selects all, Cmd-2 to Cmd-9 select the first eight orgs in rail order.
 - Sidebar and chip counts come from `store.visible`, so they match the board.

@@ -4,6 +4,10 @@ public struct CardGroup: Identifiable, Equatable, Sendable {
   public let name: String?
   public let cards: [Card]
   public var id: String { name ?? "" }
+  /// Distinct first orgs of the cards, in card order; cards without an org add nothing.
+  public var orgs: [String] {
+    cards.compactMap(\.orgs.first).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+  }
 }
 
 public enum Grouping {

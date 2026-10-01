@@ -50,6 +50,12 @@ final class GroupingTests: XCTestCase {
     XCTAssertEqual(groups.map(\.name), ["Arka", "Zed", nil])
     XCTAssertEqual(groups[0].cards.map(\.title), ["B", "D"])
   }
+
+  func testGroupOrgsAreDistinctFirstOrgsInCardOrder() {
+    let rows = "@column\tX\tlive\nX\ta.md:1\tA\t1h\tDivami|Levo\tP\nX\ta.md:2\tB\t1h\tDivami\tP\nX\ta.md:3\tC\t1h\t\tP\nX\ta.md:4\tD\t1h\tLevo\tQ"
+    let groups = Grouping.byProject(Board.parse(rows)[0].cards)
+    XCTAssertEqual(groups.map(\.orgs), [["Divami"], ["Levo"]])
+  }
 }
 
 final class ScopeTests: XCTestCase {
