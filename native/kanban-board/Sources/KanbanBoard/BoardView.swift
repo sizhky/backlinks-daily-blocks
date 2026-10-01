@@ -351,11 +351,11 @@ struct GroupHeader: View {
 
   var body: some View {
     HStack(spacing: 7) {
-      Monogram(name: group.name, size: 18)
+      Monogram(name: group.name, size: 16)
       Text(group.name ?? "No project").font(.system(size: 12, weight: .medium)).lineLimit(1)
       Text("\(group.cards.count)").font(.system(size: 12).monospacedDigit())
       Spacer()
-      if store.activeOrgs.count != 1, group.orgs.count == 1 { OrgIcon(name: group.orgs[0], size: 14).clipShape(.circle) }
+      if store.activeOrgs.count != 1, group.orgs.count == 1 { OrgIcon(name: group.orgs[0], size: 16).clipShape(.circle) }
     }
     .foregroundStyle(Palette.muted)
     .padding(.horizontal, 6).padding(.top, 8)

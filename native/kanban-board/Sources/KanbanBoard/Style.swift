@@ -50,17 +50,17 @@ struct Monogram: View {
   var maxLetters = 3
 
   private var letters: String {
-    guard let name else { return "·" }
+    guard let name else { return "" }
     let initials = Card.initials(name)
     return String((initials.isEmpty ? String(name.prefix(1)) : initials).prefix(maxLetters))
   }
 
   private var fill: AnyShapeStyle {
-    guard let name else { return AnyShapeStyle(Color.white.opacity(0.08)) }
+    guard let name else { return AnyShapeStyle(Color.clear) }
     let hue = nameHue(name), shift = nameHue(String(name.reversed())) * 0.16 + 0.04
     return AnyShapeStyle(LinearGradient(
-      colors: [Color(hue: hue, saturation: 0.55, brightness: 0.72),
-               Color(hue: (hue + shift).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.5)],
+      colors: [Color(hue: hue, saturation: 0.4, brightness: 0.68),
+               Color(hue: (hue + shift).truncatingRemainder(dividingBy: 1), saturation: 0.45, brightness: 0.5)],
       startPoint: .topLeading, endPoint: .bottomTrailing))
   }
 
@@ -69,12 +69,12 @@ struct Monogram: View {
       Text(String(repeating: "H", count: maxLetters)).hidden()
       Text(letters).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(.white.opacity(0.95))
     }
-    .font(.system(size: size * 0.55, weight: .bold)).tracking(0.2)
+    .font(.system(size: size * 0.55, weight: .semibold)).tracking(0.2)
     .padding(.horizontal, maxLetters > 1 ? size * 0.2 : 0)
-    .padding(.vertical, maxLetters > 1 ? size * 0.38 : 0)
-    .frame(minWidth: size, minHeight: size)
-    .background(fill, in: .rect(cornerRadius: size * 0.3))
-    .overlay(RoundedRectangle(cornerRadius: size * 0.3).strokeBorder(.white.opacity(0.12)))
+    .frame(minWidth: size, minHeight: size, maxHeight: size)
+    .background(fill, in: .rect(cornerRadius: size * 0.25))
+    .overlay(RoundedRectangle(cornerRadius: size * 0.25)
+      .strokeBorder(.white.opacity(name == nil ? 0.25 : 0.1), style: StrokeStyle(lineWidth: 1, dash: name == nil ? [2, 2] : [])))
   }
 }
 

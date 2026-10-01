@@ -118,6 +118,8 @@ struct SidebarView: View {
 }
 
 struct SidebarRow: View {
+  /// One leading width for every row, so all names start at the same x.
+  static let slot: CGFloat = 28
   let title: String
   let leading: AnyView
   let active: Bool
@@ -128,7 +130,7 @@ struct SidebarRow: View {
   var body: some View {
     Button(action: action) {
       HStack(spacing: 9) {
-        leading
+        leading.frame(width: SidebarRow.slot)
         Text(title).font(.system(size: 13, weight: active ? .medium : .regular)).lineLimit(1)
           .foregroundStyle(active ? Palette.text : Palette.secondary)
         Spacer(minLength: 4)
