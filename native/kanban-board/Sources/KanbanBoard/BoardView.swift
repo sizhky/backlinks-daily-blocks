@@ -294,10 +294,7 @@ struct ColumnView: View {
               Text("No issues").font(.system(size: 12)).foregroundStyle(Palette.muted.opacity(0.6))
                 .frame(maxWidth: .infinity).padding(.top, 18)
             } else {
-              ForEach(Grouping.byProject(column.cards)) { group in
-                GroupHeader(group: group)
-                ForEach(group.cards) { IssueCard(card: $0, showOrg: group.orgs.count > 1) }
-              }
+              ForEach(store.ordered(column)) { IssueCard(card: $0) }
             }
           }
           .padding(.horizontal, 4).padding(.bottom, 16)
@@ -397,29 +394,10 @@ struct HiddenColumnRow: View {
   }
 }
 
-struct GroupHeader: View {
-  @EnvironmentObject var store: BoardStore
-  @AppStorage(Density.key) private var density: Density = .compact
-  let group: CardGroup
-
-  var body: some View {
-    HStack(spacing: 7) {
-      Monogram(name: group.name, size: 16)
-      Text(group.name ?? "No project").font(.system(size: 12, weight: .medium)).lineLimit(1)
-      Text("\(group.cards.count)").font(.system(size: 12).monospacedDigit())
-      Spacer()
-      if store.activeOrgs.count != 1, group.orgs.count == 1 { OrgIcon(name: group.orgs[0], size: 16).clipShape(.circle) }
-    }
-    .foregroundStyle(Palette.muted)
-    .padding(.horizontal, 6).padding(.top, density.groupTop)
-  }
-}
-
 /// Board card: title with age and org on its first line; project and labels below only when present.
 struct IssueCard: View {
   @EnvironmentObject var store: BoardStore
   let card: Card
-  var showOrg = true
   @State private var hovering = false
   @AppStorage(Density.key) private var density: Density = .compact
 
@@ -430,16 +408,22 @@ struct IssueCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: density.cardInner) {
       HStack(spacing: 6) {
-        if hovering || picked || !store.picked.isEmpty {
-          Button { store.togglePick(card.ref) } label: {
-            Image(systemName: picked ? "checkmark.square.fill" : "square")
-              .font(.system(size: 13)).foregroundStyle(picked ? Palette.indigo : Palette.muted)
-          }
-          .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
-        }
         Text(card.identifier).font(.system(size: density.metaSize)).foregroundStyle(Palette.muted)
         Spacer()
-        if showOrg, store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
+        // The org icon is the selection toggle; picked shows a check in its place.
+        Button { store.togglePick(card.ref) } label: {
+          ZStack {
+            if picked {
+              Image(systemName: "checkmark.circle.fill").resizable().foregroundStyle(.white, Palette.indigo)
+            } else if let org = card.orgs.first {
+              OrgIcon(name: org, size: 18).clipShape(.circle)
+            } else {
+              Circle().strokeBorder(Palette.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+            }
+          }
+          .frame(width: 18, height: 18).contentShape(Circle())
+        }
+        .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
       }
       HStack(alignment: .firstTextBaseline, spacing: 7) {
         StatusGlyph(column: card.col, size: 13).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
@@ -465,10 +449,11 @@ struct IssueCard: View {
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
     .draggable(store.dragPayload(for: card)) { DragPreview(card: card, count: picked ? store.picked.count : 1) }
-    .onTapGesture(count: 2) { store.open(card) }
+    // A single tap selects at once; a count-2 onTapGesture would delay it by the double-click interval.
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
+    .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
     .contextMenu { CardMenu(card: card) }
     .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
   }
@@ -557,8 +542,10 @@ struct IssueRow: View {
     .contentShape(Rectangle())
     .onHover { hovering = $0 }
     .draggable(store.dragPayload(for: card)) { DragPreview(card: card, count: store.picked.contains(card.ref) ? store.picked.count : 1) }
-    .onTapGesture(count: 2) { store.open(card) }
-    .onTapGesture { store.select(card.ref) }
+    .onTapGesture {
+      if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
+    }
+    .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
     .contextMenu { CardMenu(card: card) }
   }
 }

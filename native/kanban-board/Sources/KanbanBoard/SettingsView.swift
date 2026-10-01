@@ -15,7 +15,6 @@ enum Density: String, CaseIterable, Identifiable {
   var titleSize: CGFloat { roomy ? 14 : 13 }
   var metaSize: CGFloat { roomy ? 12.5 : 11.5 }
   var columnWidth: CGFloat { roomy ? 340 : 316 }
-  var groupTop: CGFloat { roomy ? 12 : 8 }
   var rowHeight: CGFloat { roomy ? 46 : 38 }
 }
 
