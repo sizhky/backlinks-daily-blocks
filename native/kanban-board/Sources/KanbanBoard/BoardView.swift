@@ -109,7 +109,7 @@ struct BoardHeader: View {
   private var filterField: some View {
     HStack(spacing: 7) {
       Image(systemName: "line.3.horizontal.decrease").font(.system(size: 11)).foregroundStyle(Palette.muted)
-      TextField("Filter…  press /", text: $store.query)
+      TextField("Filter", text: $store.query)
         .textFieldStyle(.plain).font(.system(size: 12.5)).focused($focused)
         .onKeyPress(.escape) { focused = false; return .handled }
     }
@@ -415,8 +415,7 @@ struct StatusLine: View {
       } else if !store.loaded {
         ProgressView().controlSize(.small)
       } else {
-        Text("\(store.shown) of \(store.total)  ·  / filter  ·  ⌘K commands  ·  ↑↓←→ select  ·  ↵ open  ·  space peek")
-          .monospacedDigit().foregroundStyle(Palette.muted.opacity(0.75))
+        Text("\(store.shown) of \(store.total) issues").monospacedDigit().foregroundStyle(Palette.muted.opacity(0.75))
       }
     }
     .font(.system(size: 11)).frame(height: 28)

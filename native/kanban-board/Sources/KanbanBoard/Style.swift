@@ -52,7 +52,7 @@ struct Monogram: View {
       .fill(name == nil ? Color.white.opacity(0.08) : Color(hue: nameHue(name), saturation: 0.45, brightness: 0.62))
       .frame(width: size, height: size)
       .overlay {
-        Text(name.map { String($0.prefix(1)).uppercased() } ?? "–")
+        Text(name.map { String($0.prefix(1)).uppercased() } ?? "·")
           .font(.system(size: size * 0.58, weight: .bold)).foregroundStyle(.white.opacity(0.92))
       }
   }

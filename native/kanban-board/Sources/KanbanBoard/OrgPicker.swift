@@ -25,7 +25,7 @@ struct OrgPicker: View {
     VStack(alignment: .leading, spacing: 4) {
       FlowLayout(spacing: 6) {
         ForEach(selected, id: \.self) { org in chip(org) }
-        TextField(selected.isEmpty ? "All workspaces — type to filter" : "Add…", text: $text)
+        TextField(selected.isEmpty ? "All workspaces" : "Add workspace", text: $text)
           .textFieldStyle(.plain).font(.system(size: 13)).focused($focused)
           .frame(minWidth: 120, idealWidth: 180, minHeight: 24)
           .onSubmit { add(options) }

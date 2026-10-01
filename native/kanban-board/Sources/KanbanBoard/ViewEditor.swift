@@ -12,10 +12,10 @@ struct ViewEditor: View {
     VStack(alignment: .leading, spacing: 16) {
       Text(draft.existing ? "Edit view" : "New view").font(.system(size: 15, weight: .semibold))
       field("Name") {
-        TextField("e.g. Created today", text: $draft.name).textFieldStyle(.plain).focused($nameFocused)
+        TextField("Name", text: $draft.name).textFieldStyle(.plain).focused($nameFocused)
       }
       field("Filter") {
-        TextField("col:Doing created:today -tag:x", text: $draft.query).textFieldStyle(.plain)
+        TextField("Filter", text: $draft.query).textFieldStyle(.plain)
           .font(.system(size: 12.5, design: .monospaced))
       }
       FlowLayout(spacing: 6) {

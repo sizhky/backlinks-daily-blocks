@@ -93,6 +93,13 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Radii: 6 controls, 9 cards, 12 panels, capsule pills. Use the keyboard: arrows/jk select,
   return opens, space toggles peek, `/` filters, cmd-K commands.
 
+## Copy
+
+- UI text follows Apple style: sentence case, short, no em dashes, no instructions in placeholders
+  ("Filter", "Name", "All workspaces", not "type to filter" or "e.g. ..."). Sentences end without a period
+  in labels. Use an ellipsis only for commands that open a dialog ("New view...").
+- Shortcut hints belong in tooltips (`.help`) and the command palette, not on screen.
+
 ## Gotchas
 
 - `make run` can fail with launch error -600 if `open` races `pkill`; the Makefile sleeps 1 s.
