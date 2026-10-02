@@ -240,10 +240,7 @@ struct ColumnsScroller: View {
       .onScrollGeometryChange(for: CGPoint.self) {
         CGPoint(x: $0.contentOffset.x, y: max(0, $0.contentSize.width - $0.containerSize.width))
       } action: { _, new in (offsetX, maxX) = (new.x, new.y) }
-      .onReceive(timer) { _ in
-        autoscroll(in: geo.frame(in: .global))
-        if store.draggingColumn != nil, NSEvent.pressedMouseButtons & 1 == 0 { store.draggingColumn = nil }
-      }
+      .onReceive(timer) { _ in autoscroll(in: geo.frame(in: .global)) }
       .onChange(of: store.selected) {
         if let card = store.selectedCard { withAnimation { position.scrollTo(id: card.col) } }
       }
@@ -284,15 +281,12 @@ struct ColumnView: View {
         ColumnMenu(column: column)
       }
       .padding(.horizontal, 8).padding(.top, 6)
-      .contentShape(Rectangle())
-      .draggable("column:" + column.name) {
-        HStack(spacing: 8) { StatusGlyph(column: column.name, size: 14); Text(column.name).font(.system(size: 13, weight: .medium)) }
-          .padding(.horizontal, 12).padding(.vertical, 8)
-          .background(Palette.cardHover, in: .rect(cornerRadius: 8))
-      }
       ScrollViewReader { proxy in
         ScrollView {
           LazyVStack(alignment: .leading, spacing: density.cardGap) {
+            if store.dragTarget == column.name, !store.dragging.isEmpty, !column.cards.contains(where: { store.dragging.contains($0.ref) }) {
+              GhostCard(count: store.dragging.count)
+            }
             if column.cards.isEmpty {
               Text("No issues").font(.system(size: 12)).foregroundStyle(Palette.muted.opacity(0.6))
                 .frame(maxWidth: .infinity).padding(.top, 18)
@@ -313,12 +307,11 @@ struct ColumnView: View {
     }
     .padding(4)
     .frame(width: density.columnWidth)
-    .opacity(store.draggingColumn == column.name ? 0.35 : 1)
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
     .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: {
-      targeted = $0 && store.draggingColumn == nil
-      if $0 { store.dragEntered(column) }
+      targeted = $0
+      store.dragHover(column, $0)
     }
   }
 }
@@ -398,8 +391,8 @@ struct HiddenColumnRow: View {
     .contextMenu { if store.isHidden(column) { Button("Show column") { store.setHidden(column, false) } } }
     .help(store.isHidden(column) ? "\(column.name): hidden" : "\(column.name): no issues")
     .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: {
-      targeted = $0 && store.draggingColumn == nil
-      if $0 { store.dragEntered(column) }
+      targeted = $0
+      store.dragHover(column, $0)
     }
   }
 }
@@ -460,7 +453,7 @@ struct IssueCard: View {
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
-    .draggable(store.dragPayload(for: card)) { DragPreview(card: card, count: picked ? store.picked.count : 1) }
+    .cardDrag(card)
     // A single tap selects at once; a count-2 onTapGesture would delay it by the double-click interval.
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
@@ -480,6 +473,44 @@ struct CardMenu: View {
     Menu("Move to") {
       ForEach(store.columns) { c in Button(c.name) { store.move(ref: card.ref, to: c.name) } }
     }
+  }
+}
+
+/// Dashed slot where dragged cards will land, shown in the hovered column.
+struct GhostCard: View {
+  let count: Int
+  @AppStorage(Density.key) private var density: Density = .compact
+
+  var body: some View {
+    RoundedRectangle(cornerRadius: 9)
+      .strokeBorder(Palette.indigo.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+      .background(Palette.indigo.opacity(0.06), in: .rect(cornerRadius: 9))
+      .overlay { if count > 1 { Text("\(count) issues").font(.system(size: 12)).foregroundStyle(Palette.secondary) } }
+      .frame(height: density == .comfortable ? 96 : 78)
+      .transition(.opacity)
+  }
+}
+
+extension View {
+  /// Card drag source. onDrag (not draggable) because its closure runs at drag start, which
+  /// hides the carried cards; the source stays in the tree, collapsed, so the session survives.
+  func cardDrag(_ card: Card) -> some View { modifier(CardDrag(card: card)) }
+}
+
+struct CardDrag: ViewModifier {
+  @EnvironmentObject var store: BoardStore
+  let card: Card
+
+  func body(content: Content) -> some View {
+    let away = store.dragging.contains(card.ref)
+    content
+      .onDrag {
+        NSItemProvider(object: store.beginDrag(card) as NSString)
+      } preview: {
+        DragPreview(card: card, count: store.picked.contains(card.ref) ? store.picked.count : 1)
+      }
+      .opacity(away ? 0 : 1)
+      .frame(height: away ? 0 : nil, alignment: .top).clipped()
   }
 }
 
@@ -553,7 +584,7 @@ struct IssueRow: View {
     .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1) }
     .contentShape(Rectangle())
     .onHover { hovering = $0 }
-    .draggable(store.dragPayload(for: card)) { DragPreview(card: card, count: store.picked.contains(card.ref) ? store.picked.count : 1) }
+    .cardDrag(card)
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }

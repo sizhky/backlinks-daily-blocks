@@ -47,8 +47,10 @@ final class BoardStore: ObservableObject {
   @Published private(set) var selected: String?
   /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
   @Published var picked: Set<String> = []
-  /// Column being dragged by its header; cleared on drop or mouse-up.
-  @Published var draggingColumn: String?
+  /// Cards in flight (hidden from their column) and the column the drag hovers;
+  /// cleared on drop or when the mouse button is released.
+  @Published var dragging: Set<String> = []
+  @Published var dragTarget: String?
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
@@ -86,29 +88,27 @@ final class BoardStore: ObservableObject {
       hiddenColumns = hide ? hiddenColumns + [column.name] : hiddenColumns.filter { $0 != column.name }
     }
   }
-  /// Drop on a column: a `column:Name` item reorders onto it, card refs move into it.
+  /// Drop on a column moves the carried card refs into it.
   func drop(_ items: [String], on column: Column) -> Bool {
-    if let item = items.first, item.hasPrefix("column:") {
-      reorder(String(item.dropFirst(7)), onto: column)
-      draggingColumn = nil
-      return true
-    }
+    endDrag()
     let refs = DragPayload.decode(items)
     move(refs: refs, to: column.name)
     return !refs.isEmpty
   }
-  /// A column drag entering `column` moves the dragged column into its slot at once,
-  /// so the others slide aside. The dragged name is read from the drag pasteboard.
-  func dragEntered(_ column: Column) {
-    guard let s = NSPasteboard(name: .drag).string(forType: .string), s.hasPrefix("column:") else { return }
-    let name = String(s.dropFirst(7))
-    draggingColumn = name
-    reorder(name, onto: column)
+  /// Starts a card drag: the whole pick when the card is in it. Returns the payload.
+  func beginDrag(_ card: Card) -> String {
+    dragging = picked.contains(card.ref) ? picked : [card.ref]
+    // A cancelled drag never drops; restore the cards once the mouse button is up.
+    Task {
+      while NSEvent.pressedMouseButtons & 1 != 0 { try? await Task.sleep(for: .milliseconds(80)) }
+      endDrag()
+    }
+    return DragPayload.encode(dragging.sorted())
   }
-  private func reorder(_ name: String, onto column: Column) {
-    guard name != column.name else { return }
-    withAnimation(.spring(duration: 0.3, bounce: 0.1)) { columnOrder = Ordering.moving(visible.map(\.name), name, onto: column.name) }
+  func dragHover(_ column: Column, _ inside: Bool) {
+    if inside { dragTarget = column.name } else if dragTarget == column.name { dragTarget = nil }
   }
+  func endDrag() { dragging = []; dragTarget = nil }
 
   /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
   func shiftColumn(_ column: Column, by step: Int) {
@@ -231,10 +231,7 @@ final class BoardStore: ObservableObject {
     let cols = column.map { [$0] } ?? visible.filter { !isHidden($0) }
     picked.formUnion(cols.flatMap(\.cards).map(\.ref))
   }
-  /// What a card drag carries: the whole pick when the card is in it.
-  func dragPayload(for card: Card) -> String {
-    picked.contains(card.ref) ? DragPayload.encode(picked.sorted()) : card.ref
-  }
+
 
   /// Sweeps the cards visible in `column` (current scope and filter) to `target`.
   func sweep(_ column: Column, to target: String) {
