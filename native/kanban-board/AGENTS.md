@@ -119,7 +119,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   title line, and the labels line renders only when the card has labels.
   When grouped, a single-org group shows its org on the `GroupHeader` (`CardGroup.orgs`) and its
   cards hide theirs; mixed-org groups keep the avatar per card. The board always groups by project; there is no toggle.
-- `Monogram` shows `Card.initials` (first letter of up to three words) on a two-hue gradient
+- `Monogram` shows `Card.initials` (first letter of up to three words) on a two-hue OKLCH gradient (`ProjectColor`)
   hashed from the name; every project tile is as wide as three letters and as tall as the
   adjacent text line (16 pt group header, 18 pt sidebar), shorter initials centred; no project = dashed outline.
   Sidebar rows share one leading slot (`SidebarRow.slot`, 28 pt) so names align; `Card.identifier` reuses `Card.initials` for multi-word names.

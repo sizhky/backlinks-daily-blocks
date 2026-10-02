@@ -42,6 +42,10 @@ func nameHue(_ name: String?) -> Double {
   Double((name ?? "").unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
 }
 
+extension Color {
+  init(_ oklch: OKLCH) { self.init(red: oklch.rgb.r, green: oklch.rgb.g, blue: oklch.rgb.b) }
+}
+
 /// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials,
 /// in a rounded tile as wide as `maxLetters` letters so rows stay aligned; shorter initials sit centred.
 struct Monogram: View {
@@ -57,11 +61,9 @@ struct Monogram: View {
 
   private var fill: AnyShapeStyle {
     guard let name else { return AnyShapeStyle(Color.clear) }
-    let hue = nameHue(name), shift = nameHue(String(name.reversed())) * 0.16 + 0.04
+    let pair = ProjectColor.pair(name)
     return AnyShapeStyle(LinearGradient(
-      colors: [Color(hue: hue, saturation: 0.4, brightness: 0.68),
-               Color(hue: (hue + shift).truncatingRemainder(dividingBy: 1), saturation: 0.45, brightness: 0.5)],
-      startPoint: .topLeading, endPoint: .bottomTrailing))
+      colors: [Color(pair.light), Color(pair.dark)], startPoint: .topLeading, endPoint: .bottomTrailing))
   }
 
   var body: some View {
