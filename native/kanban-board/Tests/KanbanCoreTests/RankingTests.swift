@@ -32,4 +32,14 @@ final class RankingTests: XCTestCase {
     let out = Ranking.place(["x", "y"], before: "b", in: [card("a", 0), card("b", 3)])
     XCTAssertEqual(out.map(\.rank), [1, 2])
   }
+
+  func testSlotFromCursorHeight() {
+    let mid = ["a": 10.0, "b": 30, "c": 50]
+    func at(_ y: Double) -> String? { Ranking.slot(order: ["a", "b", "c"], dragging: ["b"], grabbed: "b", midY: mid, y: y) }
+    XCTAssertEqual(at(5), "a")
+    XCTAssertEqual(at(40), "b")
+    XCTAssertNil(at(60))
+    XCTAssertEqual(Ranking.slot(order: ["a", "b"], dragging: ["x"], grabbed: "x", midY: mid, y: 99), nil)
+    XCTAssertEqual(Ranking.slot(order: ["a", "c"], dragging: ["c"], grabbed: "c", midY: mid, y: 99), "c")
+  }
 }

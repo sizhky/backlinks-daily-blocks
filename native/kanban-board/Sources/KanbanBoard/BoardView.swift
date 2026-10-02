@@ -1,5 +1,6 @@
 import KanbanCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Main panel: an inset rounded sheet holding header, board or list, and the issue peek.
 struct BoardView: View {
@@ -270,6 +271,7 @@ struct ColumnView: View {
   @AppStorage(Density.key) private var density: Density = .compact
   let column: Column
   @State private var targeted = false
+  @State private var frames = CardFrames()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -296,11 +298,14 @@ struct ColumnView: View {
                   GhostCard(count: store.dragging.count)
                 }
                 IssueCard(card: card)
+                  .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { frames.midY[card.ref] = $0.midY }
+              }
+              if store.dragTarget == column.name, store.dragBefore == BoardStore.endSlot, !store.dragging.isEmpty {
+                GhostCard(count: store.dragging.count)
               }
             }
           }
           .padding(.horizontal, 4).padding(.bottom, 16)
-          .animation(.spring(duration: 0.38, bounce: 0.12), value: column.cards.map(\.id))
         }
         .scrollIndicators(.never)
         .onChange(of: store.selected) {
@@ -314,11 +319,31 @@ struct ColumnView: View {
     .frame(width: density.columnWidth)
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
-    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: {
-      targeted = $0
-      store.dragHover(column, $0)
-    }
+    .coordinateSpace(.named(space))
+    .onDrop(of: [.utf8PlainText], delegate: ColumnDrop(store: store, column: column, frames: frames, targeted: $targeted))
   }
+
+  private var space: String { "column-" + column.name }
+}
+
+/// Card middles in a column's coordinate space; a class so measuring does not redraw the column.
+final class CardFrames { var midY: [String: Double] = [:] }
+
+/// Board column drop target. Unlike `dropDestination`, it reports the cursor position on every
+/// move, so the ghost follows the cursor's height (including below the last card) instead of
+/// enter/leave events that arrive in no fixed order.
+struct ColumnDrop: DropDelegate {
+  let store: BoardStore
+  let column: Column
+  let frames: CardFrames
+  @Binding var targeted: Bool
+
+  func validateDrop(info: DropInfo) -> Bool { true }
+  func dropEntered(info: DropInfo) { targeted = true; hover(info) }
+  func dropUpdated(info: DropInfo) -> DropProposal? { hover(info); return DropProposal(operation: .move) }
+  func dropExited(info: DropInfo) { targeted = false }
+  func performDrop(info: DropInfo) -> Bool { targeted = false; return store.dropAtGhost(column) }
+  private func hover(_ info: DropInfo) { store.hover(column, y: info.location.y, midY: frames.midY) }
 }
 
 /// Column header options: hide, move left or right, and the plugin's sweep routes.
@@ -519,9 +544,6 @@ struct CardDrag: ViewModifier {
       .opacity(away ? 0 : 1)
       .overlay { if slot { GhostCard(count: store.dragging.count, fill: true) } }
       .frame(height: away && !slot ? 0 : nil, alignment: .top).clipped()
-      .dropDestination(for: String.self) { items, _ in
-        store.visible.first { $0.name == card.col }.map { store.drop(items, on: $0) } ?? false
-      } isTargeted: { store.dragHover(card, $0) }
   }
 }
 
@@ -581,6 +603,7 @@ struct IssueRow: View {
     .contentShape(Rectangle())
     .onHover { hovering = $0 }
     .cardDrag(card)
+    .dropDestination(for: String.self) { items, _ in store.drop(items, before: card) }
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }

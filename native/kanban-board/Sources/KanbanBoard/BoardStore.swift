@@ -53,6 +53,8 @@ final class BoardStore: ObservableObject {
   @Published var dragTarget: String?
   /// Card the drag hovers; the ghost and the drop go before it. nil = top of `dragTarget`.
   @Published var dragBefore: String?
+  /// The card under the cursor at pickup; its own slot is the ghost's home.
+  private var grabbed: String?
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
@@ -93,20 +95,42 @@ final class BoardStore: ObservableObject {
   /// Drop on a column moves the carried card refs into it.
   /// Clearing the drag state and placing the cards share one animation, so the ghost turns
   /// into the card instead of the source re-expanding and then vanishing.
-  /// Every drop lands where the ghost is (`dragTarget`/`dragBefore`), whichever view received it;
-  /// `column` is the fallback when no ghost is set. The ghost on the grabbed card's own slot
-  /// means no move.
+  /// `dragBefore` value for the slot after the last card.
+  static let endSlot = "\u{1}end"
+
+  /// Hidden-panel rows: land at the ghost when it is in this column, else at the top.
   func drop(_ items: [String], on column: Column) -> Bool {
-    let refs = DragPayload.decode(items)
+    land(DragPayload.decode(items), in: column, before: dragTarget == column.name ? dragBefore : nil)
+  }
+  /// List rows: land before the row's card.
+  func drop(_ items: [String], before card: Card) -> Bool {
+    guard let column = visible.first(where: { $0.name == card.col }) else { return false }
+    return land(DragPayload.decode(items), in: column, before: card.ref)
+  }
+  /// Board columns: land at the ghost.
+  func dropAtGhost(_ column: Column) -> Bool {
     let target = dragTarget.flatMap { t in visible.first { $0.name == t } } ?? column
-    let before = dragTarget == nil ? nil : dragBefore
+    return land(Array(dragging).sorted(), in: target, before: dragBefore)
+  }
+  /// `before`: a ref, `endSlot`, or nil for the top. A ghost on a carried card's own slot means
+  /// no move. Clearing the drag and placing share one animation, so the ghost becomes the card.
+  @discardableResult
+  private func land(_ refs: [String], in target: Column, before: String?) -> Bool {
+    guard !refs.isEmpty else { return false }
     withAnimation(Self.dragSpring) {
-      (dragging, dragTarget, dragBefore) = ([], nil, nil)
+      (dragging, dragTarget, dragBefore, grabbed) = ([], nil, nil, nil)
       if let b = before, refs.contains(b) { return }
-      let top = ordered(target).first { !refs.contains($0.ref) }
-      place(refs, before: before ?? top?.ref, in: target)
+      let top = ordered(target).first { !refs.contains($0.ref) }?.ref
+      place(refs, before: before == Self.endSlot ? nil : (before ?? top), in: target)
     }
-    return !refs.isEmpty
+    return true
+  }
+
+  /// Column drag hover at height `y`; `midY` holds each card's middle in the column's space.
+  func hover(_ column: Column, y: Double, midY: [String: Double]) {
+    guard !dragging.isEmpty else { return }
+    let slot = Ranking.slot(order: ordered(column).map(\.ref), dragging: dragging, grabbed: grabbed, midY: midY, y: y)
+    setGhost(column.name, slot ?? Self.endSlot)
   }
 
   /// Drops `refs` before `before` in `column`'s shown order and saves the ranks.
@@ -139,6 +163,7 @@ final class BoardStore: ObservableObject {
   /// Starts a card drag: the whole pick when the card is in it. Returns the payload.
   func beginDrag(_ card: Card) -> String {
     let refs: Set<String> = picked.contains(card.ref) ? picked : [card.ref]
+    grabbed = card.ref
     // Hide the cards on the next run-loop turn: AppKit snapshots the card for the drag image
     // right after this returns, and a collapsed card would give an empty image.
     Task {
@@ -150,17 +175,13 @@ final class BoardStore: ObservableObject {
     }
     return DragPayload.encode(refs.sorted())
   }
-  /// Entering a new column puts the ghost at its top. Gaps between cards, the ghost itself,
-  /// and leaving a card change nothing, so the ghost never flickers back to the top.
+  /// Hidden-panel rows: entering one puts the ghost at that column's top.
   func dragHover(_ column: Column, _ inside: Bool) {
     if inside, dragTarget != column.name { setGhost(column.name, nil) }
   }
-  func dragHover(_ card: Card, _ inside: Bool) {
-    if inside { setGhost(card.col, card.ref) }
-  }
   func endDrag() {
     guard !dragging.isEmpty || dragTarget != nil else { return }
-    withAnimation(Self.dragSpring) { dragging = []; dragTarget = nil; dragBefore = nil }
+    withAnimation(Self.dragSpring) { (dragging, dragTarget, dragBefore, grabbed) = ([], nil, nil, nil) }
   }
   /// Ghost moves animate so the cards around it slide rather than jump.
   static let dragSpring = Animation.spring(duration: 0.28, bounce: 0.12)

@@ -40,4 +40,19 @@ public enum Ranking {
     }
     return out
   }
+
+  /// Where a drag at height `y` lands: before the first non-dragged card whose middle is below
+  /// `y`, or nil for the end. A spot equal to where the grabbed card already sits returns the
+  /// grabbed card's own ref, so hovering near home changes nothing on screen.
+  /// ```
+  /// order a b c, midY a=10 b=30 c=50, dragging b: y=5 -> "a", y=40 -> "b" (home), y=60 -> nil
+  /// ```
+  public static func slot(order: [String], dragging: Set<String>, grabbed: String?,
+                          midY: [String: Double], y: Double) -> String? {
+    let others = order.filter { !dragging.contains($0) }
+    let hit = others.first { (midY[$0] ?? .infinity) > y }
+    guard let g = grabbed, let i = order.firstIndex(of: g) else { return hit }
+    let home = order[(i + 1)...].first { !dragging.contains($0) }
+    return hit == home ? g : hit
+  }
 }
