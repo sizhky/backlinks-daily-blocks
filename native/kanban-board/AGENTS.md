@@ -86,6 +86,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Card drag uses `.cardDrag` (onDrag, whose closure runs at drag start). `store.dragging` hides the
   carried cards (collapsed, still in the tree so the drag session survives); `dragTarget` shows a
   `GhostCard` in the hovered column. A polling task clears both on mouse-up for cancelled drags.
+  All drag state changes go through `withAnimation(BoardStore.dragSpring)` so neighbours slide.
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
   key `+`, which needs Shift, so a hidden Cmd-= button does the same zoom in. Cmd-0 resets to 1.
 

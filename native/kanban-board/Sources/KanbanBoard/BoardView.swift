@@ -490,7 +490,7 @@ struct GhostCard: View {
       .background(Palette.indigo.opacity(0.06), in: .rect(cornerRadius: 9))
       .overlay { if count > 1 { Text("\(count) issues").font(.system(size: 12)).foregroundStyle(Palette.secondary) } }
       .frame(height: density == .comfortable ? 96 : 78)
-      .transition(.opacity)
+      .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)), removal: .opacity))
   }
 }
 

@@ -127,7 +127,7 @@ final class BoardStore: ObservableObject {
   }
   /// Starts a card drag: the whole pick when the card is in it. Returns the payload.
   func beginDrag(_ card: Card) -> String {
-    dragging = picked.contains(card.ref) ? picked : [card.ref]
+    withAnimation(Self.dragSpring) { dragging = picked.contains(card.ref) ? picked : [card.ref] }
     // A cancelled drag never drops; restore the cards once the mouse button is up.
     Task {
       while NSEvent.pressedMouseButtons & 1 != 0 { try? await Task.sleep(for: .milliseconds(80)) }
@@ -136,13 +136,21 @@ final class BoardStore: ObservableObject {
     return DragPayload.encode(dragging.sorted())
   }
   func dragHover(_ column: Column, _ inside: Bool) {
-    if inside { dragTarget = column.name; dragBefore = nil }
-    else if dragTarget == column.name, dragBefore == nil { dragTarget = nil }
+    if inside { setGhost(column.name, nil) }
+    else if dragTarget == column.name, dragBefore == nil { setGhost(nil, nil) }
   }
   func dragHover(_ card: Card, _ inside: Bool) {
-    if inside { dragTarget = card.col; dragBefore = card.ref } else if dragBefore == card.ref { dragBefore = nil }
+    if inside { setGhost(card.col, card.ref) } else if dragBefore == card.ref { setGhost(dragTarget, nil) }
   }
-  func endDrag() { dragging = []; dragTarget = nil; dragBefore = nil }
+  func endDrag() {
+    withAnimation(Self.dragSpring) { dragging = []; dragTarget = nil; dragBefore = nil }
+  }
+  /// Ghost moves animate so the cards around it slide rather than jump.
+  static let dragSpring = Animation.spring(duration: 0.28, bounce: 0.12)
+  private func setGhost(_ column: String?, _ before: String?) {
+    guard column != dragTarget || before != dragBefore else { return }
+    withAnimation(Self.dragSpring) { (dragTarget, dragBefore) = (column, before) }
+  }
 
   /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
   func shiftColumn(_ column: Column, by step: Int) {
