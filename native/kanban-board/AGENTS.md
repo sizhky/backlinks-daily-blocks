@@ -83,6 +83,10 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   ranks from the shown order (unranked cards above the drop point get ranked too); `kb.rankTasks`
   writes them and moves cards into the column first. Every card drop goes through `store.place`;
   dropping on a card lands before it, on the column background lands at the top.
+- Card `id` is `file|title` (deduped `#n`), set in `Board.parse`; `ref` (file:line) shifts whenever a
+  line is inserted above, so it must not be the view identity. Selection and moves still use `ref`.
+- Writes bump `store.writeGen`; `refresh` drops results from before the latest write or during a drag.
+  Without this the 6 s poll can land mid-write and snap an optimistic move back.
 - Card drag uses `.cardDrag` (onDrag, whose closure runs at drag start). `store.dragging` hides the
   carried cards (collapsed, still in the tree so the drag session survives); `dragTarget` shows a
   `GhostCard` in the hovered column. A polling task clears both on mouse-up for cancelled drags.

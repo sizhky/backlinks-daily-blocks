@@ -6,7 +6,9 @@ public struct Card: Identifiable, Equatable, Sendable {
   public let tags: [String], orgs: [String], projects: [String]
   /// Manual order in its column (`%% kbrank %%`); nil = unranked.
   public var rank: Double?
-  public var id: String { ref }
+  /// View identity that survives line shifts (`file|title`, set by `Board.parse`); `ref` changes
+  /// whenever a line is inserted above the task, which would make SwiftUI re-insert the card.
+  public var id: String
   public var ageHours: Double? { Age.hours(age) }
 
   /// Creation time from the daily-note file name `YYYYMMDD-HHmm[...].md`.
@@ -57,6 +59,7 @@ public struct Card: Identifiable, Equatable, Sendable {
   init(ref: String, file: String, line: Int, col: String, title: String, age: String,
        tags: [String], orgs: [String], projects: [String]) {
     (self.ref, self.file, self.line, self.col, self.title, self.age) = (ref, file, line, col, title, age)
+    id = ref
     (self.tags, self.orgs, self.projects) = (tags, orgs, projects)
   }
 
@@ -64,6 +67,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     var c = Card(ref: ref, file: file, line: line, col: col, title: title, age: "0m",
          tags: tags, orgs: orgs, projects: projects)
     c.rank = rank
+    c.id = id
     return c
   }
 
@@ -114,6 +118,15 @@ public enum Board {
         columns.append(Column(name: f[1], done: f.count > 2 && f[2] == "done", cards: []))
       } else if !columns.isEmpty, let card = Card(fields: f) {
         columns[columns.count - 1].cards.append(card)
+      }
+    }
+    var seen: [String: Int] = [:]
+    for i in columns.indices {
+      for j in columns[i].cards.indices {
+        let base = columns[i].cards[j].file + "|" + columns[i].cards[j].title
+        let n = seen[base, default: 0]
+        seen[base] = n + 1
+        columns[i].cards[j].id = n == 0 ? base : "\(base)#\(n)"
       }
     }
     return columns

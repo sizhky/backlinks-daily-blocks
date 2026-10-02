@@ -91,11 +91,15 @@ final class BoardStore: ObservableObject {
     }
   }
   /// Drop on a column moves the carried card refs into it.
+  /// Clearing the drag state and placing the cards share one animation, so the ghost turns
+  /// into the card instead of the source re-expanding and then vanishing.
   func drop(_ items: [String], on column: Column, before card: Card? = nil) -> Bool {
-    endDrag()
     let refs = DragPayload.decode(items)
     let top = ordered(column).first { !refs.contains($0.ref) }
-    place(refs, before: (card ?? top)?.ref, in: column)
+    withAnimation(Self.dragSpring) {
+      (dragging, dragTarget, dragBefore) = ([], nil, nil)
+      place(refs, before: (card ?? top)?.ref, in: column)
+    }
     return !refs.isEmpty
   }
 
@@ -106,7 +110,7 @@ final class BoardStore: ObservableObject {
     let rank = Dictionary(pairs.map { ($0.ref, $0.rank) }, uniquingKeysWith: { a, _ in a })
     let moving = Set(refs)
     let cards = columns.flatMap(\.cards).filter { moving.contains($0.ref) }
-    withAnimation(.spring(duration: 0.38, bounce: 0.14)) {
+    do {
       for i in columns.indices {
         columns[i].cards.removeAll { moving.contains($0.ref) }
         for j in columns[i].cards.indices { if let r = rank[columns[i].cards[j].ref] { columns[i].cards[j].rank = r } }
@@ -120,6 +124,7 @@ final class BoardStore: ObservableObject {
       }
     }
     picked.subtract(moving)
+    writeGen += 1
     Task {
       do { try await client.rank(pairs, in: column.name) } catch { self.error = error.localizedDescription }
       await refresh()
@@ -143,6 +148,7 @@ final class BoardStore: ObservableObject {
     if inside { setGhost(card.col, card.ref) } else if dragBefore == card.ref { setGhost(dragTarget, nil) }
   }
   func endDrag() {
+    guard !dragging.isEmpty || dragTarget != nil else { return }
     withAnimation(Self.dragSpring) { dragging = []; dragTarget = nil; dragBefore = nil }
   }
   /// Ghost moves animate so the cards around it slide rather than jump.
@@ -234,9 +240,16 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  /// Bumped by every write. A refresh that started before a write (or lands mid-drag)
+  /// carries stale data and is dropped, so an optimistic move never snaps back.
+  private var writeGen = 0
+
   func refresh() async {
+    let gen = writeGen
     do {
-      columns = try await client.board()
+      let fresh = try await client.board()
+      guard gen == writeGen, dragging.isEmpty else { return }
+      withAnimation(Self.dragSpring) { columns = fresh }
       picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
       error = nil
     } catch {
@@ -259,6 +272,7 @@ final class BoardStore: ObservableObject {
       }
     }
     picked.subtract(moving)
+    writeGen += 1
     Task {
       do {
         if cards.count == 1 { try await client.move(cards[0], to: column) } else { try await client.move(cards, to: column) }
@@ -280,6 +294,7 @@ final class BoardStore: ObservableObject {
   /// Sweeps the cards visible in `column` (current scope and filter) to `target`.
   func sweep(_ column: Column, to target: String) {
     guard !column.cards.isEmpty else { return }
+    writeGen += 1
     Task {
       do { try await client.sweep(column.cards, from: column.name, to: target) } catch { self.error = error.localizedDescription }
       await refresh()

@@ -27,6 +27,14 @@ final class BoardTests: XCTestCase {
     XCTAssertEqual(cols[0].sweeps, [])
   }
 
+  func testCardIdSurvivesLineShiftAndDedupes() {
+    let a = Board.parse("@column\tX\tlive\nX\tn.md:3\tSame\t1h\nX\tn.md:5\tSame\t1h")[0].cards
+    let b = Board.parse("@column\tX\tlive\nX\tn.md:4\tSame\t1h\nX\tn.md:7\tSame\t1h")[0].cards
+    XCTAssertEqual(a.map(\.id), ["n.md|Same", "n.md|Same#1"])
+    XCTAssertEqual(a.map(\.id), b.map(\.id))
+    XCTAssertEqual(a[0].moved(to: "Y").id, a[0].id)
+  }
+
   func testDragPayloadRoundTrip() {
     XCTAssertEqual(DragPayload.decode([DragPayload.encode(["a.md:3", "b.md:0"]), "c.md:1"]), ["a.md:3", "b.md:0", "c.md:1"])
   }

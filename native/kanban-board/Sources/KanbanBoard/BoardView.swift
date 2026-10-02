@@ -283,7 +283,7 @@ struct ColumnView: View {
       .padding(.horizontal, 8).padding(.top, 6)
       ScrollViewReader { proxy in
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: density.cardGap) {
+          VStack(alignment: .leading, spacing: density.cardGap) {
             if store.dragTarget == column.name, store.dragBefore == nil, !store.dragging.isEmpty {
               GhostCard(count: store.dragging.count)
             }
@@ -303,7 +303,7 @@ struct ColumnView: View {
         .scrollIndicators(.never)
         .onChange(of: store.selected) {
           if let ref = store.selected, column.cards.contains(where: { $0.ref == ref }) {
-            withAnimation { proxy.scrollTo(ref) }
+            withAnimation { proxy.scrollTo(store.selectedCard?.id ?? ref) }
           }
         }
       }
@@ -557,7 +557,7 @@ struct ListMode: View {
         }
       }
       .scrollIndicators(.never)
-      .onChange(of: store.selected) { if let ref = store.selected { withAnimation { proxy.scrollTo(ref) } } }
+      .onChange(of: store.selected) { if let id = store.selectedCard?.id { withAnimation { proxy.scrollTo(id) } } }
     }
   }
 }
