@@ -195,6 +195,12 @@ Returns `ok file:line -> Col` on success.
 `refs` is an array of `file:line`. Same-file refs move bottom-up so line numbers stay valid.
 No open-children guard (same as `moveTask`). Returns `ok <moved>`.
 
+### `kb.rankTasks(pairs, toCol?)` — manual card order
+`pairs` is `[[file:line, rank], ...]`. Writes a `%% kbrank N %%` line under each task (lower
+first; unranked cards sort after ranked ones in every column). With `toCol`, cards in another
+column move there first. Same-file refs go bottom-up. Returns `ok <n>`.
+`kb.active({rank:true})` appends each row's rank (empty when unranked) after `age`.
+
 ### `kb.sweep(fromCol, toCol, refs?)` — bulk-move a column
 Same as the board's sweep button: same-file cards move bottom-up, and terminal
 targets skip cards with open children. `refs` (array of `file:line`) limits the

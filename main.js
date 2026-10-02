@@ -663,6 +663,7 @@ var require_kanban = __commonJS({
     var ICON_RE = /^\s*%%\s?kbicon ([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*)\s?%%\s*$/i;
     var METRIC_RE = /^\s*%%\s?kbmetric (count|sum)\s?%%\s*$/i;
     var TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
+    var RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
     var TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -881,6 +882,12 @@ var require_kanban = __commonJS({
             if (card) card.metric = mm[1].toLowerCase();
             continue;
           }
+          const rm = text.match(RANK_RE);
+          if (rm) {
+            const card = owner(text);
+            if (card) card.rank = Number(rm[1]);
+            continue;
+          }
           const tpm = text.match(TAP_RE);
           if (tpm) {
             const card = owner(text);
@@ -912,7 +919,23 @@ var require_kanban = __commonJS({
           if (col) cards.get(col.key).push(card);
         }
       }
+      for (const list of cards.values()) sortByRank(list);
       return cards;
+    }
+    function sortByRank(list) {
+      const r = (c) => c.rank == null ? Infinity : c.rank;
+      return list.sort((a, b) => r(a) - r(b));
+    }
+    function setRankLine(lines, line, rank) {
+      const base = indentWidth(lines[line]);
+      for (let i = line + 1; i < lines.length && lines[i].trim() && indentWidth(lines[i]) > base; i++) {
+        if (RANK_RE.test(lines[i])) {
+          lines.splice(i, 1);
+          break;
+        }
+      }
+      const indent = lines[line].match(/^\s*/)[0] + "  ";
+      lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, `${indent}%% kbrank ${rank} %%`);
     }
     function tagLineAt(lines, line) {
       const next = lines[line + 1];
@@ -949,7 +972,7 @@ var require_kanban = __commonJS({
       let restAt = end;
       for (i = line + 1; i < end; i++) {
         const t = lines[i];
-        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t)) prefix.push(t);
+        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t)) prefix.push(t);
         else if (HIST_RE2.test(t) || EI_HIST_RE.test(t)) logs.push(t);
         else if (TASK_RE2.test(t)) {
           restAt = i;
@@ -1658,6 +1681,8 @@ var require_kanban = __commonJS({
       scanKanbanTasks,
       moveCard: moveCard2,
       sweepColumn,
+      setRankLine,
+      RANK_RE,
       logTapSpan,
       renderKanbanBlock: renderKanbanBlock2,
       drawBoard,
@@ -2865,6 +2890,8 @@ var require_api = __commonJS({
       scanKanbanTasks,
       moveCard: moveCard2,
       sweepColumn,
+      setRankLine,
+      taskColumn,
       parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
       cleanText,
@@ -3180,6 +3207,7 @@ projects:
         body: card.body,
         col: col.name,
         tags: card.tags,
+        rank: card.rank ?? null,
         since: recent ? new Date(recent).toISOString() : null,
         recent
       };
@@ -3212,7 +3240,7 @@ projects:
           }
           rows = filterSince(rows, opts.since);
           if (opts.limit) rows = rows.slice(0, opts.limit);
-          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
+          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
         },
         // Every configured column and its tasks. The `full` column is unfiltered;
         // other columns only include tasks seen within `hours` (default 24).
@@ -3489,6 +3517,7 @@ projects:
             "createTask(opts)         create a validated task note; opts: text,org,project,col",
             "moveTask(file,line,col)  move a task to a column",
             "moveTasks(refs,col)      move several file:line refs to a column",
+            "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
             "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
             "sweeps()                 sweep routes from settings: From<TAB>To",
             "habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths",
@@ -3596,6 +3625,33 @@ projects:
             if (file && await moveCard2(plugin.app, file, line, col, config, {})) moved++;
           }
           return `ok ${moved}`;
+        },
+        // Manual order: [[ref, rank], ...]. With toCol, cards not already there move first.
+        // Same-file refs go bottom-up (each edit only inserts below its task). Returns "ok <n>".
+        async rankTasks(pairs, toCol) {
+          const config = makeConfig({}, plugin);
+          const col = toCol == null ? null : config.columns.find((c) => c.name.toLowerCase() === String(toCol).toLowerCase());
+          if (toCol != null && !col) throw new Error("unknown col: " + toCol);
+          const parsed = pairs.map(([r, rank]) => {
+            const i = r.lastIndexOf(":");
+            return { path: r.slice(0, i), line: +r.slice(i + 1), rank: Number(rank) };
+          }).filter((p) => Number.isFinite(p.rank)).sort((a, b) => a.path === b.path ? b.line - a.line : a.path.localeCompare(b.path));
+          let n = 0;
+          for (const p of parsed) {
+            const file = plugin.app.vault.getAbstractFileByPath(p.path);
+            if (!file) continue;
+            if (col) {
+              const lines2 = (await plugin.app.vault.read(file)).split(/\r?\n/);
+              const m = lines2[p.line]?.match(TASK_RE2);
+              if (m && taskColumn(lines2, p.line, m, config)?.key !== col.key) await moveCard2(plugin.app, file, p.line, col, config, {});
+            }
+            const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+            if (!TASK_RE2.test(lines[p.line] || "")) continue;
+            setRankLine(lines, p.line, p.rank);
+            await plugin.app.vault.modify(file, lines.join("\n"));
+            n++;
+          }
+          return `ok ${n}`;
         },
         // Bulk-move a column, as the board's sweep button does. refs ("file:line")
         // limits it to those cards. Returns "ok <moved> <blocked>".

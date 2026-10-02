@@ -79,6 +79,10 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Multi-select is `store.picked` (refs). The card's top-right org icon is the toggle (check when picked). A picked card drags `DragPayload.encode(picked)`; `store.drop`
   decodes it. Several cards move in one `kb.moveTasks` call, never parallel `moveTask` calls,
   because each move inserts a history line and shifts later line refs in the same file.
+- Manual order: `%% kbrank N %%` under a task (plugin `RANK_RE`). `Ranking.place` computes fractional
+  ranks from the shown order (unranked cards above the drop point get ranked too); `kb.rankTasks`
+  writes them and moves cards into the column first. Every card drop goes through `store.place`;
+  dropping on a card lands before it, on the column background lands at the top.
 - Card drag uses `.cardDrag` (onDrag, whose closure runs at drag start). `store.dragging` hides the
   carried cards (collapsed, still in the tree so the drag session survives); `dragTarget` shows a
   `GhostCard` in the hovered column. A polling task clears both on mouse-up for cancelled drags.

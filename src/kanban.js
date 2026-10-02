@@ -33,6 +33,8 @@ const TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
 // Tag line: tags and wikilinks only, indented under a task. Holds #kb state,
 // #ei priority and [[who]] so the task line itself stays clean. Tags on the
 // task line are still read (legacy); all writes target the tag line.
+// Manual card order within a column; lower first, unranked cards after ranked ones.
+const RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
 const TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
 
 // Column color: explicit config > named palette > position cycle.
@@ -287,6 +289,13 @@ async function scanKanbanTasks(app, config, opts = {}) {
         continue;
       }
 
+      const rm = text.match(RANK_RE);
+      if (rm) {
+        const card = owner(text);
+        if (card) card.rank = Number(rm[1]);
+        continue;
+      }
+
       const tpm = text.match(TAP_RE);
       if (tpm) {
         const card = owner(text);
@@ -323,7 +332,24 @@ async function scanKanbanTasks(app, config, opts = {}) {
       if (col) cards.get(col.key).push(card);
     }
   }
+  for (const list of cards.values()) sortByRank(list);
   return cards;
+}
+
+// Stable: ranked cards first by rank, unranked keep scan order.
+function sortByRank(list) {
+  const r = c => (c.rank == null ? Infinity : c.rank);
+  return list.sort((a, b) => r(a) - r(b));
+}
+
+// Write (or replace) a task's rank line. Touches only lines below the task.
+function setRankLine(lines, line, rank) {
+  const base = indentWidth(lines[line]);
+  for (let i = line + 1; i < lines.length && lines[i].trim() && indentWidth(lines[i]) > base; i++) {
+    if (RANK_RE.test(lines[i])) { lines.splice(i, 1); break; }
+  }
+  const indent = lines[line].match(/^\s*/)[0] + '  ';
+  lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, `${indent}%% kbrank ${rank} %%`);
 }
 
 // The tag line sits directly under its task, one level deeper.
@@ -371,7 +397,7 @@ function normalizeTaskMeta(lines, line) {
   let restAt = end;
   for (i = line + 1; i < end; i++) {
     const t = lines[i];
-    if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t)) prefix.push(t);
+    if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t)) prefix.push(t);
     else if (HIST_RE.test(t) || EI_HIST_RE.test(t)) logs.push(t);
     else if (TASK_RE.test(t)) { restAt = i; break; }
     else notes.push(t);
@@ -1253,7 +1279,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 }
 
 module.exports = {
-  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, logTapSpan, renderKanbanBlock, drawBoard,
+  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, setRankLine, RANK_RE, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
   taskColumn,
   openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, TASK_END_RE, STAMP_RE,

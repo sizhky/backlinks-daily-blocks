@@ -1,5 +1,5 @@
 // plugin.api — callable via: obsidian eval "JSON.stringify(await app.plugins.plugins['backlinks-daily-blocks'].api.METHOD())"
-const { scanKanbanTasks, moveCard, sweepColumn, parseKanbanConfig, stampToDate, cleanText,
+const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
 const { saveTemplate } = require('./templates');
@@ -348,6 +348,7 @@ function cardJson(card, col) {
     body: card.body,
     col: col.name,
     tags: card.tags,
+    rank: card.rank ?? null,
     since: recent ? new Date(recent).toISOString() : null,
     recent,
   };
@@ -384,7 +385,7 @@ function buildApi(plugin) {
       }
       rows = filterSince(rows, opts.since);
       if (opts.limit) rows = rows.slice(0, opts.limit);
-      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${fmSuffix(plugin.app, r.file, opts.fm)}`).join('\n');
+      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${opts.rank ? `\t${r.rank ?? ''}` : ''}${fmSuffix(plugin.app, r.file, opts.fm)}`).join('\n');
     },
 
     // Every configured column and its tasks. The `full` column is unfiltered;
@@ -679,6 +680,7 @@ function buildApi(plugin) {
         'createTask(opts)         create a validated task note; opts: text,org,project,col',
         'moveTask(file,line,col)  move a task to a column',
         'moveTasks(refs,col)      move several file:line refs to a column',
+        'rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first',
         'sweep(from,to,refs?)     bulk-move a column (refs = file:line list)',
         'sweeps()                 sweep routes from settings: From<TAB>To',
         'habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths',
@@ -790,6 +792,33 @@ function buildApi(plugin) {
         if (file && await moveCard(plugin.app, file, line, col, config, {})) moved++;
       }
       return `ok ${moved}`;
+    },
+
+    // Manual order: [[ref, rank], ...]. With toCol, cards not already there move first.
+    // Same-file refs go bottom-up (each edit only inserts below its task). Returns "ok <n>".
+    async rankTasks(pairs, toCol) {
+      const config = makeConfig({}, plugin);
+      const col = toCol == null ? null : config.columns.find(c => c.name.toLowerCase() === String(toCol).toLowerCase());
+      if (toCol != null && !col) throw new Error('unknown col: ' + toCol);
+      const parsed = pairs.map(([r, rank]) => { const i = r.lastIndexOf(':'); return { path: r.slice(0, i), line: +r.slice(i + 1), rank: Number(rank) }; })
+        .filter(p => Number.isFinite(p.rank))
+        .sort((a, b) => a.path === b.path ? b.line - a.line : a.path.localeCompare(b.path));
+      let n = 0;
+      for (const p of parsed) {
+        const file = plugin.app.vault.getAbstractFileByPath(p.path);
+        if (!file) continue;
+        if (col) {
+          const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+          const m = lines[p.line]?.match(TASK_RE);
+          if (m && taskColumn(lines, p.line, m, config)?.key !== col.key) await moveCard(plugin.app, file, p.line, col, config, {});
+        }
+        const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+        if (!TASK_RE.test(lines[p.line] || '')) continue;
+        setRankLine(lines, p.line, p.rank);
+        await plugin.app.vault.modify(file, lines.join('\n'));
+        n++;
+      }
+      return `ok ${n}`;
     },
 
     // Bulk-move a column, as the board's sweep button does. refs ("file:line")

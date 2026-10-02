@@ -4,6 +4,8 @@ public struct Card: Identifiable, Equatable, Sendable {
   public let ref: String, file: String, line: Int, col: String
   public let title: String, age: String
   public let tags: [String], orgs: [String], projects: [String]
+  /// Manual order in its column (`%% kbrank %%`); nil = unranked.
+  public var rank: Double?
   public var id: String { ref }
   public var ageHours: Double? { Age.hours(age) }
 
@@ -41,7 +43,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     name.split { !$0.isLetter && !$0.isNumber }.prefix(3).compactMap(\.first).map(String.init).joined().uppercased()
   }
 
-  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b).
+  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank.
   init?(fields f: [String]) {
     guard f.count >= 4, let colon = f[1].lastIndex(of: ":"),
       let line = Int(f[1][f[1].index(after: colon)...]) else { return nil }
@@ -49,6 +51,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     self.init(ref: f[1], file: String(f[1][..<colon]), line: line, col: f[0],
       title: Self.strip(body), age: f[3], tags: Self.tags(in: body),
       orgs: f.count > 4 ? Self.list(f[4]) : [], projects: f.count > 5 ? Self.list(f[5]) : [])
+    rank = f.count > 6 ? Double(f[6]) : nil
   }
 
   init(ref: String, file: String, line: Int, col: String, title: String, age: String,
@@ -58,8 +61,10 @@ public struct Card: Identifiable, Equatable, Sendable {
   }
 
   public func moved(to col: String) -> Card {
-    Card(ref: ref, file: file, line: line, col: col, title: title, age: "0m",
+    var c = Card(ref: ref, file: file, line: line, col: col, title: title, age: "0m",
          tags: tags, orgs: orgs, projects: projects)
+    c.rank = rank
+    return c
   }
 
   static let tagPattern = #"(?<![\w])#[\p{L}\p{N}_/-]+"#

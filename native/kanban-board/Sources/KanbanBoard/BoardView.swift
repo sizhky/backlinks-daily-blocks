@@ -284,14 +284,17 @@ struct ColumnView: View {
       ScrollViewReader { proxy in
         ScrollView {
           LazyVStack(alignment: .leading, spacing: density.cardGap) {
-            if store.dragTarget == column.name, !store.dragging.isEmpty, !column.cards.contains(where: { store.dragging.contains($0.ref) }) {
+            if store.dragTarget == column.name, store.dragBefore == nil, !store.dragging.isEmpty {
               GhostCard(count: store.dragging.count)
             }
             if column.cards.isEmpty {
               Text("No issues").font(.system(size: 12)).foregroundStyle(Palette.muted.opacity(0.6))
                 .frame(maxWidth: .infinity).padding(.top, 18)
             } else {
-              ForEach(store.ordered(column)) { IssueCard(card: $0) }
+              ForEach(store.ordered(column)) { card in
+                if store.dragBefore == card.ref, !store.dragging.isEmpty { GhostCard(count: store.dragging.count) }
+                IssueCard(card: card)
+              }
             }
           }
           .padding(.horizontal, 4).padding(.bottom, 16)
@@ -511,6 +514,9 @@ struct CardDrag: ViewModifier {
       }
       .opacity(away ? 0 : 1)
       .frame(height: away ? 0 : nil, alignment: .top).clipped()
+      .dropDestination(for: String.self) { items, _ in
+        store.visible.first { $0.name == card.col }.map { store.drop(items, on: $0, before: card) } ?? false
+      } isTargeted: { store.dragHover(card, $0) }
   }
 }
 

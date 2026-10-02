@@ -51,6 +51,8 @@ final class BoardStore: ObservableObject {
   /// cleared on drop or when the mouse button is released.
   @Published var dragging: Set<String> = []
   @Published var dragTarget: String?
+  /// Card the drag hovers; the ghost and the drop go before it. nil = top of `dragTarget`.
+  @Published var dragBefore: String?
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
@@ -89,11 +91,39 @@ final class BoardStore: ObservableObject {
     }
   }
   /// Drop on a column moves the carried card refs into it.
-  func drop(_ items: [String], on column: Column) -> Bool {
+  func drop(_ items: [String], on column: Column, before card: Card? = nil) -> Bool {
     endDrag()
     let refs = DragPayload.decode(items)
-    move(refs: refs, to: column.name)
+    let top = ordered(column).first { !refs.contains($0.ref) }
+    place(refs, before: (card ?? top)?.ref, in: column)
     return !refs.isEmpty
+  }
+
+  /// Drops `refs` before `before` in `column`'s shown order and saves the ranks.
+  func place(_ refs: [String], before: String?, in column: Column) {
+    let pairs = Ranking.place(refs, before: before, in: ordered(column))
+    guard !pairs.isEmpty else { return }
+    let rank = Dictionary(pairs.map { ($0.ref, $0.rank) }, uniquingKeysWith: { a, _ in a })
+    let moving = Set(refs)
+    let cards = columns.flatMap(\.cards).filter { moving.contains($0.ref) }
+    withAnimation(.spring(duration: 0.38, bounce: 0.14)) {
+      for i in columns.indices {
+        columns[i].cards.removeAll { moving.contains($0.ref) }
+        for j in columns[i].cards.indices { if let r = rank[columns[i].cards[j].ref] { columns[i].cards[j].rank = r } }
+        if columns[i].name == column.name {
+          columns[i].cards += cards.map { c in
+            var m = c.col == column.name ? c : c.moved(to: column.name)
+            m.rank = rank[c.ref]
+            return m
+          }
+        }
+      }
+    }
+    picked.subtract(moving)
+    Task {
+      do { try await client.rank(pairs, in: column.name) } catch { self.error = error.localizedDescription }
+      await refresh()
+    }
   }
   /// Starts a card drag: the whole pick when the card is in it. Returns the payload.
   func beginDrag(_ card: Card) -> String {
@@ -106,9 +136,13 @@ final class BoardStore: ObservableObject {
     return DragPayload.encode(dragging.sorted())
   }
   func dragHover(_ column: Column, _ inside: Bool) {
-    if inside { dragTarget = column.name } else if dragTarget == column.name { dragTarget = nil }
+    if inside { dragTarget = column.name; dragBefore = nil }
+    else if dragTarget == column.name, dragBefore == nil { dragTarget = nil }
   }
-  func endDrag() { dragging = []; dragTarget = nil }
+  func dragHover(_ card: Card, _ inside: Bool) {
+    if inside { dragTarget = card.col; dragBefore = card.ref } else if dragBefore == card.ref { dragBefore = nil }
+  }
+  func endDrag() { dragging = []; dragTarget = nil; dragBefore = nil }
 
   /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
   func shiftColumn(_ column: Column, by step: Int) {
@@ -155,7 +189,9 @@ final class BoardStore: ObservableObject {
 
   /// Cards in the order the screen shows them, so arrow keys follow the eye.
   func ordered(_ column: Column) -> [Card] {
-    mode == .board ? Grouping.byProject(column.cards).flatMap(\.cards) : column.cards
+    let rest = column.cards.filter { $0.rank == nil }
+    return Ranking.ordered(column.cards.filter { $0.rank != nil })
+      + (mode == .board ? Grouping.byProject(rest).flatMap(\.cards) : rest)
   }
 
   func select(_ ref: String?) {
