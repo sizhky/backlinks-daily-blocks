@@ -93,12 +93,18 @@ final class BoardStore: ObservableObject {
   /// Drop on a column moves the carried card refs into it.
   /// Clearing the drag state and placing the cards share one animation, so the ghost turns
   /// into the card instead of the source re-expanding and then vanishing.
-  func drop(_ items: [String], on column: Column, before card: Card? = nil) -> Bool {
+  /// Every drop lands where the ghost is (`dragTarget`/`dragBefore`), whichever view received it;
+  /// `column` is the fallback when no ghost is set. The ghost on the grabbed card's own slot
+  /// means no move.
+  func drop(_ items: [String], on column: Column) -> Bool {
     let refs = DragPayload.decode(items)
-    let top = ordered(column).first { !refs.contains($0.ref) }
+    let target = dragTarget.flatMap { t in visible.first { $0.name == t } } ?? column
+    let before = dragTarget == nil ? nil : dragBefore
     withAnimation(Self.dragSpring) {
       (dragging, dragTarget, dragBefore) = ([], nil, nil)
-      place(refs, before: (card ?? top)?.ref, in: column)
+      if let b = before, refs.contains(b) { return }
+      let top = ordered(target).first { !refs.contains($0.ref) }
+      place(refs, before: before ?? top?.ref, in: target)
     }
     return !refs.isEmpty
   }
@@ -136,19 +142,21 @@ final class BoardStore: ObservableObject {
     // Hide the cards on the next run-loop turn: AppKit snapshots the card for the drag image
     // right after this returns, and a collapsed card would give an empty image.
     Task {
-      withAnimation(Self.dragSpring) { dragging = refs }
+      // The grabbed card's own slot is the first ghost position, so nothing moves on pickup.
+      withAnimation(Self.dragSpring) { (dragging, dragTarget, dragBefore) = (refs, card.col, card.ref) }
       // A cancelled drag never drops; restore the cards once the mouse button is up.
       while NSEvent.pressedMouseButtons & 1 != 0 { try? await Task.sleep(for: .milliseconds(80)) }
       endDrag()
     }
     return DragPayload.encode(refs.sorted())
   }
+  /// Entering a new column puts the ghost at its top. Gaps between cards, the ghost itself,
+  /// and leaving a card change nothing, so the ghost never flickers back to the top.
   func dragHover(_ column: Column, _ inside: Bool) {
-    if inside { setGhost(column.name, nil) }
-    else if dragTarget == column.name, dragBefore == nil { setGhost(nil, nil) }
+    if inside, dragTarget != column.name { setGhost(column.name, nil) }
   }
   func dragHover(_ card: Card, _ inside: Bool) {
-    if inside { setGhost(card.col, card.ref) } else if dragBefore == card.ref { setGhost(dragTarget, nil) }
+    if inside { setGhost(card.col, card.ref) }
   }
   func endDrag() {
     guard !dragging.isEmpty || dragTarget != nil else { return }

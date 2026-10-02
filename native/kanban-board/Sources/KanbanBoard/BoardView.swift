@@ -292,7 +292,9 @@ struct ColumnView: View {
                 .frame(maxWidth: .infinity).padding(.top, 18)
             } else {
               ForEach(store.ordered(column)) { card in
-                if store.dragBefore == card.ref, !store.dragging.isEmpty { GhostCard(count: store.dragging.count) }
+                if store.dragTarget == column.name, store.dragBefore == card.ref, !store.dragging.contains(card.ref) {
+                  GhostCard(count: store.dragging.count)
+                }
                 IssueCard(card: card)
               }
             }
@@ -463,7 +465,8 @@ struct IssueCard: View {
     }
     .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
     .contextMenu { CardMenu(card: card) }
-    .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
+    // Inserted cards appear in place: on drop the ghost they replace is already there.
+    .transition(.asymmetric(insertion: .identity, removal: .opacity))
   }
 }
 
@@ -482,6 +485,8 @@ struct CardMenu: View {
 /// Dashed slot where dragged cards will land, shown in the hovered column.
 struct GhostCard: View {
   let count: Int
+  /// Fill the parent (drawn over the grabbed card's own slot) instead of a fixed height.
+  var fill = false
   @AppStorage(Density.key) private var density: Density = .compact
 
   var body: some View {
@@ -489,8 +494,8 @@ struct GhostCard: View {
       .strokeBorder(Palette.indigo.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
       .background(Palette.indigo.opacity(0.06), in: .rect(cornerRadius: 9))
       .overlay { if count > 1 { Text("\(count) issues").font(.system(size: 12)).foregroundStyle(Palette.secondary) } }
-      .frame(height: density == .comfortable ? 96 : 78)
-      .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)), removal: .opacity))
+      .frame(height: fill ? nil : (density == .comfortable ? 96 : 78))
+      .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)), removal: .identity))
   }
 }
 
@@ -506,13 +511,16 @@ struct CardDrag: ViewModifier {
 
   func body(content: Content) -> some View {
     let away = store.dragging.contains(card.ref)
+    // While the ghost sits on the card's own slot, the card keeps its height and draws as the ghost.
+    let slot = away && store.dragTarget == card.col && store.dragBefore == card.ref
     content
       // No custom preview: the system image is the card itself, held where it was grabbed.
       .onDrag { NSItemProvider(object: store.beginDrag(card) as NSString) }
       .opacity(away ? 0 : 1)
-      .frame(height: away ? 0 : nil, alignment: .top).clipped()
+      .overlay { if slot { GhostCard(count: store.dragging.count, fill: true) } }
+      .frame(height: away && !slot ? 0 : nil, alignment: .top).clipped()
       .dropDestination(for: String.self) { items, _ in
-        store.visible.first { $0.name == card.col }.map { store.drop(items, on: $0, before: card) } ?? false
+        store.visible.first { $0.name == card.col }.map { store.drop(items, on: $0) } ?? false
       } isTargeted: { store.dragHover(card, $0) }
   }
 }

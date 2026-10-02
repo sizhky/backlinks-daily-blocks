@@ -90,6 +90,10 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Card drag has no custom preview: a SwiftUI `preview:` view is centred on the cursor (the card
   snaps). The default image is the card's snapshot, so `beginDrag` hides the card one run-loop
   turn later, after AppKit takes the snapshot.
+- Ghost rules: pickup puts the ghost on the grabbed card's own slot (card keeps its height, drawn
+  as the ghost). Only entering a card, or entering a different column (ghost to top), moves it;
+  gaps, the ghost itself, and leave events never do, or the ghost oscillates under the cursor.
+  `store.drop` always lands at the ghost, whichever drop destination fired.
 - Card drag uses `.cardDrag` (onDrag, whose closure runs at drag start). `store.dragging` hides the
   carried cards (collapsed, still in the tree so the drag session survives); `dragTarget` shows a
   `GhostCard` in the hovered column. A polling task clears both on mouse-up for cancelled drags.
