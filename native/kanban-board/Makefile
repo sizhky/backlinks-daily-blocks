@@ -10,7 +10,7 @@ build:
 	mkdir -p "$(BUNDLE)/Contents/MacOS"
 	cp Info.plist "$(BUNDLE)/Contents/Info.plist"
 	cp "$(EXECUTABLE)" "$(BUNDLE)/Contents/MacOS/KanbanBoard"
-	codesign --force --deep --sign - "$(BUNDLE)"
+	codesign --force --deep --sign - -r='designated => identifier "com.yeshwanth.kanban-board"' "$(BUNDLE)"
 
 test:
 	swift test
