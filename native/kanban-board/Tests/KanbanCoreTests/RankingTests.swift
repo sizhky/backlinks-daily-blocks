@@ -42,4 +42,15 @@ final class RankingTests: XCTestCase {
     XCTAssertEqual(Ranking.slot(order: ["a", "b"], dragging: ["x"], grabbed: "x", midY: mid, y: 99), nil)
     XCTAssertEqual(Ranking.slot(order: ["a", "c"], dragging: ["c"], grabbed: "c", midY: mid, y: 99), "c")
   }
+
+  func testDragLayout() {
+    func items(_ target: Bool, _ before: String?) -> [DragLayout.Item] {
+      DragLayout.items(order: ["a", "b", "c"], carried: ["b"], target: target, before: before)
+    }
+    XCTAssertEqual(items(true, "b"), [.card("a"), .ghost, .card("c")])
+    XCTAssertEqual(items(true, "a"), [.ghost, .card("a"), .card("c")])
+    XCTAssertEqual(items(true, nil), [.card("a"), .card("c"), .ghost])
+    XCTAssertEqual(items(true, "gone"), [.card("a"), .card("c"), .ghost])
+    XCTAssertEqual(items(false, "a"), [.card("a"), .card("c")])
+  }
 }

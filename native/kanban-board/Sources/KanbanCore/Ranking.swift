@@ -56,3 +56,25 @@ public enum Ranking {
     return hit == home ? g : hit
   }
 }
+
+/// What a column shows during a drag: its cards minus the carried ones, plus one ghost.
+public enum DragLayout {
+  public enum Item: Hashable { case card(String), ghost }
+
+  /// With `target`, the ghost goes before `before`, or at the end when `before` is nil or gone.
+  /// `before` equal to a carried card (the grabbed card's home) puts the ghost in its old index,
+  /// so a pickup changes no layout.
+  /// ```
+  /// order a b c, carried b, before b -> a ghost c;  before nil -> a c ghost;  no target -> a c
+  /// ```
+  public static func items(order: [String], carried: Set<String>, target: Bool, before: String?) -> [Item] {
+    var out: [Item] = []
+    var placed = false
+    for ref in order {
+      if target, ref == before { out.append(.ghost); placed = true }
+      if !carried.contains(ref) { out.append(.card(ref)) }
+    }
+    if target, !placed { out.append(.ghost) }
+    return out
+  }
+}

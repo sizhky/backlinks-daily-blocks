@@ -76,31 +76,30 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   each row a drop target; list mode skips hidden columns. Column options live in `ColumnMenu`.
 - Never pair `onTapGesture(count: 2)` with a single tap: SwiftUI holds the single tap for the
   double-click interval and selection feels laggy. Use `.simultaneousGesture(TapGesture(count: 2))`.
-- Multi-select is `store.picked` (refs). The card's top-right org icon is the toggle (check when picked). A picked card drags `DragPayload.encode(picked)`; `store.drop`
-  decodes it. Several cards move in one `kb.moveTasks` call, never parallel `moveTask` calls,
-  because each move inserts a history line and shifts later line refs in the same file.
+- Multi-select is `store.picked` (refs). The card's top-right org icon is the toggle (check when picked).
+  Dragging a picked card carries the whole pick. Several cards move in one `kb.moveTasks` or
+  `kb.rankTasks` call, never parallel `moveTask` calls, because each move inserts a history line
+  and shifts later line refs in the same file.
 - Manual order: `%% kbrank N %%` under a task (plugin `RANK_RE`). `Ranking.place` computes fractional
   ranks from the shown order (unranked cards above the drop point get ranked too); `kb.rankTasks`
-  writes them and moves cards into the column first. Every card drop goes through `store.place`;
-  dropping on a card lands before it, on the column background lands at the top.
+  writes them and moves cards into the column first. Every card drop goes through `store.place`.
 - Card `id` is `file|title` (deduped `#n`), set in `Board.parse`; `ref` (file:line) shifts whenever a
   line is inserted above, so it must not be the view identity. Selection and moves still use `ref`.
 - Writes bump `store.writeGen`; `refresh` drops results from before the latest write or during a drag.
   Without this the 6 s poll can land mid-write and snap an optimistic move back.
-- Card drag has no custom preview: a SwiftUI `preview:` view is centred on the cursor (the card
-  snaps). The default image is the card's snapshot, so `beginDrag` hides the card one run-loop
-  turn later, after AppKit takes the snapshot.
-- Board columns take drops through `ColumnDrop` (DropDelegate), not `dropDestination`: it gets the
-  cursor y on every move. `Ranking.slot` maps y against measured card middles (`CardFrames`) to
-  a ghost slot, including `BoardStore.endSlot` below the last card; a spot equal to the grabbed
-  card's home returns its own ref, so pickup changes nothing on screen. `store.dropAtGhost` lands
-  at the ghost. Cards carry no drop destination of their own; list rows and hidden-panel rows do.
-- Do not add `.animation(_:value:)` to card stacks: it fights the explicit `dragSpring`
+- Card drag is in-app, in `DragController` (no system drag-and-drop: AppKit owns its drag image and
+  hover timing, so the card could not settle onto its slot and the ghost lagged 2-3 frames).
+  One `DragGesture` on the board content starts a session when it begins on a registered card
+  frame. `FloatingCard` draws the card at the cursor and alone observes `DragPointer` (mouse rate);
+  columns observe only `session` and `slot`. Views record frames with `.dragFrame` into the
+  unobserved `FrameRegistry`; hit testing reads it in the same event. `DragLayout.items` builds each
+  column's rows: carried cards removed, one ghost the grabbed card's size (at its home on pickup,
+  so nothing moves). Across columns the ghost sits at the end; in the home column or with Cmd
+  held it follows the cursor (`Ranking.slot`). Gaps between columns keep the last slot. Drop
+  animates the floating card onto the ghost frame, then `finish` places the cards and ends the
+  session in one transaction with animations disabled.
+- Do not add `.animation(_:value:)` to card stacks: it fights the explicit `DragController.spring`
   transactions and makes pickup and drop jump.
-- Card drag uses `.cardDrag` (onDrag, whose closure runs at drag start). `store.dragging` hides the
-  carried cards (collapsed, still in the tree so the drag session survives); `dragTarget` shows a
-  `GhostCard` in the hovered column. A polling task clears both on mouse-up for cancelled drags.
-  All drag state changes go through `withAnimation(BoardStore.dragSpring)` so neighbours slide.
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
   key `+`, which needs Shift, so a hidden Cmd-= button does the same zoom in. Cmd-0 resets to 1.
 
@@ -177,4 +176,4 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Keyboard shortcut buttons must be hidden with `opacity(0)` and a zero frame, all of them.
 - Drag auto-scroll polls `NSEvent.pressedMouseButtons` at 60 fps; it is not a drop target, so it
   never blocks clicks. The zone is deliberately not drawn.
-- `.draggable(String)` carries the card `ref`; columns accept `String` drops.
+- Org rail tiles still use `.draggable("org:" + name)`; cards do not use system drag.

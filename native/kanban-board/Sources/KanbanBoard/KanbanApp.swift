@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct KanbanBoardApp: App {
   @StateObject private var store = BoardStore()
+  @StateObject private var drag = DragController()
   @AppStorage("kanban.sidebarWidth") private var sidebarWidth = 232.0
   @State private var dragStart: Double?
   @AppStorage("kanban.zoom") private var zoom = 1.0
@@ -47,10 +48,11 @@ struct KanbanBoardApp: App {
       }
       .sheet(item: $store.editing) { ViewEditor(draft: $0).environmentObject(store) }
       .environmentObject(store)
+      .environmentObject(drag)
       .frame(minWidth: 1000, minHeight: 620)
       .preferredColorScheme(.dark)
       .ignoresSafeArea()
-      .task { store.start() }
+      .task { drag.store = store; store.start() }
     }
     .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1500, height: 900)

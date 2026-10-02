@@ -1,17 +1,20 @@
 import KanbanCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// Main panel: an inset rounded sheet holding header, board or list, and the issue peek.
 struct BoardView: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var drag: DragController
   @FocusState private var boardFocus: Bool
 
   var body: some View {
     HStack(spacing: 0) {
       VStack(spacing: 0) {
         BoardHeader()
-        if store.mode == .board { ColumnsScroller() } else { ListMode() }
+        Group { if store.mode == .board { ColumnsScroller() } else { ListMode() } }
+          .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(DragController.space))
+            .onChanged { drag.changed($0) }
+            .onEnded { _ in drag.ended() })
         StatusLine()
       }
       if store.inspectorOpen, let card = store.selectedCard {
@@ -19,6 +22,8 @@ struct BoardView: View {
         Inspector(card: card).transition(.move(edge: .trailing).combined(with: .opacity))
       }
     }
+    .overlay(alignment: .topLeading) { FloatingCard(pointer: drag.pointer) }
+    .coordinateSpace(.named(DragController.space))
     .background(Palette.base)
     .clipShape(.rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
@@ -218,6 +223,7 @@ struct BoardHeader: View {
 
 struct ColumnsScroller: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var drag: DragController
   @State private var position = ScrollPosition()
   @State private var offsetX: CGFloat = 0
   @State private var maxX: CGFloat = 0
@@ -262,16 +268,15 @@ struct ColumnsScroller: View {
     }
     guard direction != 0 else { return }
     let next = min(maxX, max(0, offsetX + CGFloat(direction) * depth * depth * 28))
-    if next != offsetX { offsetX = next; position.scrollTo(x: next) }
+    if next != offsetX { offsetX = next; position.scrollTo(x: next); drag.retarget() }
   }
 }
 
 struct ColumnView: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var drag: DragController
   @AppStorage(Density.key) private var density: Density = .compact
   let column: Column
-  @State private var targeted = false
-  @State private var frames = CardFrames()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -286,22 +291,11 @@ struct ColumnView: View {
       ScrollViewReader { proxy in
         ScrollView {
           VStack(alignment: .leading, spacing: density.cardGap) {
-            if store.dragTarget == column.name, store.dragBefore == nil, !store.dragging.isEmpty {
-              GhostCard(count: store.dragging.count)
-            }
-            if column.cards.isEmpty {
-              Text("No issues").font(.system(size: 12)).foregroundStyle(Palette.muted.opacity(0.6))
-                .frame(maxWidth: .infinity).padding(.top, 18)
-            } else {
-              ForEach(store.ordered(column)) { card in
-                if store.dragTarget == column.name, store.dragBefore == card.ref, !store.dragging.contains(card.ref) {
-                  GhostCard(count: store.dragging.count)
-                }
-                IssueCard(card: card)
-                  .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { frames.midY[card.ref] = $0.midY }
-              }
-              if store.dragTarget == column.name, store.dragBefore == BoardStore.endSlot, !store.dragging.isEmpty {
-                GhostCard(count: store.dragging.count)
+            ForEach(drag.rows(column, store)) { row in
+              if let card = row.card {
+                IssueCard(card: card).dragFrame(card.id, in: \.cards, drag.frames)
+              } else {
+                GhostCard()
               }
             }
           }
@@ -319,31 +313,11 @@ struct ColumnView: View {
     .frame(width: density.columnWidth)
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
-    .coordinateSpace(.named(space))
-    .onDrop(of: [.utf8PlainText], delegate: ColumnDrop(store: store, column: column, frames: frames, targeted: $targeted))
+    .dragFrame(column.name, in: \.columns, drag.frames)
   }
 
-  private var space: String { "column-" + column.name }
-}
-
-/// Card middles in a column's coordinate space; a class so measuring does not redraw the column.
-final class CardFrames { var midY: [String: Double] = [:] }
-
-/// Board column drop target. Unlike `dropDestination`, it reports the cursor position on every
-/// move, so the ghost follows the cursor's height (including below the last card) instead of
-/// enter/leave events that arrive in no fixed order.
-struct ColumnDrop: DropDelegate {
-  let store: BoardStore
-  let column: Column
-  let frames: CardFrames
-  @Binding var targeted: Bool
-
-  func validateDrop(info: DropInfo) -> Bool { true }
-  func dropEntered(info: DropInfo) { targeted = true; hover(info) }
-  func dropUpdated(info: DropInfo) -> DropProposal? { hover(info); return DropProposal(operation: .move) }
-  func dropExited(info: DropInfo) { targeted = false }
-  func performDrop(info: DropInfo) -> Bool { targeted = false; return store.dropAtGhost(column) }
-  private func hover(_ info: DropInfo) { store.hover(column, y: info.location.y, midY: frames.midY) }
+  /// Highlight only a column the drag is entering from elsewhere.
+  private var targeted: Bool { drag.slot?.column == column.name && drag.session?.home != column.name }
 }
 
 /// Column header options: hide, move left or right, and the plugin's sweep routes.
@@ -400,8 +374,8 @@ struct HiddenColumns: View {
 
 struct HiddenColumnRow: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var drag: DragController
   let column: Column
-  @State private var targeted = false
   @State private var hovering = false
 
   var body: some View {
@@ -420,11 +394,10 @@ struct HiddenColumnRow: View {
     .onHover { hovering = $0 }
     .contextMenu { if store.isHidden(column) { Button("Show column") { store.setHidden(column, false) } } }
     .help(store.isHidden(column) ? "\(column.name): hidden" : "\(column.name): no issues")
-    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: {
-      targeted = $0
-      store.dragHover(column, $0)
-    }
+    .dragFrame(column.name, in: \.columns, drag.frames)
   }
+
+  private var targeted: Bool { drag.session != nil && drag.slot?.column == column.name }
 }
 
 /// Board card: title with age and org on its first line; project and labels below only when present.
@@ -483,7 +456,6 @@ struct IssueCard: View {
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
-    .cardDrag(card)
     // A single tap selects at once; a count-2 onTapGesture would delay it by the double-click interval.
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
@@ -507,55 +479,34 @@ struct CardMenu: View {
   }
 }
 
-/// Dashed slot where dragged cards will land, shown in the hovered column.
+/// Dashed slot where dragged cards will land: the grabbed card's size, registered so the
+/// floating card can settle onto it.
 struct GhostCard: View {
-  let count: Int
-  /// Fill the parent (drawn over the grabbed card's own slot) instead of a fixed height.
-  var fill = false
-  @AppStorage(Density.key) private var density: Density = .compact
+  @EnvironmentObject var drag: DragController
 
   var body: some View {
+    let count = drag.session?.refs.count ?? 1
     RoundedRectangle(cornerRadius: 9)
       .strokeBorder(Palette.indigo.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
       .background(Palette.indigo.opacity(0.06), in: .rect(cornerRadius: 9))
       .overlay { if count > 1 { Text("\(count) issues").font(.system(size: 12)).foregroundStyle(Palette.secondary) } }
-      .frame(height: fill ? nil : (density == .comfortable ? 96 : 78))
-      .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)), removal: .identity))
-  }
-}
-
-extension View {
-  /// Card drag source. onDrag (not draggable) because its closure runs at drag start, which
-  /// hides the carried cards; the source stays in the tree, collapsed, so the session survives.
-  func cardDrag(_ card: Card) -> some View { modifier(CardDrag(card: card)) }
-}
-
-struct CardDrag: ViewModifier {
-  @EnvironmentObject var store: BoardStore
-  let card: Card
-
-  func body(content: Content) -> some View {
-    let away = store.dragging.contains(card.ref)
-    // While the ghost sits on the card's own slot, the card keeps its height and draws as the ghost.
-    let slot = away && store.dragTarget == card.col && store.dragBefore == card.ref
-    content
-      // No custom preview: the system image is the card itself, held where it was grabbed.
-      .onDrag { NSItemProvider(object: store.beginDrag(card) as NSString) }
-      .opacity(away ? 0 : 1)
-      .overlay { if slot { GhostCard(count: store.dragging.count, fill: true) } }
-      .frame(height: away && !slot ? 0 : nil, alignment: .top).clipped()
+      .frame(height: drag.session?.size.height ?? 78)
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(DragController.space)) } action: { drag.frames.ghost = $0 }
+      .transition(.opacity)
   }
 }
 
 /// Dense list: status group bars, then one 36 pt line per issue.
 struct ListMode: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var drag: DragController
 
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        LazyVStack(spacing: 0) {
+        VStack(spacing: 0) {
           ForEach(store.visible.filter { !$0.cards.isEmpty && !store.isHidden($0) }) { column in
+            VStack(spacing: 0) {
             HStack(spacing: 8) {
               StatusGlyph(column: column.name, size: 14)
               Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
@@ -564,7 +515,11 @@ struct ListMode: View {
             }
             .padding(.horizontal, 16).frame(height: 36)
             .background(Color.white.opacity(0.03))
-            ForEach(store.ordered(column)) { IssueRow(card: $0) }
+            ForEach(drag.rows(column, store)) { row in
+              if let card = row.card { IssueRow(card: card).dragFrame(card.id, in: \.cards, drag.frames) } else { GhostCard() }
+            }
+            }
+            .dragFrame(column.name, in: \.columns, drag.frames)
           }
         }
       }
@@ -602,8 +557,7 @@ struct IssueRow: View {
     .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1) }
     .contentShape(Rectangle())
     .onHover { hovering = $0 }
-    .cardDrag(card)
-    .dropDestination(for: String.self) { items, _ in store.drop(items, before: card) }
+
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }

@@ -47,14 +47,8 @@ final class BoardStore: ObservableObject {
   @Published private(set) var selected: String?
   /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
   @Published var picked: Set<String> = []
-  /// Cards in flight (hidden from their column) and the column the drag hovers;
-  /// cleared on drop or when the mouse button is released.
-  @Published var dragging: Set<String> = []
-  @Published var dragTarget: String?
-  /// Card the drag hovers; the ghost and the drop go before it. nil = top of `dragTarget`.
-  @Published var dragBefore: String?
-  /// The card under the cursor at pickup; its own slot is the ghost's home.
-  private var grabbed: String?
+  /// True while `DragController` carries cards; refresh results wait until it ends.
+  var dragActive = false
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
@@ -92,47 +86,6 @@ final class BoardStore: ObservableObject {
       hiddenColumns = hide ? hiddenColumns + [column.name] : hiddenColumns.filter { $0 != column.name }
     }
   }
-  /// Drop on a column moves the carried card refs into it.
-  /// Clearing the drag state and placing the cards share one animation, so the ghost turns
-  /// into the card instead of the source re-expanding and then vanishing.
-  /// `dragBefore` value for the slot after the last card.
-  static let endSlot = "\u{1}end"
-
-  /// Hidden-panel rows: land at the ghost when it is in this column, else at the top.
-  func drop(_ items: [String], on column: Column) -> Bool {
-    land(DragPayload.decode(items), in: column, before: dragTarget == column.name ? dragBefore : nil)
-  }
-  /// List rows: land before the row's card.
-  func drop(_ items: [String], before card: Card) -> Bool {
-    guard let column = visible.first(where: { $0.name == card.col }) else { return false }
-    return land(DragPayload.decode(items), in: column, before: card.ref)
-  }
-  /// Board columns: land at the ghost.
-  func dropAtGhost(_ column: Column) -> Bool {
-    let target = dragTarget.flatMap { t in visible.first { $0.name == t } } ?? column
-    return land(Array(dragging).sorted(), in: target, before: dragBefore)
-  }
-  /// `before`: a ref, `endSlot`, or nil for the top. A ghost on a carried card's own slot means
-  /// no move. Clearing the drag and placing share one animation, so the ghost becomes the card.
-  @discardableResult
-  private func land(_ refs: [String], in target: Column, before: String?) -> Bool {
-    guard !refs.isEmpty else { return false }
-    withAnimation(Self.dragSpring) {
-      (dragging, dragTarget, dragBefore, grabbed) = ([], nil, nil, nil)
-      if let b = before, refs.contains(b) { return }
-      let top = ordered(target).first { !refs.contains($0.ref) }?.ref
-      place(refs, before: before == Self.endSlot ? nil : (before ?? top), in: target)
-    }
-    return true
-  }
-
-  /// Column drag hover at height `y`; `midY` holds each card's middle in the column's space.
-  func hover(_ column: Column, y: Double, midY: [String: Double]) {
-    guard !dragging.isEmpty else { return }
-    let slot = Ranking.slot(order: ordered(column).map(\.ref), dragging: dragging, grabbed: grabbed, midY: midY, y: y)
-    setGhost(column.name, slot ?? Self.endSlot)
-  }
-
   /// Drops `refs` before `before` in `column`'s shown order and saves the ranks.
   func place(_ refs: [String], before: String?, in column: Column) {
     let pairs = Ranking.place(refs, before: before, in: ordered(column))
@@ -160,36 +113,6 @@ final class BoardStore: ObservableObject {
       await refresh()
     }
   }
-  /// Starts a card drag: the whole pick when the card is in it. Returns the payload.
-  func beginDrag(_ card: Card) -> String {
-    let refs: Set<String> = picked.contains(card.ref) ? picked : [card.ref]
-    grabbed = card.ref
-    // Hide the cards on the next run-loop turn: AppKit snapshots the card for the drag image
-    // right after this returns, and a collapsed card would give an empty image.
-    Task {
-      // The grabbed card's own slot is the first ghost position, so nothing moves on pickup.
-      withAnimation(Self.dragSpring) { (dragging, dragTarget, dragBefore) = (refs, card.col, card.ref) }
-      // A cancelled drag never drops; restore the cards once the mouse button is up.
-      while NSEvent.pressedMouseButtons & 1 != 0 { try? await Task.sleep(for: .milliseconds(80)) }
-      endDrag()
-    }
-    return DragPayload.encode(refs.sorted())
-  }
-  /// Hidden-panel rows: entering one puts the ghost at that column's top.
-  func dragHover(_ column: Column, _ inside: Bool) {
-    if inside, dragTarget != column.name { setGhost(column.name, nil) }
-  }
-  func endDrag() {
-    guard !dragging.isEmpty || dragTarget != nil else { return }
-    withAnimation(Self.dragSpring) { (dragging, dragTarget, dragBefore, grabbed) = ([], nil, nil, nil) }
-  }
-  /// Ghost moves animate so the cards around it slide rather than jump.
-  static let dragSpring = Animation.spring(duration: 0.28, bounce: 0.12)
-  private func setGhost(_ column: String?, _ before: String?) {
-    guard column != dragTarget || before != dragBefore else { return }
-    withAnimation(Self.dragSpring) { (dragTarget, dragBefore) = (column, before) }
-  }
-
   /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
   func shiftColumn(_ column: Column, by step: Int) {
     let names = visible.map(\.name)
@@ -232,6 +155,9 @@ final class BoardStore: ObservableObject {
   }
 
   var selectedCard: Card? { selected.flatMap { ref in columns.lazy.flatMap(\.cards).first { $0.ref == ref } } }
+
+  /// Every shown card ref, column by column, in screen order.
+  var shownRefs: [String] { visible.filter { !isHidden($0) }.flatMap { ordered($0).map(\.ref) } }
 
   /// Cards in the order the screen shows them, so arrow keys follow the eye.
   func ordered(_ column: Column) -> [Card] {
@@ -280,8 +206,8 @@ final class BoardStore: ObservableObject {
     let gen = writeGen
     do {
       let fresh = try await client.board()
-      guard gen == writeGen, dragging.isEmpty else { return }
-      withAnimation(Self.dragSpring) { columns = fresh }
+      guard gen == writeGen, !dragActive else { return }
+      withAnimation(DragController.spring) { columns = fresh }
       picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
       error = nil
     } catch {
