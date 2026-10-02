@@ -101,9 +101,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Do not add `.animation(_:value:)` to card stacks: it fights the explicit `DragController.spring`
   transactions and makes pickup and drop jump.
 - Desktop per card: `store.spaces` (`kanban.spaces`, keyed by `Card.id`, app settings only). Double-click calls
-  `store.activate`: open `btt://trigger_action` with BTT action 206+N (`Spaces.url`) when a desktop is set, else open
-  the note. Needs BetterTouchTool running and macOS "Switch to Desktop N" shortcuts enabled (any combination).
-  BTT named triggers created through `add_new_trigger` are not found by `trigger_named`; do not use them.
+  `store.activate`: press the user's macOS "Switch to Desktop N" shortcut (read from `AppleSymbolicHotKeys` by
+  `Spaces.shortcut`) when a desktop is set, else open the note. Needs Accessibility permission and the shortcut
+  enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
   key `+`, which needs Shift, so a hidden Cmd-= button does the same zoom in. Cmd-0 resets to 1.
 

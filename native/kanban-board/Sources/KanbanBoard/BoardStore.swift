@@ -271,12 +271,22 @@ final class BoardStore: ObservableObject {
     switchDesktop(n)
   }
 
-  /// Runs BetterTouchTool's switch-to-desktop action without bringing BTT forward.
+  /// Presses the user's "Switch to Desktop N" shortcut. Needs Accessibility permission.
   private func switchDesktop(_ n: Int) {
-    guard let url = Spaces.url(n) else { return }
-    let config = NSWorkspace.OpenConfiguration()
-    config.activates = false
-    NSWorkspace.shared.open(url, configuration: config)
+    let hotkeys = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys") ?? [:]
+    guard let key = Spaces.shortcut(n, in: hotkeys) else {
+      error = "Enable Switch to Desktop \(n) in Keyboard Shortcuts > Mission Control"
+      return
+    }
+    guard AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) else {
+      error = "Allow Kanban Board in Privacy & Security > Accessibility, then try again"
+      return
+    }
+    for down in [true, false] {
+      let event = CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: down)
+      event?.flags = CGEventFlags(rawValue: key.flags)
+      event?.post(tap: .cghidEventTap)
+    }
   }
 
   func open(_ card: Card) {
