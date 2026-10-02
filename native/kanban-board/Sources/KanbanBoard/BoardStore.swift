@@ -271,10 +271,12 @@ final class BoardStore: ObservableObject {
     switchDesktop(n)
   }
 
-  /// Runs the BetterTouchTool named trigger `desktop-N`; create one per desktop in BTT.
+  /// Runs BetterTouchTool's switch-to-desktop action without bringing BTT forward.
   private func switchDesktop(_ n: Int) {
     guard let url = Spaces.url(n) else { return }
-    NSWorkspace.shared.open(url)
+    let config = NSWorkspace.OpenConfiguration()
+    config.activates = false
+    NSWorkspace.shared.open(url, configuration: config)
   }
 
   func open(_ card: Card) {
