@@ -100,6 +100,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   session in one transaction with animations disabled.
 - Do not add `.animation(_:value:)` to card stacks: it fights the explicit `DragController.spring`
   transactions and makes pickup and drop jump.
+- Desktop per card: `store.spaces` (`kanban.spaces`, keyed by `Card.id`, app settings only). Double-click calls
+  `store.activate`: send Control-N (`Spaces.keyCode`) when a desktop is set, else open the note. Needs Accessibility
+  permission and "Switch to Desktop N" enabled; desktops 1 to 9 only.
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
   key `+`, which needs Shift, so a hidden Cmd-= button does the same zoom in. Cmd-0 resets to 1.
 

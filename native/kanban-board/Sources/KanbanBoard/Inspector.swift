@@ -41,6 +41,13 @@ struct Inspector: View {
                 FlowLayout { ForEach(card.tags, id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } } }
               }
             }
+            prop("Desktop") {
+              Menu {
+                Button("None") { store.setSpace(nil, for: card) }
+                ForEach(Array(Spaces.range), id: \.self) { n in Button("Desktop \(n)") { store.setSpace(n, for: card) } }
+              } label: { Text(store.spaces[card.id].map { "Desktop \($0)" } ?? "None") }
+                .menuStyle(.borderlessButton).fixedSize()
+            }
             prop("In status") { Text(card.age).monospacedDigit() }
             prop("Note") { Text(card.ref).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle) }
           }

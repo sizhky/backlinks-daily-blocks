@@ -35,6 +35,10 @@ final class BoardStore: ObservableObject {
   @Published var hiddenColumns: [String] = UserDefaults.standard.stringArray(forKey: "kanban.hiddenColumns") ?? [] {
     didSet { UserDefaults.standard.set(hiddenColumns, forKey: "kanban.hiddenColumns") }
   }
+  /// Desktop number per card id (`Card.id`), kept in app settings only.
+  @Published var spaces: [String: Int] = UserDefaults.standard.dictionary(forKey: "kanban.spaces") as? [String: Int] ?? [:] {
+    didSet { UserDefaults.standard.set(spaces, forKey: "kanban.spaces") }
+  }
   @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
     didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
   }
@@ -256,6 +260,26 @@ final class BoardStore: ObservableObject {
     Task {
       do { try await client.sweep(column.cards, from: column.name, to: target) } catch { self.error = error.localizedDescription }
       await refresh()
+    }
+  }
+
+  func setSpace(_ n: Int?, for card: Card) { spaces[card.id] = n }
+
+  /// Double-click: switch to the card's desktop when one is set, else open the note.
+  func activate(_ card: Card) {
+    guard let n = spaces[card.id] else { return open(card) }
+    switchDesktop(n)
+  }
+
+  /// Sends Control-N. Needs Accessibility permission and "Switch to Desktop N" enabled in Keyboard Shortcuts.
+  private func switchDesktop(_ n: Int) {
+    guard let code = Spaces.keyCode(n) else { return }
+    let trusted = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+    guard trusted else { error = "Allow Kanban Board in Privacy & Security > Accessibility, then try again"; return }
+    for down in [true, false] {
+      let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+      event?.flags = .maskControl
+      event?.post(tap: .cghidEventTap)
     }
   }
 

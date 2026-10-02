@@ -460,7 +460,7 @@ struct IssueCard: View {
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
-    .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
+    .simultaneousGesture(TapGesture(count: 2).onEnded { store.activate(card) })
     .contextMenu { CardMenu(card: card) }
     // Inserted cards appear in place: on drop the ghost they replace is already there.
     .transition(.asymmetric(insertion: .identity, removal: .opacity))
@@ -561,7 +561,7 @@ struct IssueRow: View {
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
-    .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
+    .simultaneousGesture(TapGesture(count: 2).onEnded { store.activate(card) })
     .contextMenu { CardMenu(card: card) }
   }
 }
