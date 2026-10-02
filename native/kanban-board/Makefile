@@ -9,6 +9,8 @@ build:
 	swift build -c release
 	mkdir -p "$(BUNDLE)/Contents/MacOS"
 	cp Info.plist "$(BUNDLE)/Contents/Info.plist"
+	mkdir -p "$(BUNDLE)/Contents/Resources"
+	cp AppIcon.icns "$(BUNDLE)/Contents/Resources/AppIcon.icns"
 	cp "$(EXECUTABLE)" "$(BUNDLE)/Contents/MacOS/KanbanBoard"
 	codesign --force --deep --sign - -r='designated => identifier "com.yeshwanth.kanban-board"' "$(BUNDLE)"
 
@@ -28,7 +30,7 @@ run: install
 # Rebuild, reinstall, and relaunch whenever a source file changes (polls every second).
 watch:
 	@last=""; while true; do \
-	  cur=$$(find Sources Package.swift Info.plist -type f -exec stat -f '%m %N' {} + | shasum); \
+	  cur=$$(find Sources Package.swift Info.plist AppIcon.icns -type f -exec stat -f '%m %N' {} + | shasum); \
 	  if [ "$$cur" != "$$last" ]; then last="$$cur"; $(MAKE) run || true; fi; \
 	  sleep 1; done
 
