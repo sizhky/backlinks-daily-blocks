@@ -2,11 +2,9 @@ import XCTest
 @testable import KanbanCore
 
 final class SpacesTests: XCTestCase {
-  func testKeyCodes() {
-    XCTAssertEqual(Spaces.keyCode(1), 18)
-    XCTAssertEqual(Spaces.keyCode(5), 23)
-    XCTAssertEqual(Spaces.keyCode(9), 25)
-    XCTAssertNil(Spaces.keyCode(0))
-    XCTAssertNil(Spaces.keyCode(10))
+  func testURL() {
+    XCTAssertEqual(Spaces.url(2)?.absoluteString, "btt://trigger_named/?trigger_name=desktop-2")
+    XCTAssertNil(Spaces.url(0))
+    XCTAssertNil(Spaces.url(10))
   }
 }

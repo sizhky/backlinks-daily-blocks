@@ -271,16 +271,10 @@ final class BoardStore: ObservableObject {
     switchDesktop(n)
   }
 
-  /// Sends Control-N. Needs Accessibility permission and "Switch to Desktop N" enabled in Keyboard Shortcuts.
+  /// Runs the BetterTouchTool named trigger `desktop-N`; create one per desktop in BTT.
   private func switchDesktop(_ n: Int) {
-    guard let code = Spaces.keyCode(n) else { return }
-    let trusted = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
-    guard trusted else { error = "Allow Kanban Board in Privacy & Security > Accessibility, then try again"; return }
-    for down in [true, false] {
-      let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
-      event?.flags = .maskControl
-      event?.post(tap: .cghidEventTap)
-    }
+    guard let url = Spaces.url(n) else { return }
+    NSWorkspace.shared.open(url)
   }
 
   func open(_ card: Card) {
