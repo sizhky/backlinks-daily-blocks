@@ -201,6 +201,11 @@ first; unranked cards sort after ranked ones in every column). With `toCol`, car
 column move there first. Same-file refs go bottom-up. Returns `ok <n>`.
 `kb.active({rank:true})` appends each row's rank (empty when unranked) after `age`.
 
+### `kb.setDesktop(ref, n)` — macOS desktop of a card
+`ref` = `file:line`. `n` 1-9 writes `%% kbdesktop N %%` under the task (like `kbrank`); `null` clears it.
+`kb.active({desktop:true})` appends each row's desktop (empty when unset) after the rank column.
+Returns `ok <ref> desktop <n|none>`.
+
 ### `kb.sweep(fromCol, toCol, refs?)` — bulk-move a column
 Same as the board's sweep button: same-file cards move bottom-up, and terminal
 targets skip cards with open children. `refs` (array of `file:line`) limits the

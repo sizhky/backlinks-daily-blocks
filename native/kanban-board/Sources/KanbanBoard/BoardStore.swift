@@ -35,10 +35,6 @@ final class BoardStore: ObservableObject {
   @Published var hiddenColumns: [String] = UserDefaults.standard.stringArray(forKey: "kanban.hiddenColumns") ?? [] {
     didSet { UserDefaults.standard.set(hiddenColumns, forKey: "kanban.hiddenColumns") }
   }
-  /// Desktop number per card id (`Card.id`), kept in app settings only.
-  @Published var spaces: [String: Int] = UserDefaults.standard.dictionary(forKey: "kanban.spaces") as? [String: Int] ?? [:] {
-    didSet { UserDefaults.standard.set(spaces, forKey: "kanban.spaces") }
-  }
   @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
     didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
   }
@@ -263,11 +259,20 @@ final class BoardStore: ObservableObject {
     }
   }
 
-  func setSpace(_ n: Int?, for card: Card) { spaces[card.id] = n }
+  func setDesktop(_ n: Int?, for card: Card) {
+    for i in columns.indices {
+      if let j = columns[i].cards.firstIndex(where: { $0.ref == card.ref }) { columns[i].cards[j].desktop = n }
+    }
+    writeGen += 1
+    Task {
+      do { try await client.setDesktop(card, n) } catch { self.error = error.localizedDescription }
+      await refresh()
+    }
+  }
 
   /// Double-click: switch to the card's desktop when one is set, else open the note.
   func activate(_ card: Card) {
-    guard let n = spaces[card.id] else { return open(card) }
+    guard let n = card.desktop else { return open(card) }
     switchDesktop(n)
   }
 

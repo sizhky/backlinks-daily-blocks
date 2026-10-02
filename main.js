@@ -664,6 +664,7 @@ var require_kanban = __commonJS({
     var METRIC_RE = /^\s*%%\s?kbmetric (count|sum)\s?%%\s*$/i;
     var TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
     var RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
+    var DESKTOP_RE = /^\s*%%\s?kbdesktop ([1-9])\s?%%\s*$/i;
     var TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -888,6 +889,12 @@ var require_kanban = __commonJS({
             if (card) card.rank = Number(rm[1]);
             continue;
           }
+          const dm = text.match(DESKTOP_RE);
+          if (dm) {
+            const card = owner(text);
+            if (card) card.desktop = Number(dm[1]);
+            continue;
+          }
           const tpm = text.match(TAP_RE);
           if (tpm) {
             const card = owner(text);
@@ -926,17 +933,20 @@ var require_kanban = __commonJS({
       const r = (c) => c.rank == null ? Infinity : c.rank;
       return list.sort((a, b) => r(a) - r(b));
     }
-    function setRankLine(lines, line, rank) {
+    function setMetaLine(lines, line, re, text) {
       const base = indentWidth(lines[line]);
       for (let i = line + 1; i < lines.length && lines[i].trim() && indentWidth(lines[i]) > base; i++) {
-        if (RANK_RE.test(lines[i])) {
+        if (re.test(lines[i])) {
           lines.splice(i, 1);
           break;
         }
       }
+      if (text == null) return;
       const indent = lines[line].match(/^\s*/)[0] + "  ";
-      lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, `${indent}%% kbrank ${rank} %%`);
+      lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, indent + text);
     }
+    var setRankLine = (lines, line, rank) => setMetaLine(lines, line, RANK_RE, `%% kbrank ${rank} %%`);
+    var setDesktopLine = (lines, line, n) => setMetaLine(lines, line, DESKTOP_RE, n == null ? null : `%% kbdesktop ${n} %%`);
     function tagLineAt(lines, line) {
       const next = lines[line + 1];
       if (next == null || !TAGLINE_RE.test(next)) return null;
@@ -972,7 +982,7 @@ var require_kanban = __commonJS({
       let restAt = end;
       for (i = line + 1; i < end; i++) {
         const t = lines[i];
-        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t)) prefix.push(t);
+        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t)) prefix.push(t);
         else if (HIST_RE2.test(t) || EI_HIST_RE.test(t)) logs.push(t);
         else if (TASK_RE2.test(t)) {
           restAt = i;
@@ -1682,7 +1692,9 @@ var require_kanban = __commonJS({
       moveCard: moveCard2,
       sweepColumn,
       setRankLine,
+      setDesktopLine,
       RANK_RE,
+      DESKTOP_RE,
       logTapSpan,
       renderKanbanBlock: renderKanbanBlock2,
       drawBoard,
@@ -2891,6 +2903,7 @@ var require_api = __commonJS({
       moveCard: moveCard2,
       sweepColumn,
       setRankLine,
+      setDesktopLine,
       taskColumn,
       parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
@@ -3208,6 +3221,7 @@ projects:
         col: col.name,
         tags: card.tags,
         rank: card.rank ?? null,
+        desktop: card.desktop ?? null,
         since: recent ? new Date(recent).toISOString() : null,
         recent
       };
@@ -3240,7 +3254,7 @@ projects:
           }
           rows = filterSince(rows, opts.since);
           if (opts.limit) rows = rows.slice(0, opts.limit);
-          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
+          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${opts.desktop ? `	${r.desktop ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
         },
         // Every configured column and its tasks. The `full` column is unfiltered;
         // other columns only include tasks seen within `hours` (default 24).
@@ -3518,6 +3532,7 @@ projects:
             "moveTask(file,line,col)  move a task to a column",
             "moveTasks(refs,col)      move several file:line refs to a column",
             "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
+            "setDesktop(ref,n)        set (1-9) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",
             "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
             "sweeps()                 sweep routes from settings: From<TAB>To",
             "habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths",
@@ -3652,6 +3667,19 @@ projects:
             n++;
           }
           return `ok ${n}`;
+        },
+        // A card's macOS desktop: `%% kbdesktop N %%` under the task. n 1-9 sets, null clears.
+        async setDesktop(ref, n) {
+          const i = ref.lastIndexOf(":"), path = ref.slice(0, i), line = +ref.slice(i + 1);
+          const num = n == null ? null : Number(n);
+          if (num != null && !(Number.isInteger(num) && num >= 1 && num <= 9)) throw new Error("desktop must be 1-9 or null");
+          const file = plugin.app.vault.getAbstractFileByPath(path);
+          if (!file) throw new Error("no file: " + path);
+          const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+          if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+          setDesktopLine(lines, line, num);
+          await plugin.app.vault.modify(file, lines.join("\n"));
+          return `ok ${ref} desktop ${num ?? "none"}`;
         },
         // Bulk-move a column, as the board's sweep button does. refs ("file:line")
         // limits it to those cards. Returns "ok <moved> <blocked>".

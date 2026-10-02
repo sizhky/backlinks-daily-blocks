@@ -43,9 +43,9 @@ struct Inspector: View {
             }
             prop("Desktop") {
               Menu {
-                Button("None") { store.setSpace(nil, for: card) }
-                ForEach(Array(Spaces.range), id: \.self) { n in Button("Desktop \(n)") { store.setSpace(n, for: card) } }
-              } label: { Text(store.spaces[card.id].map { "Desktop \($0)" } ?? "None") }
+                Button("None") { store.setDesktop(nil, for: card) }
+                ForEach(Array(Spaces.range), id: \.self) { n in Button("Desktop \(n)") { store.setDesktop(n, for: card) } }
+              } label: { Text(card.desktop.map { "Desktop \($0)" } ?? "None") }
                 .menuStyle(.borderlessButton).fixedSize()
             }
             prop("In status") { Text(card.age).monospacedDigit() }

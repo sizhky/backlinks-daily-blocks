@@ -35,6 +35,8 @@ const TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
 // task line are still read (legacy); all writes target the tag line.
 // Manual card order within a column; lower first, unranked cards after ranked ones.
 const RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
+// macOS desktop (Space) 1-9 a card's work lives on: %% kbdesktop 2 %%.
+const DESKTOP_RE = /^\s*%%\s?kbdesktop ([1-9])\s?%%\s*$/i;
 const TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
 
 // Column color: explicit config > named palette > position cycle.
@@ -296,6 +298,13 @@ async function scanKanbanTasks(app, config, opts = {}) {
         continue;
       }
 
+      const dm = text.match(DESKTOP_RE);
+      if (dm) {
+        const card = owner(text);
+        if (card) card.desktop = Number(dm[1]);
+        continue;
+      }
+
       const tpm = text.match(TAP_RE);
       if (tpm) {
         const card = owner(text);
@@ -342,15 +351,20 @@ function sortByRank(list) {
   return list.sort((a, b) => r(a) - r(b));
 }
 
-// Write (or replace) a task's rank line. Touches only lines below the task.
-function setRankLine(lines, line, rank) {
+// Write (or replace) one `%% kb... %%` line under a task; text null removes it.
+// Touches only lines below the task.
+function setMetaLine(lines, line, re, text) {
   const base = indentWidth(lines[line]);
   for (let i = line + 1; i < lines.length && lines[i].trim() && indentWidth(lines[i]) > base; i++) {
-    if (RANK_RE.test(lines[i])) { lines.splice(i, 1); break; }
+    if (re.test(lines[i])) { lines.splice(i, 1); break; }
   }
+  if (text == null) return;
   const indent = lines[line].match(/^\s*/)[0] + '  ';
-  lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, `${indent}%% kbrank ${rank} %%`);
+  lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, indent + text);
 }
+
+const setRankLine = (lines, line, rank) => setMetaLine(lines, line, RANK_RE, `%% kbrank ${rank} %%`);
+const setDesktopLine = (lines, line, n) => setMetaLine(lines, line, DESKTOP_RE, n == null ? null : `%% kbdesktop ${n} %%`);
 
 // The tag line sits directly under its task, one level deeper.
 function tagLineAt(lines, line) {
@@ -397,7 +411,7 @@ function normalizeTaskMeta(lines, line) {
   let restAt = end;
   for (i = line + 1; i < end; i++) {
     const t = lines[i];
-    if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t)) prefix.push(t);
+    if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t)) prefix.push(t);
     else if (HIST_RE.test(t) || EI_HIST_RE.test(t)) logs.push(t);
     else if (TASK_RE.test(t)) { restAt = i; break; }
     else notes.push(t);
@@ -1279,7 +1293,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 }
 
 module.exports = {
-  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, setRankLine, RANK_RE, logTapSpan, renderKanbanBlock, drawBoard,
+  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, RANK_RE, DESKTOP_RE, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
   taskColumn,
   openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, TASK_END_RE, STAMP_RE,

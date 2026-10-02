@@ -100,7 +100,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   session in one transaction with animations disabled.
 - Do not add `.animation(_:value:)` to card stacks: it fights the explicit `DragController.spring`
   transactions and makes pickup and drop jump.
-- Desktop per card: `store.spaces` (`kanban.spaces`, keyed by `Card.id`, app settings only). Double-click calls
+- Desktop per card: `Card.desktop`, stored in the note as `%% kbdesktop N %%` (plugin `DESKTOP_RE`, written by
+  `kb.setDesktop`, read as the last board-script column). The app keeps no desktop state of its own. Double-click calls
   `store.activate`: press the user's macOS "Switch to Desktop N" shortcut (read from `AppleSymbolicHotKeys` by
   `Spaces.shortcut`) when a desktop is set, else open the note. Needs Accessibility permission and the shortcut
   enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.

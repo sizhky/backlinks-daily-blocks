@@ -19,14 +19,14 @@ struct ObsidianClient {
     const P=app.plugins.plugins["backlinks-daily-blocks"];
     const defs=String(P.settings.kanban.columns).split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean).map(s=>{const n=s.split(/\s+@/)[0];return{name:n.replace(/=.$/,"").replace(/[~!]$/,""),term:/=.$/.test(n)}});
     const rows=s=>s.split("\n").map(l=>l.split("\t")).filter(c=>c.length>=4&&c[0]!=="@column");
-    const act=rows(await kb.active({includePaused:true,rank:true}));
+    const act=rows(await kb.active({includePaused:true,rank:true,desktop:true}));
     const brd=rows(await kb.board({hours:\#(doneHours),full:"Doing"}));
     const v=(f,k)=>{const x=f&&f[k];return x==null?"":[].concat(x).map(s=>String(s).replace(/^\[\[|\]\]$/g,"").split("|")[0]).join("|")};
     const out=[];
     for(const d of defs){out.push("@column\t"+d.name+"\t"+(d.term?"done":"live"));
     for(const c of (d.term?brd:act).filter(c=>c[0].toLowerCase()===d.name.toLowerCase())){
     const f=app.metadataCache.getCache(c[1].replace(/:\d+$/,""))?.frontmatter;
-    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||"")].join("\t"));}}
+    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||""),d.term?"":(c[5]||"")].join("\t"));}}
     for(const r of kb.sweeps().split("\n").filter(Boolean))out.push("@sweep\t"+r);
     return out.join("\n")})()
     """#.replacingOccurrences(of: "\n", with: " ")
@@ -46,6 +46,11 @@ struct ObsidianClient {
   /// Moves several cards in one call (kb.moveTasks, bottom-up per file).
   func move(_ cards: [Card], to column: String) async throws {
     _ = try await eval("kb.moveTasks(\(try js(cards.map(\.ref))),\(try js(column)))")
+  }
+
+  /// Sets (1 to 9) or clears (nil) the card's desktop line (kb.setDesktop).
+  func setDesktop(_ card: Card, _ n: Int?) async throws {
+    _ = try await eval("kb.setDesktop(\(try js(card.ref)),\(n.map(String.init) ?? "null"))")
   }
 
   /// Writes manual ranks (kb.rankTasks); cards not in `column` move there first.

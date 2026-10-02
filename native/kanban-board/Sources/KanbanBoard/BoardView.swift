@@ -442,7 +442,7 @@ struct IssueCard: View {
       }
       FlowLayout(spacing: 6) {
         Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
-        if let n = store.spaces[card.id] { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) }.help("Desktop \(n)") }
+        if let n = card.desktop { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) }.help("Desktop \(n)") }
         if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
         ForEach(card.tags.prefix(3), id: \.self) { tag in
           Button { store.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
@@ -547,7 +547,7 @@ struct IssueRow: View {
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link).lineLimit(1)
       Spacer(minLength: 12)
-      if let n = store.spaces[card.id] { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) }.help("Desktop \(n)") }
+      if let n = card.desktop { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) }.help("Desktop \(n)") }
       ForEach(card.tags.prefix(2), id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
       if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
       if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
