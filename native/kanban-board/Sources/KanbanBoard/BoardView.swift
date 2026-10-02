@@ -240,7 +240,10 @@ struct ColumnsScroller: View {
       .onScrollGeometryChange(for: CGPoint.self) {
         CGPoint(x: $0.contentOffset.x, y: max(0, $0.contentSize.width - $0.containerSize.width))
       } action: { _, new in (offsetX, maxX) = (new.x, new.y) }
-      .onReceive(timer) { _ in autoscroll(in: geo.frame(in: .global)) }
+      .onReceive(timer) { _ in
+        autoscroll(in: geo.frame(in: .global))
+        if store.draggingColumn != nil, NSEvent.pressedMouseButtons & 1 == 0 { store.draggingColumn = nil }
+      }
       .onChange(of: store.selected) {
         if let card = store.selectedCard { withAnimation { position.scrollTo(id: card.col) } }
       }
@@ -310,9 +313,13 @@ struct ColumnView: View {
     }
     .padding(4)
     .frame(width: density.columnWidth)
+    .opacity(store.draggingColumn == column.name ? 0.35 : 1)
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
-    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: { targeted = $0 }
+    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: {
+      targeted = $0 && store.draggingColumn == nil
+      if $0 { store.dragEntered(column) }
+    }
   }
 }
 
@@ -390,7 +397,10 @@ struct HiddenColumnRow: View {
     .onHover { hovering = $0 }
     .contextMenu { if store.isHidden(column) { Button("Show column") { store.setHidden(column, false) } } }
     .help(store.isHidden(column) ? "\(column.name): hidden" : "\(column.name): no issues")
-    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: { targeted = $0 }
+    .dropDestination(for: String.self) { items, _ in store.drop(items, on: column) } isTargeted: {
+      targeted = $0 && store.draggingColumn == nil
+      if $0 { store.dragEntered(column) }
+    }
   }
 }
 
@@ -415,6 +425,8 @@ struct IssueCard: View {
           ZStack {
             if picked {
               Image(systemName: "checkmark.circle.fill").resizable().foregroundStyle(.white, Palette.indigo)
+            } else if hovering {
+              Image(systemName: "circle").resizable().foregroundStyle(Palette.secondary)
             } else if let org = card.orgs.first {
               OrgIcon(name: org, size: 18).clipShape(.circle)
             } else {

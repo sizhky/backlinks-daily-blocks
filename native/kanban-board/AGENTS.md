@@ -79,6 +79,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Multi-select is `store.picked` (refs). The card's top-right org icon is the toggle (check when picked). A picked card drags `DragPayload.encode(picked)`; `store.drop`
   decodes it. Several cards move in one `kb.moveTasks` call, never parallel `moveTask` calls,
   because each move inserts a history line and shifts later line refs in the same file.
+- Live column reorder: `dropDestination`'s isTargeted calls `store.dragEntered`, which reads the
+  dragged name from `NSPasteboard(name: .drag)` (draggable has no drag-start hook). `draggingColumn`
+  dims the source column and is cleared on drop or by the scroller's 60 Hz timer on mouse-up.
   Column headers drag a `column:Name` string; `store.drop` reorders on that prefix, else moves card refs.
 
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses

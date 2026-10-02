@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import KanbanCore
 import SwiftUI
@@ -46,6 +47,8 @@ final class BoardStore: ObservableObject {
   @Published private(set) var selected: String?
   /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
   @Published var picked: Set<String> = []
+  /// Column being dragged by its header; cleared on drop or mouse-up.
+  @Published var draggingColumn: String?
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
   @Published var focusFilter = 0
@@ -86,14 +89,27 @@ final class BoardStore: ObservableObject {
   /// Drop on a column: a `column:Name` item reorders onto it, card refs move into it.
   func drop(_ items: [String], on column: Column) -> Bool {
     if let item = items.first, item.hasPrefix("column:") {
-      let names = visible.map(\.name)
-      withAnimation(.spring(duration: 0.3)) { columnOrder = Ordering.moving(names, String(item.dropFirst(7)), onto: column.name) }
+      reorder(String(item.dropFirst(7)), onto: column)
+      draggingColumn = nil
       return true
     }
     let refs = DragPayload.decode(items)
     move(refs: refs, to: column.name)
     return !refs.isEmpty
   }
+  /// A column drag entering `column` moves the dragged column into its slot at once,
+  /// so the others slide aside. The dragged name is read from the drag pasteboard.
+  func dragEntered(_ column: Column) {
+    guard let s = NSPasteboard(name: .drag).string(forType: .string), s.hasPrefix("column:") else { return }
+    let name = String(s.dropFirst(7))
+    draggingColumn = name
+    reorder(name, onto: column)
+  }
+  private func reorder(_ name: String, onto column: Column) {
+    guard name != column.name else { return }
+    withAnimation(.spring(duration: 0.3, bounce: 0.1)) { columnOrder = Ordering.moving(visible.map(\.name), name, onto: column.name) }
+  }
+
   /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
   func shiftColumn(_ column: Column, by step: Int) {
     let names = visible.map(\.name)
