@@ -87,6 +87,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   line is inserted above, so it must not be the view identity. Selection and moves still use `ref`.
 - Writes bump `store.writeGen`; `refresh` drops results from before the latest write or during a drag.
   Without this the 6 s poll can land mid-write and snap an optimistic move back.
+- Card drag has no custom preview: a SwiftUI `preview:` view is centred on the cursor (the card
+  snaps). The default image is the card's snapshot, so `beginDrag` hides the card one run-loop
+  turn later, after AppKit takes the snapshot.
 - Card drag uses `.cardDrag` (onDrag, whose closure runs at drag start). `store.dragging` hides the
   carried cards (collapsed, still in the tree so the drag session survives); `dragTarget` shows a
   `GhostCard` in the hovered column. A polling task clears both on mouse-up for cancelled drags.

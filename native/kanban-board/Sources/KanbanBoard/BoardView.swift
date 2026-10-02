@@ -507,31 +507,13 @@ struct CardDrag: ViewModifier {
   func body(content: Content) -> some View {
     let away = store.dragging.contains(card.ref)
     content
-      .onDrag {
-        NSItemProvider(object: store.beginDrag(card) as NSString)
-      } preview: {
-        DragPreview(card: card, count: store.picked.contains(card.ref) ? store.picked.count : 1)
-      }
+      // No custom preview: the system image is the card itself, held where it was grabbed.
+      .onDrag { NSItemProvider(object: store.beginDrag(card) as NSString) }
       .opacity(away ? 0 : 1)
       .frame(height: away ? 0 : nil, alignment: .top).clipped()
       .dropDestination(for: String.self) { items, _ in
         store.visible.first { $0.name == card.col }.map { store.drop(items, on: $0, before: card) } ?? false
       } isTargeted: { store.dragHover(card, $0) }
-  }
-}
-
-/// What follows the cursor while dragging: a lifted, slightly tilted card.
-struct DragPreview: View {
-  let card: Card
-  var count = 1
-
-  var body: some View {
-    Text(count > 1 ? AttributedString("\(count) issues") : renderTitle(card.title)).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
-      .lineLimit(2).padding(.horizontal, 14).padding(.vertical, 10).frame(width: 260, alignment: .leading)
-      .background(Palette.cardHover, in: .rect(cornerRadius: 10))
-      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairlineStrong))
-      .shadow(color: .black.opacity(0.5), radius: 14, y: 8)
-      .rotationEffect(.degrees(-2))
   }
 }
 

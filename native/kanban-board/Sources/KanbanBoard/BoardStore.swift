@@ -132,13 +132,16 @@ final class BoardStore: ObservableObject {
   }
   /// Starts a card drag: the whole pick when the card is in it. Returns the payload.
   func beginDrag(_ card: Card) -> String {
-    withAnimation(Self.dragSpring) { dragging = picked.contains(card.ref) ? picked : [card.ref] }
-    // A cancelled drag never drops; restore the cards once the mouse button is up.
+    let refs: Set<String> = picked.contains(card.ref) ? picked : [card.ref]
+    // Hide the cards on the next run-loop turn: AppKit snapshots the card for the drag image
+    // right after this returns, and a collapsed card would give an empty image.
     Task {
+      withAnimation(Self.dragSpring) { dragging = refs }
+      // A cancelled drag never drops; restore the cards once the mouse button is up.
       while NSEvent.pressedMouseButtons & 1 != 0 { try? await Task.sleep(for: .milliseconds(80)) }
       endDrag()
     }
-    return DragPayload.encode(dragging.sorted())
+    return DragPayload.encode(refs.sorted())
   }
   func dragHover(_ column: Column, _ inside: Bool) {
     if inside { setGhost(column.name, nil) }
