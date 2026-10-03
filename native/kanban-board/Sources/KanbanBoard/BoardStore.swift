@@ -270,14 +270,8 @@ final class BoardStore: ObservableObject {
     }
   }
 
-  /// Double-click: switch to the card's desktop when one is set, else open the note.
-  func activate(_ card: Card) {
-    guard let n = card.desktop else { return open(card) }
-    switchDesktop(n)
-  }
-
   /// Presses the user's "Switch to Desktop N" shortcut. Needs Accessibility permission.
-  private func switchDesktop(_ n: Int) {
+  func switchDesktop(_ n: Int) {
     let hotkeys = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys") ?? [:]
     guard let key = Spaces.shortcut(n, in: hotkeys) else {
       error = "Enable Switch to Desktop \(n) in Keyboard Shortcuts > Mission Control"

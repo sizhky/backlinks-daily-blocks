@@ -503,7 +503,10 @@ struct IssueCard: View {
       }
       FlowLayout(spacing: 6) {
         Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
-        if let n = card.desktop { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) }.help("Desktop \(n)") }
+        if let n = card.desktop {
+        Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
+          .buttonStyle(.plain).help("Switch to Desktop \(n)")
+      }
         if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
         ForEach(card.tags.prefix(3), id: \.self) { tag in
           Button { store.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
@@ -518,11 +521,9 @@ struct IssueCard: View {
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
-    // A single tap selects at once; a count-2 onTapGesture would delay it by the double-click interval.
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
-    .simultaneousGesture(TapGesture(count: 2).onEnded { store.activate(card) })
     .rightClickMenu { store.cardItems(card) }
     // Inserted cards appear in place: on drop the ghost they replace is already there.
     .transition(.asymmetric(insertion: .identity, removal: .opacity))
@@ -596,7 +597,10 @@ struct IssueRow: View {
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link).lineLimit(1)
       Spacer(minLength: 12)
-      if let n = card.desktop { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) }.help("Desktop \(n)") }
+      if let n = card.desktop {
+        Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
+          .buttonStyle(.plain).help("Switch to Desktop \(n)")
+      }
       ForEach(card.tags.prefix(2), id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
       if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
       if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
@@ -612,7 +616,6 @@ struct IssueRow: View {
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
-    .simultaneousGesture(TapGesture(count: 2).onEnded { store.activate(card) })
     .rightClickMenu { store.cardItems(card) }
   }
 }
