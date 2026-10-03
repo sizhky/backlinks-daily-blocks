@@ -411,6 +411,18 @@ extension BoardStore {
   }
 }
 
+/// The card's identifier; a click copies it (same as Copy ID).
+struct CopyIDButton: View {
+  @EnvironmentObject var store: BoardStore
+  let card: Card
+  let font: Font
+
+  var body: some View {
+    Button { store.copyID(card) } label: { Text(card.identifier).font(font).foregroundStyle(Palette.muted) }
+      .buttonStyle(.plain).pointerStyle(.link).help("Copy ID (⇧⌘C)")
+  }
+}
+
 /// Floating confirmation, the only glass on the board.
 struct Toast: View {
   let message: String?
@@ -494,7 +506,7 @@ struct IssueCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: density.cardInner) {
       HStack(spacing: 6) {
-        Text(card.identifier).font(.system(size: density.metaSize)).foregroundStyle(Palette.muted)
+        CopyIDButton(card: card, font: .system(size: density.metaSize))
         Spacer()
         // The org icon is the selection toggle; picked shows a check in its place.
         Button { store.togglePick(card.ref) } label: {
@@ -614,7 +626,7 @@ struct IssueRow: View {
   var body: some View {
     HStack(spacing: 10) {
       StatusGlyph(column: card.col, size: 13)
-      Text(card.identifier).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
+      CopyIDButton(card: card, font: .system(size: 12, design: .monospaced))
         .frame(width: 132, alignment: .leading)
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link).lineLimit(1)
