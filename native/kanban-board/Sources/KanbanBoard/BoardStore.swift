@@ -3,7 +3,7 @@ import Foundation
 import KanbanCore
 import SwiftUI
 
-enum ViewMode: String { case board, list }
+enum ViewMode: String { case board, list, logbook }
 
 /// Unsaved state of the view editor; `org` nil = all workspaces, "" = no org.
 struct ViewDraft: Identifiable {

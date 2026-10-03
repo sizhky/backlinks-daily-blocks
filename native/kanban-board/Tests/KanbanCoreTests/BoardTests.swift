@@ -116,4 +116,13 @@ final class CreatedTests: XCTestCase {
     XCTAssertEqual(titles("created:2026-06-01"), ["Old"])
     XCTAssertEqual(titles("-created:today"), ["Yesterday", "Old"])
   }
+
+  func testLogbookGroupsDoneCardsByDayNewestFirst() {
+    let rows = "@column\tDone\tdone\nDone\ta.md:1\tA\t1d\t\t\t\t\t\t\t2026-10-02T17:25:00.000Z"
+      + "\nDone\tb.md:1\tB\t1h\t\t\t\t\t\t\t2026-10-03T12:21:00.000Z\nDone\tc.md:1\tC\t1h\t\t\t\t\t\t\t2026-10-03T09:00:00.000Z"
+      + "\nDone\td.md:1\tCancelled one\t1h"
+    var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+    let days = Logbook.days(Board.parse(rows)[0].cards, calendar: utc)
+    XCTAssertEqual(days.map { $0.cards.map(\.title) }, [["B", "C"], ["A"]])
+  }
 }

@@ -401,7 +401,7 @@ function buildApi(plugin) {
         lines.push(`@column\t${col.name}`);
         let rows = (byCol.get(col.key) || []).map(card => cardJson(card, col));
         if (col.name.toLowerCase() !== full) rows = filterSince(rows, since);
-        lines.push(...rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}`));
+        lines.push(...rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}`));
       }
       return '\n' + lines.join('\n');
     },
@@ -673,7 +673,7 @@ function buildApi(plugin) {
         'summary(...)             done counts grouped by fm key; opts: by,col,sample,paths',
         '   note: active/getDone/getReport take opts.fm="projects,org" to append fm cols',
         'plate(project,opts?)     a project\'s live tasks (incl Backlog); opts: prop,col,paths,since,limit',
-        'board(opts?)             configured columns + tasks; opts: hours (24), full (Doing), paths',
+        'board(opts?)             configured columns + tasks; opts: hours (24), full (Doing), paths, timestamps',
         'openTask(file,line)      open a task at its exact source line',
         'scopes(opts?)            active org/project combinations; opts: all,query,scopeNote',
         'scopeCatalog()           orgs with projects and inherited activity settings',

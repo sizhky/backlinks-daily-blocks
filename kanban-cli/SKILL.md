@@ -185,6 +185,7 @@ Examples:
 Returns every configured column in order, including empty and terminal columns.
 Each column starts with `@column<TAB>Name`; task rows use the `active()` shape.
 `opts.hours` filters every column except `opts.full` (default `Doing`); default is 24.
+`opts.timestamps: true` appends the ISO time of the last move after `age` (the done time for terminal columns).
 Example: `kb.board({hours:24,full:"Doing"})`
 
 ### `kb.moveTask(filePath, line, toCol)` — move a task to a column

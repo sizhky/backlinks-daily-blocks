@@ -15,6 +15,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Filter.swift         term matching, org scope, SavedFilter (a "view")
   Grouping.swift       group cards by project
   Title.swift          [[wikilinks]] / [text](url) -> segments
+  Logbook.swift        done cards grouped by finish day (Logbook mode)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
@@ -66,6 +67,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - The last two board-script fields are the task's 1-based ordinal among the note's checkbox list items
   (`metadataCache` `listItems`) and their count; every task gets `.NN` (zero-padded) when the count is above 1. `Card.identifier` uses it, never the line: every move inserts a
   `%% kb %%` line and shifted ids of tasks below (OW-1215.15 became .16).
+- Done (`=x`) rows end with the ISO done time (`kb.board({timestamps:true})`), parsed into `Card.doneAt`.
+  Logbook mode lists cards with `doneAt` from `store.visible`, so filters apply and the span is the 14-day done window.
 - `ref` = `file:line` is the card id. Moves call `kb.moveTask(file, line, column)`.
 - The board script ends with `@sweep<TAB>From<TAB>To` rows from `kb.sweeps()`. Each becomes a
   header button on From that calls `kb.sweep(from, to, refs)` with the column's visible cards only.

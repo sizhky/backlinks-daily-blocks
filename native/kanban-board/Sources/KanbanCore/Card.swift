@@ -12,6 +12,8 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var ordinal: Int?
   /// Number of checkbox tasks in the note; nil when the row has none.
   public var siblings: Int?
+  /// When the card entered a done (`=x`) column; nil for live and cancelled cards.
+  public var doneAt: Date?
   /// View identity that survives line shifts (`file|title`, set by `Board.parse`); `ref` changes
   /// whenever a line is inserted above the task, which would make SwiftUI re-insert the card.
   public var id: String
@@ -54,7 +56,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     name.split { !$0.isLetter && !$0.isNumber }.prefix(3).compactMap(\.first).map(String.init).joined().uppercased()
   }
 
-  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings.
+  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings, doneAt (ISO).
   init?(fields f: [String]) {
     guard f.count >= 4, let colon = f[1].lastIndex(of: ":"),
       let line = Int(f[1][f[1].index(after: colon)...]) else { return nil }
@@ -66,6 +68,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     desktop = f.count > 7 ? Int(f[7]).flatMap { Spaces.range.contains($0) ? $0 : nil } : nil
     ordinal = f.count > 8 ? Int(f[8]) : nil
     siblings = f.count > 9 ? Int(f[9]) : nil
+    doneAt = f.count > 10 ? Self.iso.date(from: f[10]) : nil
   }
 
   init(ref: String, file: String, line: Int, col: String, title: String, age: String,
@@ -85,6 +88,12 @@ public struct Card: Identifiable, Equatable, Sendable {
     c.id = id
     return c
   }
+
+  nonisolated(unsafe) static let iso: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+  }()
 
   static let tagPattern = #"(?<![\w])#[\p{L}\p{N}_/-]+"#
 

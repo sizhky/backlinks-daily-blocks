@@ -11,7 +11,7 @@ struct BoardView: View {
     HStack(spacing: 0) {
       VStack(spacing: 0) {
         BoardHeader()
-        Group { if store.mode == .board { ColumnsScroller() } else { ListMode() } }
+        Group { switch store.mode { case .board: ColumnsScroller(); case .list: ListMode(); case .logbook: LogbookMode() } }
           .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(DragController.space))
             .onChanged { drag.changed($0) }
             .onEnded { _ in drag.ended() })
@@ -68,6 +68,7 @@ struct BoardHeader: View {
         HStack(spacing: 2) {
           IconButton(icon: "rectangle.split.3x1", help: "Board", active: store.mode == .board) { store.mode = .board }
           IconButton(icon: "list.bullet", help: "List", active: store.mode == .list) { store.mode = .list }
+          IconButton(icon: "book.closed", help: "Logbook", active: store.mode == .logbook) { store.mode = .logbook }
         }
         IconButton(icon: "sidebar.right", help: "Inspector (space)", active: store.inspectorOpen) { store.inspectorOpen.toggle() }
         IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
@@ -611,6 +612,53 @@ struct ListMode: View {
       .scrollIndicators(.never)
       .onChange(of: store.selected) { if let id = store.selectedCard?.id { withAnimation { proxy.scrollTo(id) } } }
     }
+  }
+}
+
+/// Done cards by day, newest first: what got finished, not what is pending.
+struct LogbookMode: View {
+  @EnvironmentObject var store: BoardStore
+
+  var body: some View {
+    let days = Logbook.days(store.visible.flatMap(\.cards))
+    ScrollView {
+      LazyVStack(spacing: 0) {
+        if days.isEmpty {
+          Text("Nothing done in the last 14 days").font(.system(size: 13)).foregroundStyle(Palette.muted).padding(.top, 80)
+        }
+        ForEach(days, id: \.day) { day in
+          HStack(spacing: 8) {
+            Text(title(day.day)).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
+            Text("\(day.cards.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.muted)
+            Spacer()
+            Text(tally(day.cards)).font(.system(size: 12)).foregroundStyle(Palette.muted).lineLimit(1)
+          }
+          .padding(.horizontal, 16).frame(height: 36)
+          .background(Color.white.opacity(0.03))
+          ForEach(day.cards) { card in
+            HStack(spacing: 0) {
+              Text(card.doneAt!.formatted(date: .omitted, time: .shortened))
+                .font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
+                .frame(width: 64, alignment: .trailing)
+              IssueRow(card: card)
+            }
+          }
+        }
+      }
+    }
+    .scrollIndicators(.never)
+  }
+
+  private func title(_ day: Date) -> String {
+    if Calendar.current.isDateInToday(day) { return "Today" }
+    if Calendar.current.isDateInYesterday(day) { return "Yesterday" }
+    return day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+  }
+
+  /// "Kanban App 5, Vyasa 2": per-project counts, largest first.
+  private func tally(_ cards: [Card]) -> String {
+    let counts = Dictionary(grouping: cards) { $0.projects.first ?? "No project" }.mapValues(\.count)
+    return counts.sorted { ($1.value, $0.key) < ($0.value, $1.key) }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")
   }
 }
 
