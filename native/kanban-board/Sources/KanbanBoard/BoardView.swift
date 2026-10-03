@@ -237,7 +237,7 @@ struct ColumnsScroller: View {
           ForEach(store.visible.filter { !store.isHidden($0) }) { ColumnView(column: $0) }
           HiddenColumns(columns: store.visible.filter { store.isHidden($0) })
         }
-        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map { "\($0.name)\(store.isHidden($0))" })
+        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map { "\($0.name)\($0.cards.isEmpty)\(store.isHidden($0))" })
         .scrollTargetLayout()
         .frame(height: geo.size.height)
         .padding(.horizontal, 14)
@@ -278,7 +278,33 @@ struct ColumnView: View {
   @AppStorage(Density.key) private var density: Density = .compact
   let column: Column
 
+  /// An empty column shrinks to a slim strip in place; it widens again while a drag is over it.
+  private var collapsed: Bool { column.cards.isEmpty && !drag.rows(column, store).contains { $0.card == nil } }
+
   var body: some View {
+    ZStack(alignment: .top) {
+      full.frame(width: density.columnWidth - 8).opacity(collapsed ? 0 : 1).allowsHitTesting(!collapsed)
+      strip.opacity(collapsed ? 1 : 0).allowsHitTesting(false)
+    }
+    .padding(4)
+    .frame(width: collapsed ? Self.stripWidth : density.columnWidth, alignment: .top)
+    .clipped()
+    .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
+    .dragFrame(column.name, in: \.columns, drag.frames)
+  }
+
+  static let stripWidth: CGFloat = 44
+
+  private var strip: some View {
+    VStack(spacing: 10) {
+      StatusGlyph(column: column.name, size: 14).padding(.top, 6)
+      Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
+        .fixedSize().rotationEffect(.degrees(90)).frame(width: 16, height: 8 + CGFloat(column.name.count) * 7.5)
+    }
+  }
+
+  private var full: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 8) {
         StatusGlyph(column: column.name, size: 14)
@@ -298,7 +324,6 @@ struct ColumnView: View {
                 GhostCard()
               }
             }
-            if column.cards.isEmpty && drag.session == nil { EmptyColumn() }
           }
           .padding(.horizontal, 4).padding(.bottom, 16)
         }
@@ -310,25 +335,10 @@ struct ColumnView: View {
         }
       }
     }
-    .padding(4)
-    .frame(width: density.columnWidth)
-    .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
-    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
-    .dragFrame(column.name, in: \.columns, drag.frames)
   }
 
   /// Highlight only a column the drag is entering from elsewhere.
   private var targeted: Bool { drag.slot?.column == column.name && drag.session?.home != column.name }
-}
-
-/// Body of a column with no cards, so the board keeps its shape.
-struct EmptyColumn: View {
-  var body: some View {
-    RoundedRectangle(cornerRadius: 9)
-      .strokeBorder(Palette.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-      .overlay { Text("No issues").font(.system(size: 12)).foregroundStyle(Palette.muted) }
-      .frame(height: 64)
-  }
 }
 
 /// Column header options: hide, move left or right, and the plugin's sweep routes.
