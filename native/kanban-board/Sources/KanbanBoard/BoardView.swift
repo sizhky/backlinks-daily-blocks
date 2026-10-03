@@ -505,12 +505,15 @@ struct IssueCard: View {
         Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
         if let n = card.desktop {
         Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
-          .buttonStyle(.plain).help("Switch to Desktop \(n)")
+          .buttonStyle(.plain).pointerStyle(.link).help("Switch to Desktop \(n)")
       }
-        if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
+        if let project = card.projects.first {
+        Button { store.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
+          .buttonStyle(.plain).pointerStyle(.link).help("Filter by \(project)")
+      }
         ForEach(card.tags.prefix(3), id: \.self) { tag in
           Button { store.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerStyle(.link)
         }
       }
       .padding(.top, 2)
@@ -599,10 +602,13 @@ struct IssueRow: View {
       Spacer(minLength: 12)
       if let n = card.desktop {
         Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
-          .buttonStyle(.plain).help("Switch to Desktop \(n)")
+          .buttonStyle(.plain).pointerStyle(.link).help("Switch to Desktop \(n)")
       }
       ForEach(card.tags.prefix(2), id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
-      if let project = card.projects.first { Pill(text: project) { Monogram(name: project, size: 13) } }
+      if let project = card.projects.first {
+        Button { store.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
+          .buttonStyle(.plain).pointerStyle(.link).help("Filter by \(project)")
+      }
       if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
       Text(card.age).font(.system(size: 12).monospacedDigit())
         .foregroundStyle(stale ? Palette.amber : Palette.muted).frame(width: 36, alignment: .trailing)
