@@ -281,13 +281,19 @@ struct ColumnView: View {
   /// An empty column shrinks to a slim strip in place; it widens again while a drag is over it.
   private var collapsed: Bool { column.cards.isEmpty && !drag.rows(column, store).contains { $0.card == nil } }
 
+  /// `collapsed` as last animated. A drop ends its transaction with animations off, so the shrink
+  /// follows `collapsed` through its own `withAnimation` instead of the transaction that caused it.
+  @State private var shrunk: Bool?
+
   var body: some View {
+    let shrunk = shrunk ?? collapsed
     ZStack(alignment: .top) {
-      full.frame(width: density.columnWidth - 8).opacity(collapsed ? 0 : 1).allowsHitTesting(!collapsed)
-      strip.opacity(collapsed ? 1 : 0).allowsHitTesting(false)
+      full.frame(width: density.columnWidth - 8).opacity(shrunk ? 0 : 1).allowsHitTesting(!shrunk)
+      strip.opacity(shrunk ? 1 : 0).allowsHitTesting(false)
     }
     .padding(4)
-    .frame(width: collapsed ? Self.stripWidth : density.columnWidth, alignment: .top)
+    .frame(width: shrunk ? Self.stripWidth : density.columnWidth, alignment: .top)
+    .onChange(of: collapsed) { _, now in withAnimation(.spring(duration: 0.32, bounce: 0.08)) { self.shrunk = now } }
     .clipped()
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
