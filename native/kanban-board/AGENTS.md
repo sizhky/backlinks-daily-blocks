@@ -62,6 +62,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   Live columns come from `kb.active({includePaused:true})`; done columns from `kb.board`.
 - The CLI prefixes output with `=> `. `Board.parse` must strip it and the space after it, or the
   first column is silently dropped (this happened; a test covers it).
+- `Card.identifier` is `KEY-yyMMdd-HHmm[.NN]` from the note file name; HHmm alone repeated across days.
 - The last two board-script fields are the task's 1-based ordinal among the note's checkbox list items
   (`metadataCache` `listItems`) and their count; every task gets `.NN` (zero-padded) when the count is above 1. `Card.identifier` uses it, never the line: every move inserts a
   `%% kb %%` line and shifted ids of tasks below (OW-1215.15 became .16).

@@ -31,17 +31,19 @@ public struct Card: Identifiable, Equatable, Sendable {
     return f
   }()
 
-  /// Linear-style short id: project key + HHmm of the note, `.ordinal` (two digits) when the note has more than one task.
+  /// Linear-style short id: project key + the note's `yyMMdd-HHmm` (unique, unlike HHmm alone), `.ordinal` (two digits) when the note has more than one task.
   /// The ordinal, not the line, so move stamps inserted above a task do not change its id.
   /// ```
-  /// Obsidian Workflow, 20260613-1844.md task 1 of 1 -> "OW-1844";  Vyasa, x-0946.md task 1 of 3 -> "VYA-0946.01"
+  /// Obsidian Workflow, 20260613-1844.md task 1 of 1 -> "OW-260613-1844"
+  /// Vyasa, 20260613-0946.md task 1 of 3 -> "VYA-260613-0946.01";  x.md -> "VYA-x.md"
   /// ```
   public var identifier: String {
     let source = projects.first ?? orgs.first ?? "Task"
     let initials = Self.initials(source)
     let key = initials.count >= 2 ? initials : String(source.filter { $0.isLetter || $0.isNumber }.prefix(3))
-    let time = file.split(separator: "-").dropFirst().first.map { String($0.prefix(4)) } ?? String(file.prefix(4))
-    return key.uppercased() + "-" + time + (ordinal.map { (siblings ?? $0) > 1 ? "." + String(format: "%02d", $0) : "" } ?? "")
+    let name = (file as NSString).lastPathComponent, parts = name.split(separator: "-")
+    let stamp = parts.count >= 2 && parts[0].count == 8 ? parts[0].dropFirst(2) + "-" + parts[1].prefix(4) : Substring(name)
+    return key.uppercased() + "-" + stamp + (ordinal.map { (siblings ?? $0) > 1 ? "." + String(format: "%02d", $0) : "" } ?? "")
   }
 
   /// First letter of each word, at most three, upper-cased.

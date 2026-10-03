@@ -47,7 +47,7 @@ final class BoardTests: XCTestCase {
       + "\nX\t20260613-0946.md:0\tD\t1h\t\tVyasa\t\t\t1\t3"
     let cards = Board.parse(rows)[0].cards
     // Line 9 and line 12 are the same 3rd task before and after a move stamp is inserted above it.
-    XCTAssertEqual(cards.map(\.identifier), ["OW-1844", "VYA-0946.03", "VYA-0946.03", "VYA-0946.01"])
+    XCTAssertEqual(cards.map(\.identifier), ["OW-260613-1844", "VYA-260613-0946.03", "VYA-260613-0946.03", "VYA-260613-0946.01"])
     XCTAssertEqual(["Horizontal Training Pipeline", "Obsidian Workflow", "Vyasa", "sift-tech ai x", "??"].map(Card.initials),
                    ["HTP", "OW", "V", "STA", ""])
   }

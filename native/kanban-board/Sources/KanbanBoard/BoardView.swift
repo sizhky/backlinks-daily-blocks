@@ -615,7 +615,7 @@ struct IssueRow: View {
     HStack(spacing: 10) {
       StatusGlyph(column: card.col, size: 13)
       Text(card.identifier).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
-        .frame(width: 84, alignment: .leading)
+        .frame(width: 132, alignment: .leading)
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link).lineLimit(1)
       Spacer(minLength: 12)
