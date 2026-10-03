@@ -73,8 +73,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 ## Invariants
 
 - Column order (`kanban.columnOrder`) and user-hidden columns (`kanban.hiddenColumns`) are by name.
-  `store.visible` is already ordered. Hidden or empty columns render in `HiddenColumns` (right panel),
-  each row a drop target; list mode skips hidden columns. Column options live in `ColumnMenu`.
+  `store.visible` is already ordered. Only user-hidden columns render in `HiddenColumns` (right panel),
+  each row a drop target; empty columns stay in place with `EmptyColumn`, so the board never reshapes by itself; list mode skips hidden columns. Column options live in `ColumnMenu`.
 - Never pair `onTapGesture(count: 2)` with a single tap: SwiftUI holds the single tap for the
   double-click interval and selection feels laggy. Use `.simultaneousGesture(TapGesture(count: 2))`.
 - Multi-select is `store.picked` (refs). The card's top-right org icon is the toggle (check when picked).
@@ -124,8 +124,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - A saved view stores `(query, orgs)`; legacy single `org` is read as a one-item list. Applying a view sets both.
 - Add a new filter key in two places: `Filter.test` and `Catalog.make`. The catalog drives autocomplete in
   the filter field (Tab or Return accepts) and in cmd-K; `view:Name` applies the view.
-- Board columns with no visible cards render as `CollapsedColumn` strips right after the last
-  filled column, inside the horizontal scroller; they stay drop targets. Sidebar Projects and Labels hide zero-count
+- Sidebar Projects and Labels hide zero-count
   rows behind a "Show N empty" row. Cards show no ID (the inspector does); age and org sit on the
   title line, and the labels line renders only when the card has labels.
   When grouped, a single-org group shows its org on the `GroupHeader` (`CardGroup.orgs`) and its

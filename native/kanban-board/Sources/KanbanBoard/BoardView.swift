@@ -234,10 +234,10 @@ struct ColumnsScroller: View {
     GeometryReader { geo in
       ScrollView(.horizontal) {
         HStack(alignment: .top, spacing: 10) {
-          ForEach(store.visible.filter { !store.isHidden($0) && !$0.cards.isEmpty }) { ColumnView(column: $0) }
-          HiddenColumns(columns: store.visible.filter { store.isHidden($0) || $0.cards.isEmpty })
+          ForEach(store.visible.filter { !store.isHidden($0) }) { ColumnView(column: $0) }
+          HiddenColumns(columns: store.visible.filter { store.isHidden($0) })
         }
-        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map { "\($0.name)\($0.cards.isEmpty)\(store.isHidden($0))" })
+        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map { "\($0.name)\(store.isHidden($0))" })
         .scrollTargetLayout()
         .frame(height: geo.size.height)
         .padding(.horizontal, 14)
@@ -298,6 +298,7 @@ struct ColumnView: View {
                 GhostCard()
               }
             }
+            if column.cards.isEmpty && drag.session == nil { EmptyColumn() }
           }
           .padding(.horizontal, 4).padding(.bottom, 16)
         }
@@ -318,6 +319,16 @@ struct ColumnView: View {
 
   /// Highlight only a column the drag is entering from elsewhere.
   private var targeted: Bool { drag.slot?.column == column.name && drag.session?.home != column.name }
+}
+
+/// Body of a column with no cards, so the board keeps its shape.
+struct EmptyColumn: View {
+  var body: some View {
+    RoundedRectangle(cornerRadius: 9)
+      .strokeBorder(Palette.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+      .overlay { Text("No issues").font(.system(size: 12)).foregroundStyle(Palette.muted) }
+      .frame(height: 64)
+  }
 }
 
 /// Column header options: hide, move left or right, and the plugin's sweep routes.
