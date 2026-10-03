@@ -20,6 +20,7 @@ Sources/KanbanBoard/   SwiftUI app
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
+  Menu.swift           custom Linear-style menus: MenuItem, MenuController, MenuHost, MenuTrigger, rightClickMenu
   SettingsView.swift   Settings window (Cmd-,); Density (compact, comfortable) metrics
   Style.swift          Palette, StatusGlyph, Pill, FlowLayout, Monogram, OrgIcon, renderTitle
 Tests/KanbanCoreTests/ XCTest, millisecond-scale
@@ -105,6 +106,11 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   `store.activate`: press the user's macOS "Switch to Desktop N" shortcut (read from `AppleSymbolicHotKeys` by
   `Spaces.shortcut`) when a desktop is set, else open the note. Needs Accessibility permission and the shortcut
   enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.
+- Menus are custom, never SwiftUI `Menu` or `.contextMenu`. Items are `MenuItem` values; card, column and view items live in
+  `BoardStore.cardItems` / `columnItems` / `statusItems` / `desktopItems` so the inspector and the right-click menu share them.
+  Open with `MenuTrigger` (button) or `.rightClickMenu` (AppKit catcher that takes only right clicks). `MenuHost` draws panels
+  in the `MenuController.space` space (root, inside zoom); window clicks are divided by `kanban.zoom`. Row height is fixed so
+  panel height is computed, not measured. Keys are a local monitor: arrows, return, esc.
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
   key `+`, which needs Shift, so a hidden Cmd-= button does the same zoom in. Cmd-0 resets to 1.
 

@@ -23,12 +23,7 @@ struct Inspector: View {
             .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
           VStack(alignment: .leading, spacing: 2) {
             prop("Status") {
-              Menu {
-                ForEach(store.columns) { c in
-                  Button { store.move(ref: card.ref, to: c.name) } label: { Label(c.name, systemImage: "circle") }
-                }
-              } label: { HStack(spacing: 7) { StatusGlyph(column: card.col); Text(card.col) } }
-                .menuStyle(.borderlessButton).fixedSize()
+              MenuTrigger(items: { store.statusItems(card) }) { HStack(spacing: 7) { StatusGlyph(column: card.col); Text(card.col) } }
             }
             if let project = card.projects.first {
               prop("Project") { HStack(spacing: 7) { Monogram(name: project, size: 16); Text(project) } }
@@ -42,11 +37,7 @@ struct Inspector: View {
               }
             }
             prop("Desktop") {
-              Menu {
-                Button("None") { store.setDesktop(nil, for: card) }
-                ForEach(Array(Spaces.range), id: \.self) { n in Button("Desktop \(n)") { store.setDesktop(n, for: card) } }
-              } label: { Text(card.desktop.map { "Desktop \($0)" } ?? "None") }
-                .menuStyle(.borderlessButton).fixedSize()
+              MenuTrigger(items: { store.desktopItems(card) }) { Text(card.desktop.map { "Desktop \($0)" } ?? "None") }
             }
             prop("In status") { Text(card.age).monospacedDigit() }
             prop("Note") { Text(card.ref).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle) }

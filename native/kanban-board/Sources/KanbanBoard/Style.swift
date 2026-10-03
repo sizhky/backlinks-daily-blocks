@@ -31,6 +31,7 @@ enum Palette {
   static let link = Color(red: 0.56, green: 0.63, blue: 0.98)
   static let selected = Color(red: 0.37, green: 0.42, blue: 0.82).opacity(0.2)
   static let indigo = Color(red: 0.37, green: 0.42, blue: 0.82)
+  static let danger = Color(red: 0.93, green: 0.38, blue: 0.38)
 }
 
 /// Flat window colour; the main panel sits on it as an inset rounded sheet.

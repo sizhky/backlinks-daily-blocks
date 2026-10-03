@@ -326,25 +326,56 @@ struct ColumnMenu: View {
   let column: Column
 
   var body: some View {
-    let names = store.visible.map(\.name)
-    Menu {
-      Button(store.isHidden(column) ? "Show column" : "Hide column") { store.setHidden(column, !store.isHidden(column)) }
-      Button("Select all in column") { store.pickAll(in: column) }.disabled(column.cards.isEmpty)
-      Divider()
-      Button("Move left") { store.shiftColumn(column, by: -1) }.disabled(names.first == column.name)
-      Button("Move right") { store.shiftColumn(column, by: 1) }.disabled(names.last == column.name)
-      if !column.sweeps.isEmpty {
-        Divider()
-        ForEach(column.sweeps, id: \.self) { target in
-          Button("Move \(column.cards.count) shown to \(target)") { store.sweep(column, to: target) }
-            .disabled(column.cards.isEmpty)
-        }
-      }
-    } label: {
+    MenuTrigger(trailing: true, items: { store.columnItems(column) }) {
       Image(systemName: "ellipsis").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
         .frame(width: 22, height: 22).contentShape(Rectangle())
     }
-    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+    .accessibilityLabel("Column options")
+  }
+}
+
+extension BoardStore {
+  func columnItems(_ column: Column) -> [MenuItem] {
+    let names = visible.map(\.name)
+    var items: [MenuItem] = [
+      .action(isHidden(column) ? "Show column" : "Hide column", symbol: isHidden(column) ? "eye" : "eye.slash") { self.setHidden(column, !self.isHidden(column)) },
+      .action("Select all in column", symbol: "checkmark.circle", disabled: column.cards.isEmpty) { self.pickAll(in: column) },
+      .separator,
+      .action("Move left", symbol: "arrow.left", disabled: names.first == column.name) { self.shiftColumn(column, by: -1) },
+      .action("Move right", symbol: "arrow.right", disabled: names.last == column.name) { self.shiftColumn(column, by: 1) },
+    ]
+    if !column.sweeps.isEmpty {
+      items.append(.separator)
+      for target in column.sweeps {
+        items.append(.action("Move \(column.cards.count) shown to \(target)", symbol: "arrow.right.circle", disabled: column.cards.isEmpty) {
+          self.sweep(column, to: target)
+        })
+      }
+    }
+    return items
+  }
+
+  /// Right-click menu of a card; Status and Desktop are shared with the inspector.
+  func cardItems(_ card: Card) -> [MenuItem] {
+    [
+      .action("Open in Obsidian", symbol: "arrow.up.forward.app", hint: "↵") { self.open(card) },
+      .separator,
+      .submenu("Move to", symbol: "arrow.right", statusItems(card)),
+      .submenu("Desktop", symbol: "rectangle.3.group", desktopItems(card)),
+    ]
+  }
+
+  func statusItems(_ card: Card) -> [MenuItem] {
+    columns.map { c in
+      .action(c.name, glyph: AnyView(StatusGlyph(column: c.name, size: 12)), checked: c.name == card.col) {
+        self.move(ref: card.ref, to: c.name)
+      }
+    }
+  }
+
+  func desktopItems(_ card: Card) -> [MenuItem] {
+    [.action("None", checked: card.desktop == nil) { self.setDesktop(nil, for: card) }, .separator]
+      + Spaces.range.map { n in .action("Desktop \(n)", checked: card.desktop == n) { self.setDesktop(n, for: card) } }
   }
 }
 
@@ -392,7 +423,7 @@ struct HiddenColumnRow: View {
     .background(targeted ? accent(for: column.name).opacity(0.10) : Palette.card, in: .rect(cornerRadius: 8))
     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : Palette.hairline))
     .onHover { hovering = $0 }
-    .contextMenu { if store.isHidden(column) { Button("Show column") { store.setHidden(column, false) } } }
+    .rightClickMenu { store.columnItems(column) }
     .help(store.isHidden(column) ? "\(column.name): hidden" : "\(column.name): no issues")
     .dragFrame(column.name, in: \.columns, drag.frames)
   }
@@ -462,21 +493,9 @@ struct IssueCard: View {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
     .simultaneousGesture(TapGesture(count: 2).onEnded { store.activate(card) })
-    .contextMenu { CardMenu(card: card) }
+    .rightClickMenu { store.cardItems(card) }
     // Inserted cards appear in place: on drop the ghost they replace is already there.
     .transition(.asymmetric(insertion: .identity, removal: .opacity))
-  }
-}
-
-struct CardMenu: View {
-  @EnvironmentObject var store: BoardStore
-  let card: Card
-
-  var body: some View {
-    Button("Open in Obsidian") { store.open(card) }
-    Menu("Move to") {
-      ForEach(store.columns) { c in Button(c.name) { store.move(ref: card.ref, to: c.name) } }
-    }
   }
 }
 
@@ -564,7 +583,7 @@ struct IssueRow: View {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
     .simultaneousGesture(TapGesture(count: 2).onEnded { store.activate(card) })
-    .contextMenu { CardMenu(card: card) }
+    .rightClickMenu { store.cardItems(card) }
   }
 }
 

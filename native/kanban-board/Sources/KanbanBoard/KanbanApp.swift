@@ -4,6 +4,7 @@ import SwiftUI
 struct KanbanBoardApp: App {
   @StateObject private var store = BoardStore()
   @StateObject private var drag = DragController()
+  @StateObject private var menu = MenuController()
   @AppStorage("kanban.sidebarWidth") private var sidebarWidth = 232.0
   @State private var dragStart: Double?
   @AppStorage("kanban.zoom") private var zoom = 1.0
@@ -33,7 +34,9 @@ struct KanbanBoardApp: App {
         }
         BoardView()
       }
+      .coordinateSpace(.named(MenuController.space))
       .overlay { if store.paletteOpen { CommandPalette() } }
+      .overlay { MenuHost() }
       .frame(width: geo.size.width / zoom, height: geo.size.height / zoom)
       .scaleEffect(zoom, anchor: .topLeading)
       }
@@ -49,6 +52,7 @@ struct KanbanBoardApp: App {
       .sheet(item: $store.editing) { ViewEditor(draft: $0).environmentObject(store) }
       .environmentObject(store)
       .environmentObject(drag)
+      .environmentObject(menu)
       .frame(minWidth: 1000, minHeight: 620)
       .preferredColorScheme(.dark)
       .ignoresSafeArea()

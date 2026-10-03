@@ -24,11 +24,13 @@ struct SidebarView: View {
             item(view.name, leading: viewIcon(view), active: store.activeView?.id == view.id, count: nil) {
               store.apply(view)
             }
-            .contextMenu {
-              Button("Edit…") { store.edit(view) }
-              Button("Update to current filter") { store.updateToCurrent(view) }
-              Divider()
-              Button("Delete view", role: .destructive) { store.delete(view) }
+            .rightClickMenu {
+              [
+                .action("Edit…", symbol: "pencil") { store.edit(view) },
+                .action("Update to current filter", symbol: "arrow.triangle.2.circlepath") { store.updateToCurrent(view) },
+                .separator,
+                .action("Delete view", symbol: "trash", destructive: true) { store.delete(view) },
+              ]
             }
           }
         }
