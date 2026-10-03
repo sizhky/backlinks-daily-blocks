@@ -23,6 +23,7 @@ struct BoardView: View {
       }
     }
     .overlay(alignment: .topLeading) { FloatingCard(pointer: drag.pointer) }
+    .overlay(alignment: .bottom) { Toast(message: store.toast) }
     .coordinateSpace(.named(DragController.space))
     .background(Palette.base)
     .clipShape(.rect(cornerRadius: 12))
@@ -407,6 +408,23 @@ extension BoardStore {
   func desktopItems(_ card: Card) -> [MenuItem] {
     [.action("None", checked: card.desktop == nil) { self.setDesktop(nil, for: card) }, .separator]
       + Spaces.range.map { n in .action("Desktop \(n)", checked: card.desktop == n) { self.setDesktop(n, for: card) } }
+  }
+}
+
+/// Floating confirmation, the only glass on the board.
+struct Toast: View {
+  let message: String?
+
+  var body: some View {
+    if let message {
+      Text(message).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Palette.text)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .glassEffect(.regular, in: .capsule)
+        .padding(.bottom, 40)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .allowsHitTesting(false)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
   }
 }
 

@@ -9,7 +9,10 @@ struct Inspector: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 8) {
-        Text(card.identifier).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
+        Button { store.copyID(card) } label: {
+          Text(card.identifier).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
+        }
+        .buttonStyle(.plain).pointerStyle(.link).help("Copy ID (⇧⌘C)")
         Spacer()
         IconButton(icon: "arrow.up.forward.app", help: "Open in Obsidian (↵)") { store.open(card) }
         IconButton(icon: "xmark", help: "Close (esc)") { store.select(nil) }

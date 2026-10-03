@@ -45,6 +45,8 @@ final class BoardStore: ObservableObject {
     didSet { UserDefaults.standard.set(inspectorOpen, forKey: "kanban.inspector") }
   }
   @Published private(set) var selected: String?
+  @Published private(set) var toast: String?
+  private var toastGen = 0
   /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
   @Published var picked: Set<String> = []
   /// True while `DragController` carries cards; refresh results wait until it ends.
@@ -191,6 +193,19 @@ final class BoardStore: ObservableObject {
   func copyID(_ card: Card) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(card.identifier, forType: .string)
+    show("Copied \(card.identifier)")
+  }
+
+  /// Short confirmation at the bottom of the board; a newer toast replaces an older one.
+  func show(_ message: String) {
+    toastGen += 1
+    let gen = toastGen
+    withAnimation(.spring(duration: 0.25)) { toast = message }
+    Task {
+      try? await Task.sleep(for: .seconds(1.6))
+      guard gen == toastGen else { return }
+      withAnimation(.spring(duration: 0.25)) { toast = nil }
+    }
   }
 
   func start() {

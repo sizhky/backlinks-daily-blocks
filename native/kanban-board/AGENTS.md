@@ -108,7 +108,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.
 - Menus are custom, never SwiftUI `Menu` or `.contextMenu`. Items are `MenuItem` values; card, column and view items live in
   `BoardStore.cardItems` / `columnItems` / `statusItems` / `desktopItems` so the inspector and the right-click menu share them.
-  "Copy ID" (`store.copyID`, Shift-Cmd-C on the selected card) copies `Card.identifier`. Open with `MenuTrigger` (button) or `.rightClickMenu` (AppKit catcher that takes only right clicks). `MenuHost` draws panels
+  "Copy ID" (`store.copyID`, Shift-Cmd-C on the selected card) copies `Card.identifier`; clicking the inspector ID does the same. Both show a `Toast` via `store.show` (one at a time, 1.6 s). Open with `MenuTrigger` (button) or `.rightClickMenu` (AppKit catcher that takes only right clicks). `MenuHost` draws panels
   in the `MenuController.space` space (root, inside zoom); window clicks are divided by `kanban.zoom`. Row height is fixed so
   panel height is computed, not measured. Keys are a local monitor: arrows, return, esc.
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses
@@ -161,7 +161,7 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Flat near-black. Window `#08090a`, main sheet `#0f1011`, 1 pt hairline borders, no shadows on content.
   Tokens live in `Palette`; do not hard-code colours in views.
 - One accent (indigo). Colour marks state only: status glyphs, stale age (amber), selection, drop target.
-- Glass (`glassEffect`) is only for floating controls (command palette). Never on cards or columns,
+- Glass (`glassEffect`) is only for floating controls (command palette, toast). Never on cards or columns,
   and never glass on glass.
 - Type: SF Pro, 13 to 13.5 pt titles with slight negative tracking, 11 to 12 pt muted metadata,
   `monospacedDigit` for numbers, monospaced for ids.
