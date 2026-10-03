@@ -674,8 +674,9 @@ struct IssueRow: View {
   var body: some View {
     HStack(spacing: 10) {
       StatusGlyph(column: card.col, size: 13)
-      CopyIDButton(card: card, font: .system(size: 12, design: .monospaced))
-        .frame(width: 132, alignment: .leading)
+      // Widest possible id sizes the column, so ids never wrap and titles stay aligned.
+      Text("XXX-000000-0000.00").font(.system(size: 12, design: .monospaced)).hidden()
+        .overlay(alignment: .leading) { CopyIDButton(card: card, font: .system(size: 12, design: .monospaced)).lineLimit(1).fixedSize() }
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link).lineLimit(1)
       Spacer(minLength: 12)

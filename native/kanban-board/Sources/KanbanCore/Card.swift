@@ -37,15 +37,25 @@ public struct Card: Identifiable, Equatable, Sendable {
   /// The ordinal, not the line, so move stamps inserted above a task do not change its id.
   /// ```
   /// Obsidian Workflow, 20260613-1844.md task 1 of 1 -> "OW-260613-1844"
-  /// Vyasa, 20260613-0946.md task 1 of 3 -> "VYA-260613-0946.01";  x.md -> "VYA-x.md"
+  /// Vyasa, 20260613-0946.md task 1 of 3 -> "VYA-260613-0946.01"
+  /// non-daily note "20260704 - Plan of Action.md" -> "TAS-" + 4-character base-36 hash of the name, e.g. "TAS-K3F9"
   /// ```
   public var identifier: String {
     let source = projects.first ?? orgs.first ?? "Task"
     let initials = Self.initials(source)
     let key = initials.count >= 2 ? initials : String(source.filter { $0.isLetter || $0.isNumber }.prefix(3))
-    let name = (file as NSString).lastPathComponent, parts = name.split(separator: "-")
-    let stamp = parts.count >= 2 && parts[0].count == 8 ? parts[0].dropFirst(2) + "-" + parts[1].prefix(4) : Substring(name)
+    let name = (file as NSString).lastPathComponent
+    let daily = name.wholeMatch(of: #/(\d{8})-(\d{4})(\..*)?\.md/#)
+    let stamp = daily.map { $0.1.dropFirst(2) + "-" + $0.2 } ?? Substring(Self.hash4(name))
     return key.uppercased() + "-" + stamp + (ordinal.map { (siblings ?? $0) > 1 ? "." + String(format: "%02d", $0) : "" } ?? "")
+  }
+
+  /// FNV-1a of the name, as 4 upper-case base-36 characters.
+  static func hash4(_ name: String) -> String {
+    var h: UInt32 = 2166136261
+    for b in name.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
+    let s = String(h % 1_679_616, radix: 36).uppercased()
+    return String(repeating: "0", count: 4 - s.count) + s
   }
 
   /// First letter of each word, at most three, upper-cased.
