@@ -13,7 +13,7 @@ struct ObsidianClient {
 
   /// Live columns come from kb.active (all ages, paused included); done columns from kb.board (recent).
   /// Appends org and projects frontmatter to each row, then the task's 1-based ordinal among the
-  /// note's checkbox list items (metadata cache), which `Card.identifier` uses.
+  /// note's checkbox list items (metadata cache) and their count, which `Card.identifier` uses.
   static func boardScript(doneHours: Int) -> String {
     #"""
     (async()=>{
@@ -27,8 +27,8 @@ struct ObsidianClient {
     for(const d of defs){out.push("@column\t"+d.name+"\t"+(d.term?"done":"live"));
     for(const c of (d.term?brd:act).filter(c=>c[0].toLowerCase()===d.name.toLowerCase())){
     const m=app.metadataCache.getCache(c[1].replace(/:\d+$/,"")),f=m?.frontmatter,ln=+c[1].split(":").pop();
-    const n=(m?.listItems||[]).filter(i=>i.task!==undefined).findIndex(i=>i.position.start.line===ln)+1;
-    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||""].join("\t"));}}
+    const ts=(m?.listItems||[]).filter(i=>i.task!==undefined),n=ts.findIndex(i=>i.position.start.line===ln)+1;
+    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||"",n?ts.length:""].join("\t"));}}
     for(const r of kb.sweeps().split("\n").filter(Boolean))out.push("@sweep\t"+r);
     return out.join("\n")})()
     """#.replacingOccurrences(of: "\n", with: " ")

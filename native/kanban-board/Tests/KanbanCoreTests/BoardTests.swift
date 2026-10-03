@@ -42,11 +42,12 @@ final class BoardTests: XCTestCase {
   }
 
   func testIdentifier() {
-    let rows = "@column\tX\tlive\nX\t20260613-1844.md:0\tA\t1h\t\tObsidian Workflow\t\t\t1"
-      + "\nX\t20260613-0946.md:9\tB\t1h\t\tVyasa\t\t\t3\nX\t20260613-0946.md:12\tC\t1h\t\tVyasa\t\t\t3"
+    let rows = "@column\tX\tlive\nX\t20260613-1844.md:0\tA\t1h\t\tObsidian Workflow\t\t\t1\t1"
+      + "\nX\t20260613-0946.md:9\tB\t1h\t\tVyasa\t\t\t3\t3\nX\t20260613-0946.md:12\tC\t1h\t\tVyasa\t\t\t3\t3"
+      + "\nX\t20260613-0946.md:0\tD\t1h\t\tVyasa\t\t\t1\t3"
     let cards = Board.parse(rows)[0].cards
     // Line 9 and line 12 are the same 3rd task before and after a move stamp is inserted above it.
-    XCTAssertEqual(cards.map(\.identifier), ["OW-1844", "VYA-0946.3", "VYA-0946.3"])
+    XCTAssertEqual(cards.map(\.identifier), ["OW-1844", "VYA-0946.3", "VYA-0946.3", "VYA-0946.1"])
     XCTAssertEqual(["Horizontal Training Pipeline", "Obsidian Workflow", "Vyasa", "sift-tech ai x", "??"].map(Card.initials),
                    ["HTP", "OW", "V", "STA", ""])
   }

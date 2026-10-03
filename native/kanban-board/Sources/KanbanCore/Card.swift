@@ -10,6 +10,8 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var desktop: Int?
   /// 1-based position among the note's checkbox tasks; nil when the row has none.
   public var ordinal: Int?
+  /// Number of checkbox tasks in the note; nil when the row has none.
+  public var siblings: Int?
   /// View identity that survives line shifts (`file|title`, set by `Board.parse`); `ref` changes
   /// whenever a line is inserted above the task, which would make SwiftUI re-insert the card.
   public var id: String
@@ -29,17 +31,17 @@ public struct Card: Identifiable, Equatable, Sendable {
     return f
   }()
 
-  /// Linear-style short id: project key + HHmm of the note, `.ordinal` when not the first task.
+  /// Linear-style short id: project key + HHmm of the note, `.ordinal` when the note has more than one task.
   /// The ordinal, not the line, so move stamps inserted above a task do not change its id.
   /// ```
-  /// Obsidian Workflow, 20260613-1844.md task 1 -> "OW-1844";  Vyasa, x-0946.md task 3 -> "VYA-0946.3"
+  /// Obsidian Workflow, 20260613-1844.md task 1 of 1 -> "OW-1844";  Vyasa, x-0946.md task 1 of 3 -> "VYA-0946.1"
   /// ```
   public var identifier: String {
     let source = projects.first ?? orgs.first ?? "Task"
     let initials = Self.initials(source)
     let key = initials.count >= 2 ? initials : String(source.filter { $0.isLetter || $0.isNumber }.prefix(3))
     let time = file.split(separator: "-").dropFirst().first.map { String($0.prefix(4)) } ?? String(file.prefix(4))
-    return key.uppercased() + "-" + time + (ordinal.map { $0 > 1 ? ".\($0)" : "" } ?? "")
+    return key.uppercased() + "-" + time + (ordinal.map { (siblings ?? $0) > 1 ? ".\($0)" : "" } ?? "")
   }
 
   /// First letter of each word, at most three, upper-cased.
@@ -50,7 +52,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     name.split { !$0.isLetter && !$0.isNumber }.prefix(3).compactMap(\.first).map(String.init).joined().uppercased()
   }
 
-  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal.
+  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings.
   init?(fields f: [String]) {
     guard f.count >= 4, let colon = f[1].lastIndex(of: ":"),
       let line = Int(f[1][f[1].index(after: colon)...]) else { return nil }
@@ -61,6 +63,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     rank = f.count > 6 ? Double(f[6]) : nil
     desktop = f.count > 7 ? Int(f[7]).flatMap { Spaces.range.contains($0) ? $0 : nil } : nil
     ordinal = f.count > 8 ? Int(f[8]) : nil
+    siblings = f.count > 9 ? Int(f[9]) : nil
   }
 
   init(ref: String, file: String, line: Int, col: String, title: String, age: String,
@@ -76,6 +79,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     c.rank = rank
     c.desktop = desktop
     c.ordinal = ordinal
+    c.siblings = siblings
     c.id = id
     return c
   }
