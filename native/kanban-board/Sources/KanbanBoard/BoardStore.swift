@@ -188,6 +188,11 @@ final class BoardStore: ObservableObject {
 
   func openSelected() { selectedCard.map(open) }
 
+  func copyID(_ card: Card) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(card.identifier, forType: .string)
+  }
+
   func start() {
     guard loop == nil else { return }
     loop = Task { [weak self] in

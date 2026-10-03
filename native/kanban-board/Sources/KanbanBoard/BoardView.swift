@@ -389,6 +389,7 @@ extension BoardStore {
   func cardItems(_ card: Card) -> [MenuItem] {
     [
       .action("Open in Obsidian", symbol: "arrow.up.forward.app", hint: "↵") { self.open(card) },
+      .action("Copy ID", symbol: "number", hint: "⇧⌘C") { self.copyID(card) },
       .separator,
       .submenu("Move to", symbol: "arrow.right", statusItems(card)),
       .submenu("Desktop", symbol: "rectangle.3.group", desktopItems(card)),

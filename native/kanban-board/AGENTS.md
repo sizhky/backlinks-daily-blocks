@@ -108,7 +108,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.
 - Menus are custom, never SwiftUI `Menu` or `.contextMenu`. Items are `MenuItem` values; card, column and view items live in
   `BoardStore.cardItems` / `columnItems` / `statusItems` / `desktopItems` so the inspector and the right-click menu share them.
-  Open with `MenuTrigger` (button) or `.rightClickMenu` (AppKit catcher that takes only right clicks). `MenuHost` draws panels
+  "Copy ID" (`store.copyID`, Shift-Cmd-C on the selected card) copies `Card.identifier`. Open with `MenuTrigger` (button) or `.rightClickMenu` (AppKit catcher that takes only right clicks). `MenuHost` draws panels
   in the `MenuController.space` space (root, inside zoom); window clicks are divided by `kanban.zoom`. Row height is fixed so
   panel height is computed, not measured. Keys are a local monitor: arrows, return, esc.
 - Zoom (`kanban.zoom`, 0.7 to 1.6) scales the whole window content in `KanbanApp`. View > Zoom In uses

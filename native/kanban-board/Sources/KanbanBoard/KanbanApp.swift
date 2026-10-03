@@ -64,6 +64,8 @@ struct KanbanBoardApp: App {
       CommandGroup(replacing: .pasteboard) {
         Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }.keyboardShortcut("x")
         Button("Copy") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }.keyboardShortcut("c")
+        Button("Copy ID") { store.selectedCard.map(store.copyID) }.keyboardShortcut("c", modifiers: [.command, .shift])
+          .disabled(store.selectedCard == nil)
         Button("Paste") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }.keyboardShortcut("v")
         Divider()
         // Text fields keep Cmd-A; elsewhere it picks every shown card.
