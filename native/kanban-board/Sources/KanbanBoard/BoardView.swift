@@ -293,7 +293,10 @@ struct ColumnView: View {
     }
     .padding(4)
     .frame(width: shrunk ? Self.stripWidth : density.columnWidth, alignment: .top)
-    .onChange(of: collapsed) { _, now in withAnimation(.spring(duration: 0.32, bounce: 0.08)) { self.shrunk = now } }
+    // Deferred a turn: inside the drop's transaction (animations disabled) a nested withAnimation is also disabled.
+    .onChange(of: collapsed) { _, now in
+      Task { @MainActor in withAnimation(.spring(duration: 0.32, bounce: 0.08)) { self.shrunk = now } }
+    }
     .clipped()
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
