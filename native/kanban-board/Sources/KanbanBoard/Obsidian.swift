@@ -29,7 +29,7 @@ struct ObsidianClient {
     for(const c of (d.term?brd:act).filter(c=>c[0].toLowerCase()===d.name.toLowerCase())){
     const m=app.metadataCache.getCache(c[1].replace(/:\d+$/,"")),f=m?.frontmatter,ln=+c[1].split(":").pop();
     const ts=(m?.listItems||[]).filter(i=>i.task!==undefined),n=ts.findIndex(i=>i.position.start.line===ln)+1;
-    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||"",n?ts.length:"",d.x?(c[4]||""):"",...(est.get(c[1])||[])].join("\t"));}}
+    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||"",n?ts.length:"",d.x?(c[4]||""):""].concat(est.get(c[1])||[]).join("\t"));}}
     for(const r of kb.sweeps().split("\n").filter(Boolean))out.push("@sweep\t"+r);
     return out.join("\n")})()
     """#.replacingOccurrences(of: "\n", with: " ")
