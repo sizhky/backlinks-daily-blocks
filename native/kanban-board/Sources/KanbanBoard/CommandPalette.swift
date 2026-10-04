@@ -90,7 +90,7 @@ struct CommandPalette: View {
               .font(.system(size: 13)).padding(.horizontal, 12).padding(.vertical, 8)
               .background(i == index ? Palette.selected : .clear, in: .rect(cornerRadius: 10))
               .contentShape(Rectangle())
-              .onTapGesture { store.paletteIndex = i; run(shown) }
+              .onTapGesture { store.paletteIndex = i; run(shown) }.pointerStyle(.link)
             }
           }
           .padding(8)

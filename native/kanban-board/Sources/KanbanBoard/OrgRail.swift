@@ -87,7 +87,7 @@ struct OrgRail: View {
         }
         .animation(.spring(duration: 0.25), value: selected)
     }
-    .buttonStyle(.plain)
+    .buttonStyle(.pointing)
     .help(help)
     .overlay(alignment: .leading) {
       Capsule().fill(Palette.text).frame(width: 4, height: selected ? 26 : 0).offset(x: -10)

@@ -52,7 +52,7 @@ struct OrgPicker: View {
             .padding(.horizontal, 8).frame(height: 28)
             .background(i == highlight ? Palette.active : .clear, in: .rect(cornerRadius: 6))
             .contentShape(Rectangle())
-            .onTapGesture { selected.append(org); text = ""; focused = true }
+            .onTapGesture { selected.append(org); text = ""; focused = true }.pointerStyle(.link)
           }
         }
         .padding(4)
@@ -78,7 +78,7 @@ struct OrgPicker: View {
       icon(org)
       Text(Self.label(org)).font(.system(size: 12.5, weight: .medium))
       Button { selected.removeAll { $0 == org } } label: { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)) }
-        .buttonStyle(.plain).foregroundStyle(Palette.muted)
+        .buttonStyle(.pointing).foregroundStyle(Palette.muted)
     }
     .padding(.horizontal, 8).frame(height: 24)
     .background(Color.white.opacity(0.06), in: .capsule)

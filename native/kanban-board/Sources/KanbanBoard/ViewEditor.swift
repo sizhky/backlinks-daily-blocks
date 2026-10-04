@@ -25,7 +25,7 @@ struct ViewEditor: View {
               .padding(.horizontal, 7).padding(.vertical, 3)
               .overlay(Capsule().strokeBorder(Palette.hairline))
           }
-          .buttonStyle(.plain)
+          .buttonStyle(.pointing)
         }
       }
       VStack(alignment: .leading, spacing: 6) {
@@ -38,7 +38,7 @@ struct ViewEditor: View {
         Spacer()
         Button("Cancel") { store.editing = nil }.keyboardShortcut(.cancelAction)
         Button(draft.existing ? "Save" : "Create view") { store.saveDraft(draft) }
-          .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+          .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent).pointerStyle(.link)
           .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
       }
     }

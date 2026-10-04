@@ -202,6 +202,12 @@ struct FlowLayout: Layout {
   }
 }
 
+/// Plain button that shows the pointing-hand cursor, so every clickable control signals it.
+struct PointingButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View { configuration.label.pointerStyle(.link) }
+}
+extension ButtonStyle where Self == PointingButtonStyle { static var pointing: PointingButtonStyle { .init() } }
+
 struct IconButton: View {
   let icon: String
   var help = ""
@@ -216,6 +222,6 @@ struct IconButton: View {
         .frame(width: 28, height: 26)
         .background(active ? Palette.active : (hovering ? Palette.hover : .clear), in: .rect(cornerRadius: 6))
     }
-    .buttonStyle(.plain).help(help).onHover { hovering = $0 }
+    .buttonStyle(.pointing).help(help).onHover { hovering = $0 }
   }
 }

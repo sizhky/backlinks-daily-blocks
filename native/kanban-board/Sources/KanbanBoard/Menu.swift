@@ -201,7 +201,7 @@ struct MenuPanel: View {
         if item.isRow {
           MenuRow(item: item, aligned: aligned, highlighted: level.highlight == i)
             .onHover { if $0 { menu.hover(depth, i) } }
-            .onTapGesture { menu.activate(depth, i) }
+            .onTapGesture { menu.activate(depth, i) }.pointerStyle(.link)
         } else {
           Rectangle().fill(Palette.hairline).frame(height: 1).padding(.horizontal, 4).frame(height: MenuMetrics.separator)
         }
@@ -250,7 +250,7 @@ struct MenuTrigger<Label: View>: View {
 
   var body: some View {
     Button { menu.show(items(), below: frame, trailing: trailing) } label: { label }
-      .buttonStyle(.plain)
+      .buttonStyle(.pointing)
       .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MenuController.space)) } action: { frame = $0 }
   }
 }

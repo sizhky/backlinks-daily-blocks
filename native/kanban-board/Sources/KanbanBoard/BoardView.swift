@@ -104,7 +104,7 @@ struct BoardHeader: View {
               .foregroundStyle(Palette.secondary)
           }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pointing)
         Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.muted)
       }
       Text(viewName).foregroundStyle(Palette.text)
@@ -112,7 +112,7 @@ struct BoardHeader: View {
       Button { pickingOrgs.toggle() } label: {
         Image(systemName: "building.2").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }
-      .buttonStyle(.plain).help("Choose workspaces")
+      .buttonStyle(.pointing).help("Choose workspaces")
     }
     .font(.system(size: 13, weight: .medium))
     .popover(isPresented: $pickingOrgs, arrowEdge: .bottom) {
@@ -183,7 +183,7 @@ struct BoardHeader: View {
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(i == store.pick ? Palette.selected : .clear, in: .rect(cornerRadius: 6))
         .contentShape(Rectangle())
-        .onTapGesture { complete(s); focused = true }
+        .onTapGesture { complete(s); focused = true }.pointerStyle(.link)
       }
     }
     .padding(4).frame(width: 280)
@@ -195,13 +195,13 @@ struct BoardHeader: View {
     FlowLayout(spacing: 6) {
       ForEach(Array(terms.enumerated()), id: \.offset) { index, term in chip(term, index) }
       if !terms.isEmpty {
-        Button("Save view") { store.newView(query: store.query) }.buttonStyle(.plain).foregroundStyle(Palette.muted).frame(height: 24)
-        Button("Clear") { store.query = "" }.buttonStyle(.plain).foregroundStyle(Palette.muted).frame(height: 24)
+        Button("Save view") { store.newView(query: store.query) }.buttonStyle(.pointing).foregroundStyle(Palette.muted).frame(height: 24)
+        Button("Clear") { store.query = "" }.buttonStyle(.pointing).foregroundStyle(Palette.muted).frame(height: 24)
       }
       if focused {
         ForEach(keys, id: \.self) { key in
           Button(key) { store.append(key); focused = true }
-            .buttonStyle(.plain).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.muted.opacity(0.8)).frame(height: 24)
+            .buttonStyle(.pointing).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.muted.opacity(0.8)).frame(height: 24)
         }
       }
     }
@@ -222,7 +222,7 @@ struct BoardHeader: View {
       Button {
         store.query = Query.format(Query.parse(store.query).enumerated().filter { $0.element != term }.map(\.element))
       } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).padding(.horizontal, 7) }
-        .buttonStyle(.plain).foregroundStyle(Palette.muted)
+        .buttonStyle(.pointing).foregroundStyle(Palette.muted)
     }
     .frame(height: 24)
     .background(Color.white.opacity(0.03), in: .rect(cornerRadius: 6))
@@ -427,7 +427,7 @@ struct CopyIDButton: View {
 
   var body: some View {
     Button { store.copyID(card) } label: { Text(card.identifier).font(font).foregroundStyle(Palette.muted) }
-      .buttonStyle(.plain).pointerStyle(.link).help("Copy ID (⇧⌘C)")
+      .buttonStyle(.pointing).pointerStyle(.link).help("Copy ID (⇧⌘C)")
   }
 }
 
@@ -464,7 +464,7 @@ struct HiddenColumns: View {
           }
           .foregroundStyle(Palette.muted).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).padding(.horizontal, 6).padding(.top, 10)
+        .buttonStyle(.pointing).padding(.horizontal, 6).padding(.top, 10)
         if open { ForEach(columns) { HiddenColumnRow(column: $0) } }
       }
       .frame(width: 260, alignment: .leading)
@@ -535,7 +535,7 @@ struct IssueCard: View {
           }
           .frame(width: 18, height: 18).contentShape(Circle())
         }
-        .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
+        .buttonStyle(.pointing).help(picked ? "Deselect" : "Select")
       }
       HStack(alignment: .firstTextBaseline, spacing: 7) {
         StatusGlyph(column: card.col, size: 13).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
@@ -548,15 +548,15 @@ struct IssueCard: View {
         Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
         if let n = card.desktop {
         Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
-          .buttonStyle(.plain).pointerStyle(.link).help("Switch to Desktop \(n)")
+          .buttonStyle(.pointing).pointerStyle(.link).help("Switch to Desktop \(n)")
       }
         if let project = card.projects.first {
         Button { store.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
-          .buttonStyle(.plain).pointerStyle(.link).help("Filter by \(project)")
+          .buttonStyle(.pointing).pointerStyle(.link).help("Filter by \(project)")
       }
         ForEach(card.tags.prefix(3), id: \.self) { tag in
           Button { store.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
-            .buttonStyle(.plain).pointerStyle(.link)
+            .buttonStyle(.pointing).pointerStyle(.link)
         }
       }
       .padding(.top, 2)
@@ -570,6 +570,7 @@ struct IssueCard: View {
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
+    .pointerStyle(.link)
     .rightClickMenu { store.cardItems(card) }
     // Inserted cards appear in place: on drop the ghost they replace is already there.
     .transition(.asymmetric(insertion: .identity, removal: .opacity))
@@ -702,12 +703,12 @@ struct IssueRow: View {
       Spacer(minLength: 12)
       if let n = card.desktop {
         Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
-          .buttonStyle(.plain).pointerStyle(.link).help("Switch to Desktop \(n)")
+          .buttonStyle(.pointing).pointerStyle(.link).help("Switch to Desktop \(n)")
       }
       ForEach(card.tags.prefix(2), id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
       if let project = card.projects.first {
         Button { store.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
-          .buttonStyle(.plain).pointerStyle(.link).help("Filter by \(project)")
+          .buttonStyle(.pointing).pointerStyle(.link).help("Filter by \(project)")
       }
       if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
       Text(card.age).font(.system(size: 12).monospacedDigit())
@@ -722,6 +723,7 @@ struct IssueRow: View {
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
+    .pointerStyle(.link)
     .rightClickMenu { store.cardItems(card) }
   }
 }

@@ -101,7 +101,7 @@ struct SidebarView: View {
         }
         .foregroundStyle(Palette.muted).padding(.horizontal, 8).padding(.top, 16).padding(.bottom, 4)
       }
-      .buttonStyle(.plain)
+      .buttonStyle(.pointing)
       .overlay(alignment: .trailing) {
         if let add { IconButton(icon: "plus", help: "New view", action: add).padding(.top, 12) }
       }
@@ -143,6 +143,6 @@ struct SidebarRow: View {
       .opacity(count == 0 ? 0.45 : 1)
       .contentShape(Rectangle())
     }
-    .buttonStyle(.plain).onHover { hovering = $0 }
+    .buttonStyle(.pointing).onHover { hovering = $0 }
   }
 }
