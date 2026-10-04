@@ -108,6 +108,7 @@ final class BoardStore: ObservableObject {
       }
     }
     picked.subtract(moving)
+    askEstimate(cards, entering: column.name)
     writeGen += 1
     Task {
       do { try await client.rank(pairs, in: column.name) } catch { self.error = error.localizedDescription }
@@ -250,7 +251,7 @@ final class BoardStore: ObservableObject {
       }
     }
     picked.subtract(moving)
-    if column.caseInsensitiveCompare("Doing") == .orderedSame, cards.count == 1, cards[0].est == nil { estimating = cards[0] }
+    askEstimate(cards, entering: column)
     writeGen += 1
     Task {
       do {
@@ -278,6 +279,13 @@ final class BoardStore: ObservableObject {
       do { try await client.sweep(column.cards, from: column.name, to: target) } catch { self.error = error.localizedDescription }
       await refresh()
     }
+  }
+
+  /// Asks for a time guess when exactly one card without one enters Doing from another column.
+  private func askEstimate(_ cards: [Card], entering column: String) {
+    guard column.caseInsensitiveCompare("Doing") == .orderedSame, cards.count == 1,
+          cards[0].est == nil, cards[0].col.caseInsensitiveCompare(column) != .orderedSame else { return }
+    estimating = cards[0]
   }
 
   func setEstimate(_ minutes: Int, for card: Card) {
