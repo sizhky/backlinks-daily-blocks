@@ -148,4 +148,15 @@ final class CreatedTests: XCTestCase {
     XCTAssertFalse(Filter.matches(card("Doing", "Other"), q))
     XCTAssertTrue(Filter.matches(card("Doing", "Other"), Query.parse("-project:Vyasa,Drishti")))
   }
+
+  func testEstimateMinutesAndLabel() {
+    XCTAssertEqual(["90", "45m", "2h", "1h30m", "1h 30m", "soon", "0", ""].map(Age.minutes), [90, 45, 120, 90, 90, nil, nil, nil])
+    XCTAssertEqual([45, 120, 90].map { Age.label(minutes: $0) }, ["45m", "2h", "1h 30m"])
+  }
+
+  func testCardReadsEstimateAndTookFields() {
+    let rows = "@column\tDone\tdone\nDone\ta.md:1\tA\t1h\t\t\t\t\t\t\t2026-10-03T12:21:00.000Z\t60\t85"
+    let card = Board.parse(rows)[0].cards[0]
+    XCTAssertEqual([card.est, card.took], [60, 85])
+  }
 }

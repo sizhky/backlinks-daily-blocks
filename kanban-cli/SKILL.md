@@ -207,6 +207,10 @@ column move there first. Same-file refs go bottom-up. Returns `ok <n>`.
 `kb.active({desktop:true})` appends each row's desktop (empty when unset) after the rank column.
 Returns `ok <ref> desktop <n|none>`.
 
+### `kb.setEstimate(ref, min)` and `kb.estimates(opts?)` — time guess vs time in Doing
+`ref` = `file:line`. `min` (minutes) writes `%% kbest N %%` under the task; `null` clears it. Returns `ok <ref> est <n|none>`.
+`kb.estimates()` lists every card with a guess as `file:line<TAB>estMinutes<TAB>tookMinutes`; took is the summed time in `opts.col` (default Doing) from the move log. The Kanban Board app asks for a guess when a card moves into Doing and shows both in Logbook.
+
 ### `kb.sweep(fromCol, toCol, refs?)` — bulk-move a column
 Same as the board's sweep button: same-file cards move bottom-up, and terminal
 targets skip cards with open children. `refs` (array of `file:line`) limits the

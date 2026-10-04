@@ -6,6 +6,7 @@ struct BoardView: View {
   @EnvironmentObject var store: BoardStore
   @EnvironmentObject var drag: DragController
   @FocusState private var boardFocus: Bool
+  @State private var estimateText = ""
 
   var body: some View {
     HStack(spacing: 0) {
@@ -29,6 +30,14 @@ struct BoardView: View {
     .clipShape(.rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
     .padding(.top, 8).padding(.trailing, 8).padding(.bottom, 8)
+    .alert("How long will this take?", isPresented: Binding(get: { store.estimating != nil }, set: { if !$0 { store.estimating = nil } })) {
+      TextField("e.g. 30m, 2h, 1h30m", text: $estimateText)
+      Button("Set") {
+        if let card = store.estimating, let m = Age.minutes(estimateText) { store.setEstimate(m, for: card) }
+        estimateText = ""
+      }
+      Button("Skip", role: .cancel) { estimateText = "" }
+    } message: { Text(store.estimating?.title ?? "") }
     .animation(.spring(duration: 0.32, bounce: 0.08), value: store.selected != nil)
     .focusable().focused($boardFocus).focusEffectDisabled()
     .onChange(of: store.selected) { boardFocus = true }
@@ -639,12 +648,21 @@ struct LogbookMode: View {
                 .font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
                 .frame(width: 64, alignment: .trailing)
               IssueRow(card: card)
+              Text(card.est.map { guess(card, $0) } ?? "")
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle((card.took ?? 0) > (card.est ?? .max) ? Palette.amber : Palette.muted)
+                .frame(width: 150, alignment: .trailing).padding(.trailing, 16)
             }
           }
         }
       }
     }
     .scrollIndicators(.never)
+  }
+
+  /// "est 1h · took 1h 20m".
+  private func guess(_ card: Card, _ est: Int) -> String {
+    "est \(Age.label(minutes: est))" + (card.took.map { " · took \(Age.label(minutes: $0))" } ?? "")
   }
 
   private func title(_ day: Date) -> String {

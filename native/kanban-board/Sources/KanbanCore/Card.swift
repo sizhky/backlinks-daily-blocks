@@ -14,6 +14,9 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var siblings: Int?
   /// When the card entered a done (`=x`) column; nil for live and cancelled cards.
   public var doneAt: Date?
+  /// Guessed minutes (`%% kbest N %%`, asked on entering Doing) and minutes actually spent in Doing; nil without a guess.
+  public var est: Int?
+  public var took: Int?
   /// View identity that survives line shifts (`file|title`, set by `Board.parse`); `ref` changes
   /// whenever a line is inserted above the task, which would make SwiftUI re-insert the card.
   public var id: String
@@ -66,7 +69,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     name.split { !$0.isLetter && !$0.isNumber }.prefix(3).compactMap(\.first).map(String.init).joined().uppercased()
   }
 
-  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings, doneAt (ISO).
+  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings, doneAt (ISO), est, took.
   init?(fields f: [String]) {
     guard f.count >= 4, let colon = f[1].lastIndex(of: ":"),
       let line = Int(f[1][f[1].index(after: colon)...]) else { return nil }
@@ -79,6 +82,8 @@ public struct Card: Identifiable, Equatable, Sendable {
     ordinal = f.count > 8 ? Int(f[8]) : nil
     siblings = f.count > 9 ? Int(f[9]) : nil
     doneAt = f.count > 10 ? Self.iso.date(from: f[10]) : nil
+    est = f.count > 11 ? Int(f[11]) : nil
+    took = f.count > 12 ? Int(f[12]) : nil
   }
 
   init(ref: String, file: String, line: Int, col: String, title: String, age: String,
@@ -95,6 +100,8 @@ public struct Card: Identifiable, Equatable, Sendable {
     c.desktop = desktop
     c.ordinal = ordinal
     c.siblings = siblings
+    c.est = est
+    c.took = took
     c.id = id
     return c
   }

@@ -665,6 +665,7 @@ var require_kanban = __commonJS({
     var TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
     var RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
     var DESKTOP_RE = /^\s*%%\s?kbdesktop ([1-9])\s?%%\s*$/i;
+    var EST_RE = /^\s*%%\s?kbest (\d+)\s?%%\s*$/i;
     var TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -895,6 +896,12 @@ var require_kanban = __commonJS({
             if (card) card.desktop = Number(dm[1]);
             continue;
           }
+          const estm = text.match(EST_RE);
+          if (estm) {
+            const card = owner(text);
+            if (card) card.est = Number(estm[1]);
+            continue;
+          }
           const tpm = text.match(TAP_RE);
           if (tpm) {
             const card = owner(text);
@@ -946,6 +953,7 @@ var require_kanban = __commonJS({
       lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, indent + text);
     }
     var setRankLine = (lines, line, rank) => setMetaLine(lines, line, RANK_RE, `%% kbrank ${rank} %%`);
+    var setEstLine = (lines, line, min) => setMetaLine(lines, line, EST_RE, min == null ? null : `%% kbest ${min} %%`);
     var setDesktopLine = (lines, line, n) => setMetaLine(lines, line, DESKTOP_RE, n == null ? null : `%% kbdesktop ${n} %%`);
     function tagLineAt(lines, line) {
       const next = lines[line + 1];
@@ -982,7 +990,7 @@ var require_kanban = __commonJS({
       let restAt = end;
       for (i = line + 1; i < end; i++) {
         const t = lines[i];
-        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t)) prefix.push(t);
+        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t) || EST_RE.test(t)) prefix.push(t);
         else if (HIST_RE2.test(t) || EI_HIST_RE.test(t)) logs.push(t);
         else if (TASK_RE2.test(t)) {
           restAt = i;
@@ -1693,8 +1701,10 @@ var require_kanban = __commonJS({
       sweepColumn,
       setRankLine,
       setDesktopLine,
+      setEstLine,
       RANK_RE,
       DESKTOP_RE,
+      EST_RE,
       logTapSpan,
       renderKanbanBlock: renderKanbanBlock2,
       drawBoard,
@@ -2904,6 +2914,7 @@ var require_api = __commonJS({
       sweepColumn,
       setRankLine,
       setDesktopLine,
+      setEstLine,
       taskColumn,
       parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
@@ -3532,6 +3543,8 @@ projects:
             "moveTask(file,line,col)  move a task to a column",
             "moveTasks(refs,col)      move several file:line refs to a column",
             "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
+            "setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card",
+            "estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)",
             "setDesktop(ref,n)        set (1-9) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",
             "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
             "sweeps()                 sweep routes from settings: From<TAB>To",
@@ -3680,6 +3693,36 @@ projects:
           setDesktopLine(lines, line, num);
           await plugin.app.vault.modify(file, lines.join("\n"));
           return `ok ${ref} desktop ${num ?? "none"}`;
+        },
+        // A card's time guess in minutes: `%% kbest N %%` under the task. null clears.
+        async setEstimate(ref, minutes) {
+          const i = ref.lastIndexOf(":"), path = ref.slice(0, i), line = +ref.slice(i + 1);
+          const num = minutes == null ? null : Math.round(Number(minutes));
+          if (num != null && !(num >= 1)) throw new Error("estimate must be minutes >= 1 or null");
+          const file = plugin.app.vault.getAbstractFileByPath(path);
+          if (!file) throw new Error("no file: " + path);
+          const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+          if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+          setEstLine(lines, line, num);
+          await plugin.app.vault.modify(file, lines.join("\n"));
+          return `ok ${ref} est ${num ?? "none"}`;
+        },
+        // Cards with a guess: "file:line<TAB>estMinutes<TAB>tookMinutes", took = summed time in `col` (default Doing).
+        async estimates(opts = {}) {
+          const want = String(opts.col || "Doing").toLowerCase();
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
+          const out = [];
+          for (const [, list] of byCol) for (const card of list) {
+            if (card.est == null) continue;
+            const ev = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+            let ms = 0;
+            ev.forEach((e, i) => {
+              if (e.to.toLowerCase() !== want) return;
+              ms += (ev[i + 1] ? stampToDate(ev[i + 1].stamp).getTime() : Date.now()) - stampToDate(e.stamp).getTime();
+            });
+            out.push(`${card.file.path}:${card.line}	${card.est}	${Math.round(ms / 6e4)}`);
+          }
+          return "\n" + out.join("\n");
         },
         // Bulk-move a column, as the board's sweep button does. refs ("file:line")
         // limits it to those cards. Returns "ok <moved> <blocked>".

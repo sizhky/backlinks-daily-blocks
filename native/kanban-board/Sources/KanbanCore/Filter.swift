@@ -14,6 +14,32 @@ public enum Age {
   }
 }
 
+extension Age {
+  /// Whole minutes from a typed guess: a bare number is minutes; `m`, `h`, `d` units may combine; nil when unparseable or zero.
+  /// ```
+  /// "90" -> 90;  "45m" -> 45;  "2h" -> 120;  "1h30m" -> 90;  "soon" -> nil
+  /// ```
+  public static func minutes(_ text: String) -> Int? {
+    let s = text.lowercased().filter { !$0.isWhitespace }
+    guard !s.isEmpty else { return nil }
+    if let n = Int(s) { return n > 0 ? n : nil }
+    var total = 0, digits = ""
+    for ch in s {
+      if ch.isNumber { digits.append(ch); continue }
+      guard let n = Int(digits), let unit = ["m": 1, "h": 60, "d": 1440][ch] else { return nil }
+      total += n * unit
+      digits = ""
+    }
+    return digits.isEmpty && total > 0 ? total : nil
+  }
+
+  /// "45m", "2h", "1h 30m".
+  public static func label(minutes: Int) -> String {
+    let h = minutes / 60, m = minutes % 60
+    return h == 0 ? "\(m)m" : (m == 0 ? "\(h)h" : "\(h)h \(m)m")
+  }
+}
+
 public enum Filter {
   /// Every term must hold; a negated term must fail. A keyed value `a,b` holds when `a` or `b` holds.
   /// ```

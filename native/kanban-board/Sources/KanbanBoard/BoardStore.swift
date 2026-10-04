@@ -42,6 +42,8 @@ final class BoardStore: ObservableObject {
     didSet { UserDefaults.standard.set(showSidebar, forKey: "kanban.sidebar") }
   }
   @Published private(set) var selected: String?
+  /// Card just moved into Doing without a guess; the board asks for one.
+  @Published var estimating: Card?
   @Published private(set) var toast: String?
   private var toastGen = 0
   /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
@@ -248,6 +250,7 @@ final class BoardStore: ObservableObject {
       }
     }
     picked.subtract(moving)
+    if column.caseInsensitiveCompare("Doing") == .orderedSame, cards.count == 1, cards[0].est == nil { estimating = cards[0] }
     writeGen += 1
     Task {
       do {
@@ -273,6 +276,17 @@ final class BoardStore: ObservableObject {
     writeGen += 1
     Task {
       do { try await client.sweep(column.cards, from: column.name, to: target) } catch { self.error = error.localizedDescription }
+      await refresh()
+    }
+  }
+
+  func setEstimate(_ minutes: Int, for card: Card) {
+    for i in columns.indices {
+      if let j = columns[i].cards.firstIndex(where: { $0.ref == card.ref }) { columns[i].cards[j].est = minutes }
+    }
+    writeGen += 1
+    Task {
+      do { try await client.setEstimate(card, minutes: minutes) } catch { self.error = error.localizedDescription }
       await refresh()
     }
   }

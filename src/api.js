@@ -1,5 +1,5 @@
 // plugin.api — callable via: obsidian eval "JSON.stringify(await app.plugins.plugins['backlinks-daily-blocks'].api.METHOD())"
-const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
+const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
 const { saveTemplate } = require('./templates');
@@ -682,6 +682,8 @@ function buildApi(plugin) {
         'moveTask(file,line,col)  move a task to a column',
         'moveTasks(refs,col)      move several file:line refs to a column',
         'rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first',
+        'setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card',
+        'estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)',
         'setDesktop(ref,n)        set (1-9) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it',
         'sweep(from,to,refs?)     bulk-move a column (refs = file:line list)',
         'sweeps()                 sweep routes from settings: From<TAB>To',
@@ -835,6 +837,38 @@ function buildApi(plugin) {
       setDesktopLine(lines, line, num);
       await plugin.app.vault.modify(file, lines.join('\n'));
       return `ok ${ref} desktop ${num ?? 'none'}`;
+    },
+
+    // A card's time guess in minutes: `%% kbest N %%` under the task. null clears.
+    async setEstimate(ref, minutes) {
+      const i = ref.lastIndexOf(':'), path = ref.slice(0, i), line = +ref.slice(i + 1);
+      const num = minutes == null ? null : Math.round(Number(minutes));
+      if (num != null && !(num >= 1)) throw new Error('estimate must be minutes >= 1 or null');
+      const file = plugin.app.vault.getAbstractFileByPath(path);
+      if (!file) throw new Error('no file: ' + path);
+      const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+      if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
+      setEstLine(lines, line, num);
+      await plugin.app.vault.modify(file, lines.join('\n'));
+      return `ok ${ref} est ${num ?? 'none'}`;
+    },
+
+    // Cards with a guess: "file:line<TAB>estMinutes<TAB>tookMinutes", took = summed time in `col` (default Doing).
+    async estimates(opts = {}) {
+      const want = String(opts.col || 'Doing').toLowerCase();
+      const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
+      const out = [];
+      for (const [, list] of byCol) for (const card of list) {
+        if (card.est == null) continue;
+        const ev = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+        let ms = 0;
+        ev.forEach((e, i) => {
+          if (e.to.toLowerCase() !== want) return;
+          ms += (ev[i + 1] ? stampToDate(ev[i + 1].stamp).getTime() : Date.now()) - stampToDate(e.stamp).getTime();
+        });
+        out.push(`${card.file.path}:${card.line}\t${card.est}\t${Math.round(ms / 60000)}`);
+      }
+      return '\n' + out.join('\n');
     },
 
     // Bulk-move a column, as the board's sweep button does. refs ("file:line")

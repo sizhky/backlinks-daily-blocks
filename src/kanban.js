@@ -37,6 +37,8 @@ const TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
 const RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
 // macOS desktop (Space) 1-9 a card's work lives on: %% kbdesktop 2 %%.
 const DESKTOP_RE = /^\s*%%\s?kbdesktop ([1-9])\s?%%\s*$/i;
+// Time guess in minutes, set on entering Doing: %% kbest 90 %%.
+const EST_RE = /^\s*%%\s?kbest (\d+)\s?%%\s*$/i;
 const TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
 
 // Column color: explicit config > named palette > position cycle.
@@ -305,6 +307,13 @@ async function scanKanbanTasks(app, config, opts = {}) {
         continue;
       }
 
+      const estm = text.match(EST_RE);
+      if (estm) {
+        const card = owner(text);
+        if (card) card.est = Number(estm[1]);
+        continue;
+      }
+
       const tpm = text.match(TAP_RE);
       if (tpm) {
         const card = owner(text);
@@ -364,6 +373,7 @@ function setMetaLine(lines, line, re, text) {
 }
 
 const setRankLine = (lines, line, rank) => setMetaLine(lines, line, RANK_RE, `%% kbrank ${rank} %%`);
+const setEstLine = (lines, line, min) => setMetaLine(lines, line, EST_RE, min == null ? null : `%% kbest ${min} %%`);
 const setDesktopLine = (lines, line, n) => setMetaLine(lines, line, DESKTOP_RE, n == null ? null : `%% kbdesktop ${n} %%`);
 
 // The tag line sits directly under its task, one level deeper.
@@ -411,7 +421,7 @@ function normalizeTaskMeta(lines, line) {
   let restAt = end;
   for (i = line + 1; i < end; i++) {
     const t = lines[i];
-    if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t)) prefix.push(t);
+    if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t) || EST_RE.test(t)) prefix.push(t);
     else if (HIST_RE.test(t) || EI_HIST_RE.test(t)) logs.push(t);
     else if (TASK_RE.test(t)) { restAt = i; break; }
     else notes.push(t);
@@ -1293,7 +1303,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 }
 
 module.exports = {
-  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, RANK_RE, DESKTOP_RE, logTapSpan, renderKanbanBlock, drawBoard,
+  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, RANK_RE, DESKTOP_RE, EST_RE, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
   taskColumn,
   openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, TASK_END_RE, STAMP_RE,

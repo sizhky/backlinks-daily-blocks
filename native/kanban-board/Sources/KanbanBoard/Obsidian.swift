@@ -21,6 +21,7 @@ struct ObsidianClient {
     const defs=String(P.settings.kanban.columns).split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean).map(s=>{const n=s.split(/\s+@/)[0];return{name:n.replace(/=.$/,"").replace(/[~!]$/,""),term:/=.$/.test(n),x:/=x$/.test(n)}});
     const rows=s=>s.split("\n").map(l=>l.split("\t")).filter(c=>c.length>=4&&c[0]!=="@column");
     const act=rows(await kb.active({includePaused:true,rank:true,desktop:true}));
+    const est=new Map(String(await kb.estimates()).split("\n").filter(Boolean).map(l=>{const p=l.split("\t");return[p[0],p.slice(1)]}));
     const brd=rows(await kb.board({hours:\#(doneHours),full:"Doing",timestamps:true}));
     const v=(f,k)=>{const x=f&&f[k];return x==null?"":[].concat(x).map(s=>String(s).replace(/^\[\[|\]\]$/g,"").split("|")[0]).join("|")};
     const out=[];
@@ -28,7 +29,7 @@ struct ObsidianClient {
     for(const c of (d.term?brd:act).filter(c=>c[0].toLowerCase()===d.name.toLowerCase())){
     const m=app.metadataCache.getCache(c[1].replace(/:\d+$/,"")),f=m?.frontmatter,ln=+c[1].split(":").pop();
     const ts=(m?.listItems||[]).filter(i=>i.task!==undefined),n=ts.findIndex(i=>i.position.start.line===ln)+1;
-    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||"",n?ts.length:"",d.x?(c[4]||""):""].join("\t"));}}
+    out.push([c[0],c[1],c[2],c[3],v(f,"org"),v(f,"projects"),d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||"",n?ts.length:"",d.x?(c[4]||""):"",...(est.get(c[1])||[])].join("\t"));}}
     for(const r of kb.sweeps().split("\n").filter(Boolean))out.push("@sweep\t"+r);
     return out.join("\n")})()
     """#.replacingOccurrences(of: "\n", with: " ")
@@ -48,6 +49,11 @@ struct ObsidianClient {
   /// Moves several cards in one call (kb.moveTasks, bottom-up per file).
   func move(_ cards: [Card], to column: String) async throws {
     _ = try await eval("kb.moveTasks(\(try js(cards.map(\.ref))),\(try js(column)))")
+  }
+
+  /// Stores the card's time guess in minutes (kb.setEstimate).
+  func setEstimate(_ card: Card, minutes: Int) async throws {
+    _ = try await eval("kb.setEstimate(\(try js(card.ref)),\(minutes))")
   }
 
   /// Sets (1 to 9) or clears (nil) the card's desktop line (kb.setDesktop).
