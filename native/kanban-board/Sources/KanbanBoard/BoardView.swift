@@ -516,22 +516,20 @@ struct IssueCard: View {
       HStack(spacing: 6) {
         CopyIDButton(card: card, font: .system(size: density.metaSize))
         Spacer()
-        // The org icon is the selection toggle; picked shows a check in its place.
-        Button { store.togglePick(card.ref) } label: {
-          ZStack {
-            if picked {
-              Image(systemName: "checkmark.circle.fill").resizable().foregroundStyle(.white, Palette.indigo)
-            } else if hovering {
-              Image(systemName: "circle").resizable().foregroundStyle(Palette.secondary)
-            } else if let org = card.orgs.first {
-              OrgIcon(name: org, size: 18).clipShape(.circle)
-            } else {
-              Circle().strokeBorder(Palette.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-            }
+        // The checkbox appears beside the org icon on hover; picked keeps it shown.
+        if picked || hovering {
+          Button { store.togglePick(card.ref) } label: {
+            Image(systemName: picked ? "checkmark.circle.fill" : "circle").resizable()
+              .foregroundStyle(picked ? .white : Palette.secondary, picked ? Palette.indigo : Palette.secondary)
+              .frame(width: 18, height: 18).contentShape(Circle())
           }
-          .frame(width: 18, height: 18).contentShape(Circle())
+          .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
         }
-        .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
+        if let org = card.orgs.first {
+          OrgIcon(name: org, size: 18).clipShape(.circle)
+        } else {
+          Circle().strokeBorder(Palette.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2])).frame(width: 18, height: 18)
+        }
       }
       HStack(alignment: .firstTextBaseline, spacing: 7) {
         StatusGlyph(column: card.col, size: 13).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
