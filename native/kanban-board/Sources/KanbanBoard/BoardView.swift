@@ -516,20 +516,26 @@ struct IssueCard: View {
       HStack(spacing: 6) {
         CopyIDButton(card: card, font: .system(size: density.metaSize))
         Spacer()
-        // The checkbox appears beside the org icon on hover; picked keeps it shown.
-        if picked || hovering {
-          Button { store.togglePick(card.ref) } label: {
-            Image(systemName: picked ? "checkmark.circle.fill" : "circle").resizable()
-              .foregroundStyle(picked ? .white : Palette.secondary, picked ? Palette.indigo : Palette.secondary)
-              .frame(width: 18, height: 18).contentShape(Circle())
+        // The checkbox sits over the org icon on hover; the icon dims behind it and stays in place.
+        Button { store.togglePick(card.ref) } label: {
+          ZStack {
+            Group {
+              if let org = card.orgs.first {
+                OrgIcon(name: org, size: 18).clipShape(.circle)
+              } else {
+                Circle().strokeBorder(Palette.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+              }
+            }
+            .opacity(picked || hovering ? 0.3 : 1)
+            if picked {
+              Image(systemName: "checkmark.circle.fill").resizable().foregroundStyle(.white, Palette.indigo)
+            } else if hovering {
+              Image(systemName: "circle").resizable().foregroundStyle(Palette.secondary)
+            }
           }
-          .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
+          .frame(width: 18, height: 18).contentShape(Circle())
         }
-        if let org = card.orgs.first {
-          OrgIcon(name: org, size: 18).clipShape(.circle)
-        } else {
-          Circle().strokeBorder(Palette.muted, style: StrokeStyle(lineWidth: 1, dash: [2, 2])).frame(width: 18, height: 18)
-        }
+        .buttonStyle(.plain).help(picked ? "Deselect" : "Select")
       }
       HStack(alignment: .firstTextBaseline, spacing: 7) {
         StatusGlyph(column: card.col, size: 13).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
