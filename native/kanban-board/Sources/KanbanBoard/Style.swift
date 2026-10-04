@@ -192,7 +192,7 @@ struct FlowLayout: Layout {
     var origins: [CGPoint] = []
     for view in subviews {
       let size = view.sizeThatFits(.unspecified)
-      if x > 0 && x + size.width > width { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+      if x > 0 && x + size.width > width + 0.5 { x = 0; y += rowHeight + spacing; rowHeight = 0 }
       origins.append(CGPoint(x: x, y: y))
       x += size.width + spacing
       rowHeight = max(rowHeight, size.height)
