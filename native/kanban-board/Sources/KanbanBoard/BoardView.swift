@@ -17,7 +17,7 @@ struct BoardView: View {
             .onEnded { _ in drag.ended() })
         StatusLine()
       }
-      if store.inspectorOpen, let card = store.selectedCard {
+      if let card = store.selectedCard {
         Rectangle().fill(Palette.hairline).frame(width: 1)
         Inspector(card: card).transition(.move(edge: .trailing).combined(with: .opacity))
       }
@@ -29,7 +29,7 @@ struct BoardView: View {
     .clipShape(.rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
     .padding(.top, 8).padding(.trailing, 8).padding(.bottom, 8)
-    .animation(.spring(duration: 0.32, bounce: 0.08), value: store.selected != nil && store.inspectorOpen)
+    .animation(.spring(duration: 0.32, bounce: 0.08), value: store.selected != nil)
     .focusable().focused($boardFocus).focusEffectDisabled()
     .onChange(of: store.selected) { boardFocus = true }
     .onKeyPress(.upArrow) { store.moveSelection(dx: 0, dy: -1); return .handled }
@@ -40,7 +40,6 @@ struct BoardView: View {
     .onKeyPress(characters: ["k"]) { _ in store.moveSelection(dx: 0, dy: -1); return .handled }
     .onKeyPress(characters: ["/"]) { _ in store.focusFilter += 1; return .handled }
     .onKeyPress(.return) { store.openSelected(); return .handled }
-    .onKeyPress(.space) { store.inspectorOpen.toggle(); return .handled }
     .onKeyPress(.escape) { store.select(nil); return .handled }
   }
 }
@@ -70,7 +69,6 @@ struct BoardHeader: View {
           IconButton(icon: "list.bullet", help: "List", active: store.mode == .list) { store.mode = .list }
           IconButton(icon: "book.closed", help: "Logbook", active: store.mode == .logbook) { store.mode = .logbook }
         }
-        IconButton(icon: "sidebar.right", help: "Inspector (space)", active: store.inspectorOpen) { store.inspectorOpen.toggle() }
         IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
       }
       .padding(.horizontal, 14).frame(height: 46)

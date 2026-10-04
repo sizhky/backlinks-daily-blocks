@@ -129,4 +129,11 @@ final class CreatedTests: XCTestCase {
     let days = Logbook.days(Board.parse(rows)[0].cards, calendar: utc)
     XCTAssertEqual(days.map { $0.cards.map(\.title) }, [["B", "C"], ["A"]])
   }
+
+  func testDoneColumnOrdersLatestFinishedFirstAndUntimedLast() {
+    let rows = "@column\tDone\tdone\nDone\td.md:1\tNo time\t1h"
+      + "\nDone\ta.md:1\tA\t1d\t\t\t\t\t\t\t2026-10-02T17:25:00.000Z"
+      + "\nDone\tb.md:1\tB\t1h\t\t\t\t\t\t\t2026-10-03T12:21:00.000Z"
+    XCTAssertEqual(Logbook.newestFirst(Board.parse(rows)[0].cards).map(\.title), ["B", "A", "No time"])
+  }
 }
