@@ -136,4 +136,16 @@ final class CreatedTests: XCTestCase {
       + "\nDone\tb.md:1\tB\t1h\t\t\t\t\t\t\t2026-10-03T12:21:00.000Z"
     XCTAssertEqual(Logbook.newestFirst(Board.parse(rows)[0].cards).map(\.title), ["B", "A", "No time"])
   }
+
+  func testCommaValuesMeanOrAndDifferentTermsMeanAnd() {
+    func card(_ col: String, _ project: String) -> Card {
+      Card(ref: "a.md:1", file: "a.md", line: 1, col: col, title: "t", age: "1h", tags: [], orgs: [], projects: [project])
+    }
+    let q = Query.parse("project:Vyasa,Drishti col:Doing,Backlog")
+    XCTAssertTrue(Filter.matches(card("Doing", "Vyasa"), q))
+    XCTAssertTrue(Filter.matches(card("Backlog", "Drishti"), q))
+    XCTAssertFalse(Filter.matches(card("Done", "Vyasa"), q))
+    XCTAssertFalse(Filter.matches(card("Doing", "Other"), q))
+    XCTAssertTrue(Filter.matches(card("Doing", "Other"), Query.parse("-project:Vyasa,Drishti")))
+  }
 }

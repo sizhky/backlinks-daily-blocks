@@ -15,7 +15,10 @@ public enum Age {
 }
 
 public enum Filter {
-  /// Every term must hold; a negated term must fail.
+  /// Every term must hold; a negated term must fail. A keyed value `a,b` holds when `a` or `b` holds.
+  /// ```
+  /// "project:Vyasa,Drishti created:<5d" -> (Vyasa or Drishti) and created within 5 days
+  /// ```
   public static func matches(_ card: Card, _ terms: [QueryTerm], now: Date = Date()) -> Bool {
     terms.allSatisfy { $0.negated != test(card, $0, now) }
   }
@@ -43,11 +46,16 @@ public enum Filter {
   }
 
   static func test(_ c: Card, _ t: QueryTerm, _ now: Date) -> Bool {
+    guard t.key != nil, t.value.contains(",") else { return testOne(c, t, now) }
+    return t.value.split(separator: ",").contains { testOne(c, QueryTerm(key: t.key, value: String($0), negated: false), now) }
+  }
+
+  static func testOne(_ c: Card, _ t: QueryTerm, _ now: Date) -> Bool {
     let v = t.value.lowercased()
     let any: ([String]) -> Bool = { $0.contains { $0.lowercased().contains(v) } }
     switch t.key {
     case nil: return c.title.lowercased().contains(v) || any(c.tags)
-    case "col", "status", "in": return v.split(separator: ",").contains { c.col.lowercased() == $0 }
+    case "col", "status", "in": return c.col.lowercased() == v
     case "tag", "t": return c.tags.contains { bare($0).hasPrefix(bare(v)) }
     case "project", "proj", "p": return any(c.projects)
     case "org", "o": return any(c.orgs)
