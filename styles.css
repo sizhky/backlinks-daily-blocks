@@ -575,7 +575,8 @@ details[open] > .bdb-kanban-lane-title::before {
 }
 
 /* ghost button: just faint text until hovered */
-.bdb-kanban-col-title button.bdb-kanban-sweep {
+.bdb-kanban-col-title button.bdb-kanban-sweep,
+.bdb-kanban-col-title button.bdb-kanban-sort {
   float: right;
   background: transparent;
   box-shadow: none;
@@ -590,7 +591,8 @@ details[open] > .bdb-kanban-lane-title::before {
   line-height: inherit;
 }
 
-.bdb-kanban-col-title button.bdb-kanban-sweep:hover {
+.bdb-kanban-col-title button.bdb-kanban-sweep:hover,
+.bdb-kanban-col-title button.bdb-kanban-sort:hover {
   color: var(--text-accent, #2ea043);
   background: transparent;
 }

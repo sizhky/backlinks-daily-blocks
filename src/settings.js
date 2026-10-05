@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
     lanesort: 'total-desc',
     layout: 'vertical',
     autoFold: false,
+    colsort: { backlog: 'latest' },
   },
   ei: {
     paths: '',

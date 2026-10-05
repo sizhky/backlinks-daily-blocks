@@ -649,7 +649,7 @@ paths: ${paths2.join(", ")}`);
 // src/kanban.js
 var require_kanban = __commonJS({
   "src/kanban.js"(exports2, module2) {
-    var { MarkdownRenderChild, Notice: Notice2, Platform, setIcon } = require("obsidian");
+    var { MarkdownRenderChild, Menu, Notice: Notice2, Platform, setIcon } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
     var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
@@ -933,12 +933,30 @@ var require_kanban = __commonJS({
           if (col) cards.get(col.key).push(card);
         }
       }
-      for (const list of cards.values()) sortByRank(list);
+      for (const [key, list] of cards) sortColumn(list, config.colsort?.[key]);
       return cards;
     }
     function sortByRank(list) {
       const r = (c) => c.rank == null ? Infinity : c.rank;
       return list.sort((a, b) => r(a) - r(b));
+    }
+    var SORT_PRESETS = [
+      { id: "manual", label: "Manual (rank)", glyph: "\u2261" },
+      { id: "latest", label: "Latest first", glyph: "\u2193" },
+      { id: "oldest", label: "Oldest first", glyph: "\u2191" },
+      { id: "az", label: "A\u2013Z", glyph: "A" }
+    ];
+    function cardStamp(card) {
+      let best = "";
+      for (const h of card.history) if (h.stamp > best) best = h.stamp;
+      return best || (card.file.basename.match(/^(\d{8})-?(\d{4})/)?.slice(1).join("") ?? "");
+    }
+    function sortColumn(list, preset) {
+      const byLine = (a, b) => a.file.path.localeCompare(b.file.path) || a.line - b.line;
+      if (preset === "latest") return list.sort((a, b) => cardStamp(b).localeCompare(cardStamp(a)) || byLine(a, b));
+      if (preset === "oldest") return list.sort((a, b) => cardStamp(a).localeCompare(cardStamp(b)) || byLine(a, b));
+      if (preset === "az") return list.sort((a, b) => cleanText(a.body).localeCompare(cleanText(b.body)) || byLine(a, b));
+      return sortByRank(list);
     }
     function setMetaLine(lines, line, re, text) {
       const base = indentWidth(lines[line]);
@@ -1168,6 +1186,7 @@ var require_kanban = __commonJS({
         config.sweeps = parseSweeps(defaults.sweep);
       }
       if (config.lanesort == null && defaults.lanesort) config.lanesort = defaults.lanesort;
+      config.colsort = defaults.colsort || {};
       return config;
     }
     async function persistLaneState(plugin, ctx, el, selectedNames, openNames, state) {
@@ -1451,6 +1470,25 @@ var require_kanban = __commonJS({
               state.colFold.set(foldKey, !folded);
               await drawBoard(plugin, board, config, state);
             });
+            if (!folded) {
+              const current = SORT_PRESETS.find((p) => p.id === config.colsort[col.key]) || SORT_PRESETS[0];
+              const sortBtn = titleEl.createEl("button", {
+                cls: "bdb-kanban-sort",
+                text: current.glyph,
+                attr: { "aria-label": `Sort: ${current.label}` }
+              });
+              sortBtn.addEventListener("click", (e) => {
+                const menu = new Menu();
+                for (const p of SORT_PRESETS) menu.addItem((item) => item.setTitle(p.label).setChecked(p === current).onClick(async () => {
+                  const colsort = { ...config.colsort, [col.key]: p.id };
+                  plugin.settings.kanban.colsort = colsort;
+                  config.colsort = colsort;
+                  await plugin.saveSettings();
+                  await drawBoard(plugin, board, config, state);
+                }));
+                menu.showAtMouseEvent(e);
+              });
+            }
             if (!folded) for (const route of config.sweeps.filter((s) => s.from === col.key)) {
               const sweepTo = config.columns.find((c) => c.key === route.to);
               if (!sweepTo) continue;
@@ -3800,7 +3838,8 @@ var require_settings = __commonJS({
         sweep: "Doing > Parked",
         lanesort: "total-desc",
         layout: "vertical",
-        autoFold: false
+        autoFold: false,
+        colsort: { backlog: "latest" }
       },
       ei: {
         paths: "",

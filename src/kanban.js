@@ -2,7 +2,7 @@
 // Columns map to #kb/<name> tags; terminal columns (Name=x) map to checkbox chars
 // and stamp completion time as YYYYMMDDHHmm at end of line.
 
-const { MarkdownRenderChild, Notice, Platform, setIcon } = require('obsidian');
+const { MarkdownRenderChild, Menu, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
 
 // Persisted marker for "no lanes selected". Kept distinct from a cleared
@@ -350,7 +350,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
       if (col) cards.get(col.key).push(card);
     }
   }
-  for (const list of cards.values()) sortByRank(list);
+  for (const [key, list] of cards) sortColumn(list, config.colsort?.[key]);
   return cards;
 }
 
@@ -358,6 +358,29 @@ async function scanKanbanTasks(app, config, opts = {}) {
 function sortByRank(list) {
   const r = c => (c.rank == null ? Infinity : c.rank);
   return list.sort((a, b) => r(a) - r(b));
+}
+
+// Column sort presets; settings.kanban.colsort maps column key -> preset id.
+const SORT_PRESETS = [
+  { id: 'manual', label: 'Manual (rank)', glyph: '≡' },
+  { id: 'latest', label: 'Latest first', glyph: '↓' },
+  { id: 'oldest', label: 'Oldest first', glyph: '↑' },
+  { id: 'az', label: 'A–Z', glyph: 'A' },
+];
+
+// Newest move stamp, else the daily-note filename stamp (YYYYMMDD-HHmm).
+function cardStamp(card) {
+  let best = '';
+  for (const h of card.history) if (h.stamp > best) best = h.stamp;
+  return best || (card.file.basename.match(/^(\d{8})-?(\d{4})/)?.slice(1).join('') ?? '');
+}
+
+function sortColumn(list, preset) {
+  const byLine = (a, b) => a.file.path.localeCompare(b.file.path) || a.line - b.line;
+  if (preset === 'latest') return list.sort((a, b) => cardStamp(b).localeCompare(cardStamp(a)) || byLine(a, b));
+  if (preset === 'oldest') return list.sort((a, b) => cardStamp(a).localeCompare(cardStamp(b)) || byLine(a, b));
+  if (preset === 'az') return list.sort((a, b) => cleanText(a.body).localeCompare(cleanText(b.body)) || byLine(a, b));
+  return sortByRank(list);
 }
 
 // Write (or replace) one `%% kb... %%` line under a task; text null removes it.
@@ -644,6 +667,7 @@ function resolveKanbanConfig(plugin, src, sourcePath) {
     config.sweeps = parseSweeps(defaults.sweep);
   }
   if (config.lanesort == null && defaults.lanesort) config.lanesort = defaults.lanesort;
+  config.colsort = defaults.colsort || {}; // global per column key, edited from the column header
   return config;
 }
 
@@ -1015,6 +1039,24 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
         await drawBoard(plugin, board, config, state);
       });
 
+      if (!folded) {
+        const current = SORT_PRESETS.find(p => p.id === config.colsort[col.key]) || SORT_PRESETS[0];
+        const sortBtn = titleEl.createEl('button', {
+          cls: 'bdb-kanban-sort', text: current.glyph,
+          attr: { 'aria-label': `Sort: ${current.label}` },
+        });
+        sortBtn.addEventListener('click', (e) => {
+          const menu = new Menu();
+          for (const p of SORT_PRESETS) menu.addItem(item => item.setTitle(p.label).setChecked(p === current).onClick(async () => {
+            const colsort = { ...config.colsort, [col.key]: p.id };
+            plugin.settings.kanban.colsort = colsort;
+            config.colsort = colsort;
+            await plugin.saveSettings();
+            await drawBoard(plugin, board, config, state);
+          }));
+          menu.showAtMouseEvent(e);
+        });
+      }
       if (!folded) for (const route of config.sweeps.filter(s => s.from === col.key)) {
         const sweepTo = config.columns.find(c => c.key === route.to);
         if (!sweepTo) continue;
