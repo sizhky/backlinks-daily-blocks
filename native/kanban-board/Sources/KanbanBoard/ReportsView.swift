@@ -100,6 +100,8 @@ final class ReportsModel: ObservableObject {
 struct ReportsView: View {
   @EnvironmentObject var model: ReportsModel
   @Binding var mode: String
+  /// Pointer over the chart's plot, for the instant `HoverCard`.
+  @State private var pointer: CGPoint?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -221,12 +223,38 @@ struct ReportsView: View {
       .chartForegroundStyleScale(domain: names, range: colors)
       .chartXScale(domain: model.interval.start...model.interval.end)
       .chartYAxisLabel("Hours")
+      .chartOverlay { proxy in
+        GeometryReader { geo in
+          Rectangle().fill(.clear).contentShape(Rectangle())
+            .onContinuousHover { phase in
+              if case .active(let p) = phase { pointer = p } else { pointer = nil }
+            }
+            .overlay(alignment: .topLeading) {
+              if let p = pointer, let text = Self.tip(at: p, proxy: proxy, geo: geo, rows: rows, unit: unit) {
+                HoverCard(text: text, at: p, bounds: geo.size).allowsHitTesting(false)
+              }
+            }
+        }
+      }
       .frame(height: 240)
       .overlay { if rows.isEmpty, !model.loading { Text("No tracked time").foregroundStyle(Palette.muted) } }
     }
     .padding(16)
     .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
+  }
+
+  /// Hours per series in the bar under the pointer, largest first; nil off the bars.
+  private static func tip(at p: CGPoint, proxy: ChartProxy, geo: GeometryProxy,
+                          rows: [(bucket: Date, name: String, hours: Double)], unit: Calendar.Component) -> String? {
+    guard let plot = proxy.plotFrame.map({ geo[$0] }), plot.contains(p),
+      let date: Date = proxy.value(atX: p.x - plot.minX),
+      let bucket = Calendar.current.dateInterval(of: unit, for: date)?.start else { return nil }
+    let hit = rows.filter { $0.bucket == bucket }.sorted { $0.hours > $1.hours }
+    guard !hit.isEmpty else { return nil }
+    let head = bucket.formatted(unit == .hour ? .dateTime.hour() : unit == .month ? .dateTime.month(.wide) : .dateTime.weekday().day().month())
+    let total = TimelineScreen.dur(hit.reduce(0) { $0 + $1.hours } * 3600)
+    return (["\(head)  \(total)"] + hit.map { "\($0.name)  \(TimelineScreen.dur($0.hours * 3600))" }).joined(separator: "\n")
   }
 
   // MARK: Breakdown

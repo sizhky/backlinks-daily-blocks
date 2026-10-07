@@ -234,7 +234,8 @@ Before building or wording any UI, ask what Apple would do and do that.
   The calendar's Doing column keeps genuinely parallel cards visible: `ActivityLog.lanes` gives each overlapping
   stint its own equal-width column with a 2 pt gap, so cards never overlap in x (a one-card-at-a-time
   "focus" line was tried and rejected: it hid real parallel work). Hover details use `hoverTip`/`HoverCard`
-  (instant, follows the pointer), not `.help`, whose ~1 s delay felt unresponsive.
+  (instant, follows the pointer), not `.help`, whose ~1 s delay felt unresponsive. The Reports chart uses the same
+  `HoverCard` from a `chartOverlay`: the bar under the pointer, its total, then each series largest first.
   `CalendarDay` draws N days (`days`/`layouts`): Day = one day split Activity | Doing; Week = the 7 days of
   `Calendar.dateInterval(of: .weekOfYear)` (locale first weekday), each split 55/45, Doing from one
   `kb.chronicle(from, to)` parsed by `ActivityLog.stintsByDay`. Arrows step a day or a week.
