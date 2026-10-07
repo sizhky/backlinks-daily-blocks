@@ -192,9 +192,21 @@ Example: `kb.board({hours:24,full:"Doing"})`
 `toCol` matched case-insensitively against column names. Throws on unknown file/col.
 Returns `ok file:line -> Col` on success.
 
-### `kb.moveTasks(refs, toCol)` — move several tasks to a column
+### `kb.moveTasks(refs, toCol, opts?)` — move several tasks to a column
 `refs` is an array of `file:line`. Same-file refs move bottom-up so line numbers stay valid.
 No open-children guard (same as `moveTask`). Returns `ok <moved>`.
+`opts.at` (ISO time) backdates the history stamp; a card whose latest move is after `at` is skipped. The Kanban Board app uses it for activity switch rules.
+
+### `kb.planned(...)` — planned vs unplanned time in Doing
+
+Arg forms mirror `getReport` (`20261007`, `from,to`, `{days:7}`). Planned = the card sat in Todo before its first Doing entry.
+First line: both totals with percentages. Then `planned|unplanned<TAB>dur<TAB>file:line<TAB>body`, longest first.
+
+### `kb.activity(date?)` — captured Mac activity vs Doing for one day
+
+Reads `<vault>/.activity/YYYYMMDD.jsonl`, written by the Kanban Board app. First line: active, doing, doing without activity, activity outside doing. Then `app<TAB>dur<TAB>top window title`. The same day renders in a note with a ```` ```activity ```` block (`date: YYYYMMDD` optional; default is the note's file-name date).
+
+Sleep auto-park: the plugin keeps a 60 s heartbeat on desktop. After a gap above 30 minutes it moves Doing cards to Parked (habit cards to Idle), stamped at the last tick before the gap.
 
 ### `kb.rankTasks(pairs, toCol?)` — manual card order
 `pairs` is `[[file:line, rank], ...]`. Writes a `%% kbrank N %%` line under each task (lower

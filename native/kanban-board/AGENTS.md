@@ -16,8 +16,10 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Grouping.swift       group cards by project
   Title.swift          [[wikilinks]] / [text](url) -> segments
   Logbook.swift        done cards grouped by finish day (Logbook mode)
+  Activity.swift       Sample, Span, SpanBuilder, ActivityRule, SwitchEngine, Spaces.desktopNumber
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
+  ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
@@ -184,6 +186,13 @@ Before building or wording any UI, ask what Apple would do and do that.
   ("Filter", "Name", "All workspaces", not "type to filter" or "e.g. ..."). Sentences end without a period
   in labels. Use an ellipsis only for commands that open a dialog ("New view...").
 - Shortcut hints belong in tooltips (`.help`) and the command palette, not on screen.
+
+- Activity capture (blueprint `.yeshwanth/blueprints/activity-tracking.md`): `ActivityMonitor` only
+  records spans; it never moves cards. `BoardStore.switchTasks` runs `SwitchEngine` once per refresh:
+  a card with a desktop, or whose project/org a rule in `<vault>/.activity/rules.json` names, parks
+  120 s after its context is left and resumes 10 s after return, only if the engine parked it. Moves
+  are stamped at the moment the context changed (`kb.moveTasks(refs, col, {at})`). Engine state
+  persists in `kanban.switches`. Desktop number uses private CGS calls looked up with `dlsym`; nil on failure.
 
 ## Gotchas
 

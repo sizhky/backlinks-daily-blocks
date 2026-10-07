@@ -51,6 +51,21 @@ struct ObsidianClient {
     _ = try await eval("kb.moveTasks(\(try js(cards.map(\.ref))),\(try js(column)))")
   }
 
+  /// Moves refs with the history stamp backdated to `at` (kb.moveTasks); the plugin skips a
+  /// card that moved after `at`.
+  func move(refs: [String], to column: String, at: Date) async throws {
+    let iso = ISO8601DateFormatter().string(from: at)
+    _ = try await eval("kb.moveTasks(\(try js(refs)),\(try js(column)),{at:\(try js(iso))})")
+  }
+
+  /// Absolute path of the vault folder (desktop adapter `basePath`).
+  func vaultPath() async throws -> String {
+    let out = try await eval("app.vault.adapter.basePath").trimmingCharacters(in: .whitespacesAndNewlines)
+    let path = (out.hasPrefix("=>") ? String(out.dropFirst(2)) : out).trimmingCharacters(in: .whitespaces)
+    guard path.hasPrefix("/") else { throw ObsidianError("No vault path: " + String(path.prefix(120))) }
+    return path
+  }
+
   /// Stores the card's time guess in minutes (kb.setEstimate).
   func setEstimate(_ card: Card, minutes: Int) async throws {
     _ = try await eval("kb.setEstimate(\(try js(card.ref)),\(minutes))")

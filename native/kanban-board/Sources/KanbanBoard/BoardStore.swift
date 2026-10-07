@@ -64,6 +64,10 @@ final class BoardStore: ObservableObject {
 
   private let client = ObsidianClient()
   private var loop: Task<Void, Never>?
+  private let activity = ActivityMonitor()
+  /// 4.2 Rule moves; persisted so a relaunch can still resume what it parked.
+  private var switches: SwitchEngine = UserDefaults.standard.data(forKey: "kanban.switches")
+    .flatMap { try? JSONDecoder().decode(SwitchEngine.self, from: $0) } ?? SwitchEngine()
 
   init() {
     query = UserDefaults.standard.string(forKey: "kanban.query") ?? ""
@@ -211,6 +215,10 @@ final class BoardStore: ObservableObject {
 
   func start() {
     guard loop == nil else { return }
+    Task {
+      do { activity.start(vault: URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)) }
+      catch { self.error = error.localizedDescription }
+    }
     loop = Task { [weak self] in
       while !Task.isCancelled {
         await self?.refresh()
@@ -231,10 +239,31 @@ final class BoardStore: ObservableObject {
       withAnimation(DragController.spring) { columns = fresh }
       picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
       error = nil
+      switchTasks()
     } catch {
       self.error = error.localizedDescription
     }
     loaded = true
+  }
+
+  /// 4.2 Parks cards whose context the user left and resumes the ones the engine parked,
+  /// with stamps at the moment the context changed.
+  private func switchTasks() {
+    let live = columns.filter { !$0.done }.flatMap(\.cards)
+    let moves = switches.step(now: Date(), context: activity.context, contextSince: activity.contextSince,
+                              cards: live, rules: activity.rules)
+    UserDefaults.standard.set(try? JSONEncoder().encode(switches), forKey: "kanban.switches")
+    guard !moves.isEmpty else { return }
+    writeGen += 1
+    Task {
+      for group in Dictionary(grouping: moves, by: { "\($0.column)|\($0.at.timeIntervalSince1970)" }).values {
+        do { try await client.move(refs: group.map(\.ref), to: group[0].column, at: group[0].at) }
+        catch { self.error = error.localizedDescription }
+      }
+      let verb = moves[0].column == "Parked" ? "Parked" : "Resumed"
+      show(moves.count == 1 ? "\(verb) \(moves[0].title)" : "\(verb) \(moves.count) cards")
+      await refresh()
+    }
   }
 
   func move(ref: String, to column: String) { move(refs: [ref], to: column) }
