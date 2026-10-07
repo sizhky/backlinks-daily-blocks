@@ -110,7 +110,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Do not add `.animation(_:value:)` to card stacks: it fights the explicit `DragController.spring`
   transactions and makes pickup and drop jump.
 - Desktop per card: `Card.desktop`, stored in the note as `%% kbdesktop N %%` (plugin `DESKTOP_RE`, written by
-  `kb.setDesktop`, read as the last board-script column). The app keeps no desktop state of its own. Clicking the
+  `kb.setDesktop`, read as the last board-script column). Frontmatter `kbdesktop: N` is the per-note default; the task line beats it. The app keeps no desktop state of its own. Clicking the
   "Desktop N" pill calls `store.switchDesktop`: press the user's macOS "Switch to Desktop N" shortcut (read from
   `AppleSymbolicHotKeys` by `Spaces.shortcut`). Cards have no double-click action. Needs Accessibility permission and the shortcut
   enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.

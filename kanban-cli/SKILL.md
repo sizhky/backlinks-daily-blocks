@@ -204,6 +204,7 @@ column move there first. Same-file refs go bottom-up. Returns `ok <n>`.
 
 ### `kb.setDesktop(ref, n)` — macOS desktop of a card
 `ref` = `file:line`. `n` 1-9 writes `%% kbdesktop N %%` under the task (like `kbrank`); `null` clears it.
+Without that line, the note's frontmatter `kbdesktop: N` applies to every task in the note.
 `kb.active({desktop:true})` appends each row's desktop (empty when unset) after the rank column.
 Returns `ok <ref> desktop <n|none>`.
 

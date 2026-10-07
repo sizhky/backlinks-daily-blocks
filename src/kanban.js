@@ -218,6 +218,8 @@ async function scanKanbanTasks(app, config, opts = {}) {
     const cache = app.metadataCache.getFileCache(file);
     const lane = config.lane ? (fmValues(cache, config.lane)[0] || null) : null;
     const laneGroup = config.groupby ? (fmValues(cache, config.groupby)[0] || null) : null;
+    // File-level default desktop (frontmatter `kbdesktop: 2`); a task's own %% kbdesktop N %% beats it.
+    const fileDesktop = Number(fmValues(cache, 'kbdesktop')[0]);
     const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
     // Ancestor chain by indent: tasks at any depth become cards; history,
     // ei stamps and tag lines attach to the deepest task above them with
@@ -338,6 +340,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
     }
 
     for (const card of fileCards) {
+      if (card.desktop == null && fileDesktop >= 1 && fileDesktop <= 9) card.desktop = fileDesktop;
       let col;
       if (card.state === ' ' || card.state === '!') { // `!` = group header, lives like an open card
         const key = card.tags.find(t => t.startsWith('#kb/'))?.match(KB_TAG_RE)?.[1]

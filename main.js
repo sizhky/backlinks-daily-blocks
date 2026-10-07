@@ -809,6 +809,7 @@ var require_kanban = __commonJS({
         const cache = app2.metadataCache.getFileCache(file);
         const lane = config.lane ? fmValues(cache, config.lane)[0] || null : null;
         const laneGroup = config.groupby ? fmValues(cache, config.groupby)[0] || null : null;
+        const fileDesktop = Number(fmValues(cache, "kbdesktop")[0]);
         const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
         const fileCards = [];
         const stack = [];
@@ -922,6 +923,7 @@ var require_kanban = __commonJS({
           if (!/^\s/.test(text)) stack.length = 0;
         }
         for (const card of fileCards) {
+          if (card.desktop == null && fileDesktop >= 1 && fileDesktop <= 9) card.desktop = fileDesktop;
           let col;
           if (card.state === " " || card.state === "!") {
             const key = card.tags.find((t) => t.startsWith("#kb/"))?.match(KB_TAG_RE)?.[1] || card.body.match(KB_TAG_RE)?.[1];
