@@ -140,13 +140,25 @@ struct TrackingSettings: View {
   @EnvironmentObject var activity: ActivityMonitor
   @EnvironmentObject var desktops: DesktopStore
   @AppStorage(ReportKey.mull) private var mull = 60
-  @State private var target: String?
+  /// Pill drag, the `DragController` shape: a floating copy at mouse rate, a ghost where it lands.
+  @State private var drag: PillDrag?
+  @State private var ignoring = false
+  @State private var frames = FrameRegistry()
+  @StateObject private var pointer = DragPointer()
   /// Collapsed org groups as `region id|org`, tab-separated; all expanded by default.
   @AppStorage("tracking.collapsed") private var shut = ""
 
   /// A drop region: a desktop (`ref` = what pins store), a pin whose desktop no longer exists, or none.
   struct Region: Identifiable {
-    let id: String, title: String, ref: String?, current: Bool, projects: [String]
+    let id: String, title: String, ref: String?, current: Bool
+    var projects: [String]
+  }
+
+  /// The dragged project, its home and hovered regions (`Region.id`), and where it was grabbed.
+  struct PillDrag {
+    let name: String, home: String, grab: CGSize, size: CGSize
+    var target: String
+    var settling = false
   }
 
   var body: some View {
@@ -169,7 +181,49 @@ struct TrackingSettings: View {
         }
       }
       .padding(20)
+      .coordinateSpace(.named(DragController.space))
+      .simultaneousGesture(DragGesture(minimumDistance: 3, coordinateSpace: .named(DragController.space))
+        .onChanged(dragChanged).onEnded { _ in dragEnded() })
+      .overlay(alignment: .topLeading) {
+        if let drag { FloatingPill(name: drag.name, size: drag.size, pointer: pointer) }
+      }
     }
+  }
+
+  private func dragChanged(_ v: DragGesture.Value) {
+    if drag == nil {
+      guard !ignoring, let (name, f) = frames.cards.first(where: { $0.value.contains(v.startLocation) }).map({ ($0.key, $0.value) }),
+            let home = regions.first(where: { $0.projects.contains(name) }) else { ignoring = true; return }
+      pointer.origin = f.origin
+      drag = PillDrag(name: name, home: home.id, grab: CGSize(width: v.startLocation.x - f.minX, height: v.startLocation.y - f.minY),
+                      size: f.size, target: home.id)
+    }
+    guard var d = drag, !d.settling else { return }
+    pointer.origin = CGPoint(x: v.location.x - d.grab.width, y: v.location.y - d.grab.height)
+    // Between squares the last target holds, as the board keeps the last slot in column gaps.
+    if let id = frames.columns.first(where: { $0.value.contains(v.location) })?.key, id != d.target {
+      d.target = id
+      withAnimation(DragController.spring) { drag = d }
+    }
+  }
+
+  /// Animates the floating pill onto the ghost, then writes the pin and swaps in the real pill unanimated.
+  private func dragEnded() {
+    ignoring = false
+    guard var d = drag, !d.settling else { return }
+    d.settling = true
+    drag = d
+    let commit = {
+      var t = Transaction()
+      t.disablesAnimations = true
+      withTransaction(t) {
+        if d.target != d.home, let r = regions.first(where: { $0.id == d.target }) { store.setDesktop(r.ref, project: d.name) }
+        drag = nil
+      }
+      frames.ghost = nil
+    }
+    guard let dest = frames.ghost?.origin else { return commit() }
+    withAnimation(DragController.spring, completionCriteria: .logicallyComplete) { pointer.origin = dest } completion: { commit() }
   }
 
   /// Every project on the board plus every pinned project, by name (case-insensitive).
@@ -188,9 +242,15 @@ struct TrackingSettings: View {
       if let d = desktops.resolve(ref) { byDesk[d.uuid, default: []].append(p) } else { stale[ref, default: []].append(p) }
     }
     let current = desktops.current?.uuid
-    return desktops.spaces.map { Region(id: $0.uuid, title: $0.name, ref: $0.ref, current: $0.uuid == current, projects: byDesk[$0.uuid] ?? []) }
+    var out = desktops.spaces.map { Region(id: $0.uuid, title: $0.name, ref: $0.ref, current: $0.uuid == current, projects: byDesk[$0.uuid] ?? []) }
       + stale.keys.sorted().map { Region(id: "stale|" + $0, title: $0, ref: $0, current: false, projects: stale[$0] ?? []) }
       + [Region(id: "none", title: "No desktop", ref: nil, current: false, projects: none)]
+    // While dragging, the project already sits in the hovered square as a ghost.
+    if let drag, let t = out.firstIndex(where: { $0.id == drag.target }) {
+      for i in out.indices { out[i].projects.removeAll { $0 == drag.name } }
+      out[t].projects = (out[t].projects + [drag.name]).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+    return out
   }
 
   private func region(_ r: Region) -> some View {
@@ -211,15 +271,11 @@ struct TrackingSettings: View {
     }
     .padding(10)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(target == r.id ? 0.08 : 0.03)))
+    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(hot(r) ? 0.08 : 0.03)))
     .overlay(RoundedRectangle(cornerRadius: 12)
-      .strokeBorder(target == r.id ? Color.accentColor : Color.white.opacity(0.1), lineWidth: target == r.id ? 1.5 : 1))
-    .dropDestination(for: String.self) { names, _ in
-      for name in names { store.setDesktop(r.ref, project: name) }
-      return !names.isEmpty
-    } isTargeted: { on in
-      if on { target = r.id } else if target == r.id { target = nil }
-    }
+      .strokeBorder(hot(r) ? Color.accentColor : Color.white.opacity(0.1), lineWidth: hot(r) ? 1.5 : 1))
+    .animation(.easeOut(duration: 0.12), value: hot(r))
+    .dragFrame(r.id, in: \.columns, frames)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("\(r.title), \(r.projects.count) projects")
   }
@@ -240,8 +296,11 @@ struct TrackingSettings: View {
     }
   }
 
+  /// The square a pill is being dragged over, once it has left home.
+  private func hot(_ r: Region) -> Bool { drag.map { $0.target == r.id && $0.target != $0.home } ?? false }
+
   private func orgGroup(_ key: String, _ org: String, _ projects: [String]) -> some View {
-    let open = !shut.split(separator: "\t").contains { $0 == key }
+    let open = !shut.split(separator: "\t").contains { $0 == key } || drag.map { projects.contains($0.name) } ?? false
     return VStack(alignment: .leading, spacing: 5) {
       Button {
         var set = shut.split(separator: "\t").map(String.init).filter { $0 != key }
@@ -268,12 +327,31 @@ struct TrackingSettings: View {
     }
   }
 
-  private func pill(_ name: String) -> some View {
-    Pill(text: name) { Monogram(name: name, size: 13) }
+  @ViewBuilder private func pill(_ name: String) -> some View {
+    let base = Pill(text: name) { Monogram(name: name, size: 13) }
       .frame(maxWidth: 150, alignment: .leading)
       .fixedSize(horizontal: false, vertical: true)
       .contentShape(Rectangle())
-      .draggable(name) { Pill(text: name) { Monogram(name: name, size: 13) } }
       .accessibilityLabel(name)
+    if drag?.name == name {
+      base.opacity(0.3)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(DragController.space)) } action: { frames.ghost = $0 }
+    } else {
+      base.pointerStyle(.grabIdle).dragFrame(name, in: \.cards, frames)
+    }
+  }
+}
+
+/// The dragged project pill at mouse rate; only this view observes `DragPointer`.
+private struct FloatingPill: View {
+  let name: String, size: CGSize
+  @ObservedObject var pointer: DragPointer
+
+  var body: some View {
+    Pill(text: name) { Monogram(name: name, size: 13) }
+      .frame(width: size.width, height: size.height)
+      .shadow(color: .black.opacity(0.45), radius: 10, y: 5)
+      .offset(x: pointer.origin.x, y: pointer.origin.y)
+      .allowsHitTesting(false)
   }
 }
