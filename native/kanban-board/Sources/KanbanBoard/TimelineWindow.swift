@@ -284,13 +284,15 @@ struct CalendarDay: View {
   let isToday: Bool
   let hourHeight: Double
   static let gutter = 64.0
+  /// Hover card: text and pointer position in the calendar's coordinate space.
+  @State private var tip: (text: String, at: CGPoint)?
 
   private func y(_ d: Date) -> Double { max(0, min(24, d.timeIntervalSince(day) / 3600)) * hourHeight }
 
   var body: some View {
     let blocks = ActivityLog.blocks(spans)
     let sessions = ActivityLog.sessions(blocks)
-    let focus = ActivityLog.focus(stints)
+    let layout = ActivityLog.lanes(stints.map { ($0.start, $0.end) })
     VStack(spacing: 0) {
       HStack(spacing: 0) {
         Spacer().frame(width: Self.gutter, height: 0)  // a bare Color.clear grew tall and pushed the calendar down
@@ -310,6 +312,7 @@ struct CalendarDay: View {
                 ForEach(blocks) { b in
                   ActivityBlockView(block: b, height: max(1, y(b.end) - y(b.start)))
                     .frame(width: col - 8, height: max(1, y(b.end) - y(b.start)))
+                    .hoverTip(ActivityBlockView.tip(b), $tip)
                     .offset(x: Self.gutter + 12, y: y(b.start))
                 }
                 // A session of short blocks reads as stripes; one label names its main app.
@@ -318,19 +321,25 @@ struct CalendarDay: View {
                   if h >= 18, !blocks.contains(where: { $0.start == ss.start && $0.end == ss.end }) {
                     SessionLabel(session: ss)
                       .frame(maxWidth: col - 24, alignment: .leading)
+                      .allowsHitTesting(false)
                       .offset(x: Self.gutter + 20, y: y(ss.start) + 3)
                   }
                 }
-                // One card at a time: the most recently started of those in Doing.
-                ForEach(focus) { st in
-                  DoingBlockView(stint: st, height: max(2, y(st.end) - y(st.start)))
-                    .frame(width: col - 8, height: max(2, y(st.end) - y(st.start) - 1))
-                    .offset(x: Self.gutter + 12 + col, y: y(st.start))
+                // Parallel cards sit side by side: each gets an equal column with a gap, never overlapping in x.
+                ForEach(Array(stints.enumerated()), id: \.element.id) { i, st in
+                  let gap = 2.0
+                  let w = (col - 8 + gap) / Double(layout.of[i])
+                  DoingBlockView(stint: st, height: max(2, y(st.end) - y(st.start)), narrow: w < 60)
+                    .frame(width: max(1, w - gap), height: max(2, y(st.end) - y(st.start) - 1))
+                    .hoverTip(DoingBlockView.tip(st, others: layout.of[i] - 1), $tip)
+                    .offset(x: Self.gutter + 12 + col + Double(layout.lane[i]) * w, y: y(st.start))
                 }
-                if isToday { nowLine(width: geo.size.width) }
+                if isToday { nowLine(width: geo.size.width).allowsHitTesting(false) }
+                if let tip { HoverCard(text: tip.text, at: tip.at, bounds: geo.size).allowsHitTesting(false) }
               }
             }
             .frame(height: 24 * hourHeight)
+            .coordinateSpace(.named(HoverTip.space))
             // Laid out (not offset) at the focus time, so scrollTo lands there.
             VStack(spacing: 0) {
               Color.clear.frame(width: 1, height: max(0, y(focusTime) - 120))
@@ -398,7 +407,10 @@ struct ActivityBlockView: View {
       }
     }
     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-    .help("\(block.app)\(block.title.isEmpty ? "" : " · " + block.title)\n\(TimelineRowView.clock(block.start))–\(TimelineRowView.clock(block.end))")
+  }
+
+  static func tip(_ b: ActivityBlock) -> String {
+    "\(b.app)\(b.title.isEmpty ? "" : "\n" + b.title)\n\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
   }
 }
 
@@ -426,13 +438,15 @@ struct SessionLabel: View {
 }
 
 struct DoingBlockView: View {
-  let stint: FocusStint
+  let stint: DoingStint
   let height: Double
+  /// Too thin for text: the block is a coloured bar and the hover card carries the details.
+  var narrow = false
   var body: some View {
     ZStack(alignment: .topLeading) {
       RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Palette.indigo.opacity(0.28))
       Rectangle().fill(Palette.indigo).frame(width: 3)
-      if height >= 18 {
+      if height >= 18, !narrow {
         HStack(spacing: 6) {
           Text(stint.title).font(.system(size: 11.5, weight: .medium)).lineLimit(height >= 36 ? 2 : 1)
           Spacer(minLength: 4)
@@ -443,8 +457,46 @@ struct DoingBlockView: View {
       }
     }
     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-    .help("\(stint.title)\n\(TimelineRowView.clock(stint.start))–\(TimelineRowView.clock(stint.end))\(stint.open ? " (running)" : "")"
-      + (stint.parallel > 0 ? "\n\(stint.parallel) other card\(stint.parallel == 1 ? "" : "s") in Doing" : ""))
+  }
+
+  static func tip(_ st: DoingStint, others: Int) -> String {
+    "\(st.title)\n\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
+      + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
+  }
+}
+
+/// Instant hover card (the system `.help` tooltip waits about a second).
+enum HoverTip { static let space = "calendar" }
+
+extension View {
+  /// Shows `text` in the calendar's hover card while the pointer is over this view, following the pointer.
+  func hoverTip(_ text: String, _ tip: Binding<(text: String, at: CGPoint)?>) -> some View {
+    onContinuousHover(coordinateSpace: .named(HoverTip.space)) { phase in
+      switch phase {
+      case .active(let p): tip.wrappedValue = (text, p)
+      case .ended: if tip.wrappedValue?.text == text { tip.wrappedValue = nil }
+      }
+    }
+  }
+}
+
+struct HoverCard: View {
+  let text: String
+  let at: CGPoint
+  let bounds: CGSize
+  static let width = 280.0
+  var body: some View {
+    Text(text)
+      .font(.system(size: 11.5)).foregroundStyle(Palette.text)
+      .lineSpacing(2)
+      .padding(.horizontal, 9).padding(.vertical, 7)
+      .frame(maxWidth: Self.width, alignment: .leading)
+      .fixedSize(horizontal: false, vertical: true)
+      .background(RoundedRectangle(cornerRadius: 7).fill(Palette.window))
+      .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Palette.hairlineStrong))
+      .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
+      // Right of and below the pointer; flips left near the right edge.
+      .offset(x: at.x + 14 + Self.width > bounds.width ? at.x - Self.width - 10 : at.x + 14, y: at.y + 14)
   }
 }
 

@@ -150,32 +150,27 @@ extension ActivityLog {
   }
 }
 
-/// One stretch of the Doing focus line: the card in front, and how many others were in Doing.
-public struct FocusStint: Equatable, Sendable, Identifiable {
-  public let start: Date, end: Date, title: String, open: Bool
-  public let parallel: Int
-  public var id: String { "\(start.timeIntervalSince1970)|\(title)" }
-}
-
 extension ActivityLog {
-  /// Non-overlapping Doing line: at each moment, the stint that started last among those running
-  /// (the task you switched to most recently). Adjacent pieces of one card merge.
+  /// Side-by-side column for each interval, as a calendar lays out overlapping events, plus the
+  /// column count of each one's overlap cluster. Input order is kept.
   /// ```
-  /// A 09:00-12:00, B 10:00-11:00 -> A 09:00-10:00, B 10:00-11:00 (+1), A 11:00-12:00
+  /// [0-10, 5-15, 20-30] -> lanes [0, 1, 0], widths [2, 2, 1]
   /// ```
-  public static func focus(_ stints: [DoingStint]) -> [FocusStint] {
-    let cuts = Set(stints.flatMap { [$0.start, $0.end] }).sorted()
-    var out: [FocusStint] = []
-    for (a, b) in zip(cuts, cuts.dropFirst()) {
-      let running = stints.filter { $0.start <= a && $0.end >= b }
-      guard let top = running.max(by: { ($0.start, $0.title) < ($1.start, $1.title) }) else { continue }
-      if let last = out.last, last.title == top.title, last.end == a {
-        out[out.count - 1] = FocusStint(start: last.start, end: b, title: top.title, open: top.open && top.end == b,
-                                        parallel: max(last.parallel, running.count - 1))
-      } else {
-        out.append(FocusStint(start: a, end: b, title: top.title, open: top.open && top.end == b, parallel: running.count - 1))
-      }
+  public static func lanes(_ ivals: [(Date, Date)]) -> (lane: [Int], of: [Int]) {
+    let order = ivals.indices.sorted { ivals[$0].0 < ivals[$1].0 }
+    var lane = Array(repeating: 0, count: ivals.count), of = Array(repeating: 1, count: ivals.count)
+    var ends: [Date] = []          // per lane, end of its last interval in the current cluster
+    var cluster: [Int] = []
+    var clusterEnd = Date.distantPast
+    func close() { for i in cluster { of[i] = ends.count }; cluster = []; ends = [] }
+    for i in order {
+      let (a, b) = ivals[i]
+      if a >= clusterEnd { close() }
+      if let free = ends.firstIndex(where: { $0 <= a }) { lane[i] = free; ends[free] = b } else { lane[i] = ends.count; ends.append(b) }
+      cluster.append(i)
+      clusterEnd = max(clusterEnd, b)
     }
-    return out
+    close()
+    return (lane, of)
   }
 }
