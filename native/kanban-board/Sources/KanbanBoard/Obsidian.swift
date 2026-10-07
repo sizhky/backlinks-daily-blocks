@@ -75,6 +75,14 @@ struct ObsidianClient {
     return try await eval("kb.chronicle(\"\(f.string(from: from))\",\"\(f.string(from: to))\",{refs:true})")
   }
 
+  /// 6 Reports input (`kb.reportCards`), rows parsed by `ReportCard.parse`; `mull` in minutes.
+  func reportCards(_ from: Date, to: Date, mull: Int) async throws -> String {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "yyyyMMdd"
+    return try await eval("kb.reportCards(\"\(f.string(from: from))\",\"\(f.string(from: to))\",{mull:\(mull)})")
+  }
+
   /// Absolute path of the vault folder (desktop adapter `basePath`).
   func vaultPath() async throws -> String {
     let out = try await eval("app.vault.adapter.basePath").trimmingCharacters(in: .whitespacesAndNewlines)

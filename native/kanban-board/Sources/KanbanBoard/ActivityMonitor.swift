@@ -16,7 +16,7 @@ final class ActivityMonitor: ObservableObject {
   @Published private(set) var context: Sample?
   /// When the current context began (for away: the last input or the sleep moment).
   private(set) var contextSince = Date()
-  private(set) var rules: [ActivityRule] = []
+  @Published private(set) var rules: [ActivityRule] = []
 
   private var builder = SpanBuilder()
   private var timer: Timer?
@@ -93,6 +93,14 @@ final class ActivityMonitor: ObservableObject {
     } else {
       try? line.write(to: url)
     }
+  }
+
+  /// Writes `rules.json` (Settings > Tracking) and applies it at once.
+  func saveRules(_ new: [ActivityRule]) {
+    guard let url = dir?.appendingPathComponent("rules.json") else { return }
+    try? ActivityRule.encode(new).write(to: url, options: .atomic)
+    rules = new
+    rulesStamp = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
   }
 
   /// Rereads `rules.json` when its modification date changes.

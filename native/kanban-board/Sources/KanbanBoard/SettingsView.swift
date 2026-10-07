@@ -1,4 +1,5 @@
 import SwiftUI
+import KanbanCore
 
 /// Card and row spacing. Compact is the original layout.
 enum Density: String, CaseIterable, Identifiable {
@@ -26,6 +27,7 @@ struct SettingsView: View {
     TabView {
       AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintbrush") }
       WidgetSettings().tabItem { Label("Widget", systemImage: "rectangle.topthird.inset.filled") }
+      TrackingSettings().tabItem { Label("Tracking", systemImage: "menubar.dock.rectangle") }
     }
     .frame(width: 560, height: 760)
   }
@@ -121,6 +123,73 @@ struct WidgetSettings: View {
       .disabled(!prefs.shown(p))
     } label: {
       Toggle(p.label, isOn: prefs.showBinding(p)).toggleStyle(.checkbox)
+    }
+  }
+}
+
+enum ReportKey {
+  /// 5.1 Minutes a card must wait in Backlog and Todo before Doing to count as planned.
+  static let mull = "reports.mull"
+}
+
+/// 2.4 Org and project desktops, stored as `DesktopPin` rules in `rules.json`, and the Reports mulling time.
+/// A card's own desktop beats its project's, and a project's beats its org's (`ActivityRule.applying`).
+struct TrackingSettings: View {
+  @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var activity: ActivityMonitor
+  @EnvironmentObject var desktops: DesktopStore
+  @AppStorage(ReportKey.mull) private var mull = 60
+
+  var body: some View {
+    Form {
+      Section("Organization desktops") {
+        ForEach(names(.org), id: \.self) { row(.org, $0) }
+      }
+      Section("Project desktops") {
+        ForEach(names(.project), id: \.self) { row(.project, $0) }
+      }
+      Section {
+        LabeledContent("Minimum mulling time") {
+          Stepper(value: $mull, in: 0...480, step: 15) { Text("\(mull) min").monospacedDigit() }
+        }
+      } header: {
+        Text("Reports")
+      } footer: {
+        Text("Cards that reach Doing sooner after creation count as ad hoc.").foregroundStyle(.secondary)
+      }
+    }
+    .formStyle(.grouped)
+  }
+
+  private var pins: [DesktopPin] { DesktopPin.pins(activity.rules) }
+
+  /// Names on the board plus names that only have a pin, sorted.
+  private func names(_ kind: DesktopPin.Kind) -> [String] {
+    let cards = store.columns.flatMap(\.cards)
+    let found = kind == .org ? cards.flatMap(\.orgs) : cards.flatMap(\.projects)
+    var seen = Set<String>(), out: [String] = []
+    for n in found + pins.filter({ $0.kind == kind }).map(\.name) where seen.insert(n.lowercased()).inserted { out.append(n) }
+    return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+  }
+
+  private func binding(_ kind: DesktopPin.Kind, _ name: String) -> Binding<String?> {
+    Binding(
+      get: { pins.first { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }?.desktop },
+      set: { activity.saveRules(DesktopPin.setting(activity.rules, kind: kind, name: name, desktop: $0)) })
+  }
+
+  private func row(_ kind: DesktopPin.Kind, _ name: String) -> some View {
+    let pick: Binding<String?> = binding(kind, name)
+    let stale = pick.wrappedValue.flatMap { desktops.resolve($0) == nil ? $0 : nil }
+    return Picker(selection: pick) {
+      Text("None").tag(String?.none)
+      ForEach(desktops.spaces) { (d: DesktopSpace) in Text(d.name).tag(String?.some(d.ref)) }
+      if let stale { Text(stale).tag(String?.some(stale)) }
+    } label: {
+      HStack(spacing: 8) {
+        if kind == .org { OrgIcon(name: name, size: 18).clipShape(.rect(cornerRadius: 4)) } else { Monogram(name: name, size: 16) }
+        Text(name)
+      }
     }
   }
 }

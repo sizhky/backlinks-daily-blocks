@@ -21,6 +21,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   DoingChange.swift    diff of live cards between two refreshes (widget toast)
   Hex.swift            #RRGGBB[AA] parse and format (widget colour setting)
   Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
+  Report.swift         ReportCard.parse, Report.attribute/series/tree, Allocation, ReportNode (Reports tab)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
@@ -28,12 +29,13 @@ Sources/KanbanBoard/   SwiftUI app
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
   WidgetParts.swift    WidgetPart (per-element show/justification/size keys), WidgetAlign, WidgetPrefs
-  TimelineWindow.swift Timeline window (Shift-Cmd-T, toolbar icon, menu bar): Day / Week calendar or per-second list
+  TimelineWindow.swift Timeline window (Shift-Cmd-T, toolbar icon, menu bar): Day / Week calendar, per-second list, Reports
+  ReportsView.swift    Reports tab: ReportsModel (range, drill), tiles, stacked Swift Charts bars, org > project > card rows
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
   Menu.swift           custom Linear-style menus: MenuItem, MenuController, MenuHost, MenuTrigger, rightClickMenu
-  SettingsView.swift   Settings window (Cmd-,); Density (compact, comfortable) metrics
+  SettingsView.swift   Settings window (Cmd-,); Density metrics; Tracking tab (org/project desktops, mulling time)
   Style.swift          Palette, StatusGlyph, Pill, FlowLayout, Monogram, OrgIcon, renderTitle
 Tests/KanbanCoreTests/ XCTest, millisecond-scale
 ```
@@ -273,3 +275,13 @@ Before building or wording any UI, ask what Apple would do and do that.
   environment objects in `KanbanApp`.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
+
+- Org and project desktops (Settings > Tracking) are `DesktopPin` rules `{org|project, desktop}` in
+  `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.
+  A pin gives every card of that scope desktop affinity, so `SwitchEngine` parks and resumes them.
+  Precedence lives in `ActivityRule.applying`: card `kbdesktop` beats project desktop beats org desktop.
+- Reports tab (`timeline.mode` = `reports`): `kb.reportCards(from, to, {mull})` gives cards with stints;
+  `Report.attribute` splits each active minute (day logs, `impute` at the idle threshold): owners of the
+  context (`SwitchEngine.owns`) split it, else cards with no affinity, else a matching rule's scope gets
+  "No card" time, else Unattributed. A card's share splits equally across its org x project pairs.
+  Ad hoc uses `reports.mull` minutes (Settings > Tracking). Attribution runs off the main actor.

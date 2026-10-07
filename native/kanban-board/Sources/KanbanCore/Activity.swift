@@ -71,37 +71,100 @@ public struct SpanBuilder: Sendable {
 }
 
 /// 4.1 Maps observed context to a scope. Every given condition must match; app is a bundle id or
-/// app name, title and url are case-insensitive regular expressions.
+/// app name, title and url are case-insensitive regular expressions, desktop is a card-style
+/// desktop reference (number 1-9 or name, `Desktops.matches`).
 /// ```
 /// {"project": "PenguinAI", "title": "penguin"}       iTerm title "penguin:api" -> PenguinAI cards
 /// {"org": "Divami", "url": "divami\\.atlassian"}      Jira tab -> Divami cards
+/// {"project": "PenguinAI", "desktop": "PenguinAI"}   Settings > Tracking desktop row
 /// ```
 public struct ActivityRule: Codable, Equatable, Sendable {
   public var app: String?, title: String?, url: String?
   public var space: Int?
+  public var desktop: String?
   public var project: String?, org: String?
 
-  public init(app: String? = nil, title: String? = nil, url: String? = nil, space: Int? = nil, project: String? = nil, org: String? = nil) {
-    self.app = app; self.title = title; self.url = url; self.space = space; self.project = project; self.org = org
+  public init(app: String? = nil, title: String? = nil, url: String? = nil, space: Int? = nil, desktop: String? = nil,
+              project: String? = nil, org: String? = nil) {
+    self.app = app; self.title = title; self.url = url; self.space = space; self.desktop = desktop
+    self.project = project; self.org = org
   }
 
   public func matches(_ s: Sample) -> Bool {
-    guard app != nil || title != nil || url != nil || space != nil else { return false }
+    guard app != nil || title != nil || url != nil || space != nil || desktop != nil else { return false }
     if let app, app.caseInsensitiveCompare(s.bundle) != .orderedSame, app.caseInsensitiveCompare(s.app) != .orderedSame { return false }
     if let space, space != s.space { return false }
+    if let desktop, Desktops.matches(desktop, number: s.space, label: s.desktop) != true { return false }
     if let title, s.title.range(of: title, options: [.regularExpression, .caseInsensitive]) == nil { return false }
     if let url, (s.url ?? "").range(of: url, options: [.regularExpression, .caseInsensitive]) == nil { return false }
     return true
   }
 
-  func covers(_ card: Card) -> Bool {
-    (project.map { p in card.projects.contains { $0.caseInsensitiveCompare(p) == .orderedSame } } ?? false)
-      || (org.map { o in card.orgs.contains { $0.caseInsensitiveCompare(o) == .orderedSame } } ?? false)
+  /// A desktop rule pins a scope to a desktop (`desktop` or `space`).
+  var pinsDesktop: Bool { desktop != nil || space != nil }
+
+  func covers(orgs: [String], projects: [String]) -> Bool {
+    (project.map { p in projects.contains { $0.caseInsensitiveCompare(p) == .orderedSame } } ?? false)
+      || (org.map { o in orgs.contains { $0.caseInsensitiveCompare(o) == .orderedSame } } ?? false)
+  }
+
+  /// Rules that apply to a scope. The most specific desktop wins: a card desktop drops every
+  /// desktop rule, a project desktop rule drops org desktop rules. Other rules always apply.
+  /// ```
+  /// card desktop 2, rules [project P -> 3, org O -> 4, org O url jira] -> [org O url jira]
+  /// no card desktop, same rules                                     -> [project P -> 3, org O url jira]
+  /// ```
+  static func applying(_ rules: [ActivityRule], desktop: String?, orgs: [String], projects: [String]) -> [ActivityRule] {
+    let ruled = rules.filter { $0.covers(orgs: orgs, projects: projects) }
+    if desktop != nil { return ruled.filter { !$0.pinsDesktop } }
+    let projectPin = ruled.contains { $0.pinsDesktop && $0.project != nil }
+    return projectPin ? ruled.filter { !($0.pinsDesktop && $0.project == nil) } : ruled
   }
 
   /// Rules from `rules.json` (a JSON array); malformed data gives none.
   public static func parse(_ data: Data?) -> [ActivityRule] {
     data.flatMap { try? JSONDecoder().decode([ActivityRule].self, from: $0) } ?? []
+  }
+
+  public static func encode(_ rules: [ActivityRule]) -> Data {
+    let e = JSONEncoder()
+    e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    return (try? e.encode(rules)) ?? Data("[]".utf8)
+  }
+}
+
+/// A Settings > Tracking row: an org or project pinned to a desktop. Stored as a plain
+/// `{org|project, desktop}` rule in `rules.json`; other rules in the file are kept as they are.
+public struct DesktopPin: Equatable, Sendable, Identifiable {
+  public enum Kind: String, Sendable { case org, project }
+  public var kind: Kind, name: String, desktop: String
+  public var id: String { kind.rawValue + "\t" + name.lowercased() }
+  public init(kind: Kind, name: String, desktop: String) { self.kind = kind; self.name = name; self.desktop = desktop }
+
+  var rule: ActivityRule {
+    ActivityRule(desktop: desktop, project: kind == .project ? name : nil, org: kind == .org ? name : nil)
+  }
+
+  init?(_ r: ActivityRule) {
+    guard let d = r.desktop, r.app == nil, r.title == nil, r.url == nil, r.space == nil else { return nil }
+    switch (r.org, r.project) {
+    case let (o?, nil): self.init(kind: .org, name: o, desktop: d)
+    case let (nil, p?): self.init(kind: .project, name: p, desktop: d)
+    default: return nil
+    }
+  }
+
+  public static func pins(_ rules: [ActivityRule]) -> [DesktopPin] { rules.compactMap(DesktopPin.init) }
+
+  /// `rules` with the pin for `kind`/`name` set to `desktop`, or removed when `desktop` is nil.
+  /// ```
+  /// [url rule, pin(project P -> 2)] setting P -> 3 -> [url rule, pin(project P -> 3)]
+  /// ```
+  public static func setting(_ rules: [ActivityRule], kind: Kind, name: String, desktop: String?) -> [ActivityRule] {
+    let key = DesktopPin(kind: kind, name: name, desktop: "").id
+    var out = rules.filter { DesktopPin($0)?.id != key }
+    if let desktop { out.append(DesktopPin(kind: kind, name: name, desktop: desktop).rule) }
+    return out
   }
 }
 
@@ -125,11 +188,16 @@ public struct SwitchEngine: Codable, Sendable {
   /// Whether the card belongs to the current context; nil when the context cannot tell
   /// (desktop-only card while the Space probe fails) or the card has no affinity.
   static func owns(_ card: Card, _ context: Sample?, _ rules: [ActivityRule]) -> Bool? {
-    let ruled = rules.filter { $0.covers(card) }
-    guard card.desktop != nil || !ruled.isEmpty else { return nil }
+    owns(desktop: card.desktop, orgs: card.orgs, projects: card.projects, context, rules)
+  }
+
+  /// Same answer from a card's scope fields; Reports use it for cards no longer on the board.
+  public static func owns(desktop: String?, orgs: [String], projects: [String], _ context: Sample?, _ rules: [ActivityRule]) -> Bool? {
+    let ruled = ActivityRule.applying(rules, desktop: desktop, orgs: orgs, projects: projects)
+    guard desktop != nil || !ruled.isEmpty else { return nil }
     guard let context else { return false }
     if ruled.contains(where: { $0.matches(context) }) { return true }
-    if let d = card.desktop {
+    if let d = desktop {
       guard let hit = Desktops.matches(d, number: context.space, label: context.desktop) else { return ruled.isEmpty ? nil : false }
       return hit
     }

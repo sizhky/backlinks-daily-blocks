@@ -9,9 +9,13 @@ import KanbanCore
 final class TimelineWindow {
   private var window: NSWindow?
   private let model: TimelineModel
+  private let reports: ReportsModel
   private var zoomMonitor: Any?
 
-  init(activity: ActivityMonitor) { model = TimelineModel(activity: activity) }
+  init(activity: ActivityMonitor) {
+    model = TimelineModel(activity: activity)
+    reports = ReportsModel(activity: activity)
+  }
 
   func show() {
     if window == nil {
@@ -22,7 +26,7 @@ final class TimelineWindow {
       w.titlebarAppearsTransparent = true
       w.isReleasedWhenClosed = false
       w.appearance = NSAppearance(named: .darkAqua)
-      let host = NSHostingController(rootView: TimelineScreen().environmentObject(model))
+      let host = NSHostingController(rootView: TimelineScreen().environmentObject(model).environmentObject(reports))
       host.sizingOptions = [.minSize]  // otherwise the window shrinks to the content's fitting size
       w.contentViewController = host
       if !w.setFrameUsingName("Timeline") {
@@ -192,11 +196,15 @@ struct TimelineScreen: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      header
-      Divider().overlay(Palette.hairline)
-      if mode == "list" {
+      if mode == "reports" {
+        ReportsView(mode: $mode)
+      } else if mode == "list" {
+        header
+        Divider().overlay(Palette.hairline)
         list
       } else {
+        header
+        Divider().overlay(Palette.hairline)
         CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:))
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
@@ -216,12 +224,7 @@ struct TimelineScreen: View {
         Text(summary).font(.system(size: 12)).foregroundStyle(Palette.muted).monospacedDigit()
       }
       Spacer()
-      Picker("View", selection: $mode) {
-        Image(systemName: "calendar.day.timeline.left").help("Day").tag("calendar")
-        Image(systemName: "calendar").help("Week").tag("week")
-        Image(systemName: "list.bullet").help("List").tag("list")
-      }
-      .labelsHidden().pickerStyle(.segmented).fixedSize()
+      TimelineModePicker(mode: $mode)
       TextField("Filter", text: $model.filter)
         .textFieldStyle(.plain)
         .padding(.horizontal, 10).frame(width: 200, height: 28)
@@ -296,6 +299,20 @@ struct TimelineScreen: View {
     let m = Int(t / 60)
     if m < 1 { return "\(Int(t))s" }
     return m < 60 ? "\(m)m" : "\(m / 60)h\(m % 60 > 0 ? "\(m % 60)m" : "")"
+  }
+}
+
+/// Day, Week, List, and Reports tabs of the Timeline window.
+struct TimelineModePicker: View {
+  @Binding var mode: String
+  var body: some View {
+    Picker("View", selection: $mode) {
+      Image(systemName: "calendar.day.timeline.left").help("Day").tag("calendar")
+      Image(systemName: "calendar").help("Week").tag("week")
+      Image(systemName: "list.bullet").help("List").tag("list")
+      Image(systemName: "chart.bar.xaxis").help("Reports").tag("reports")
+    }
+    .labelsHidden().pickerStyle(.segmented).fixedSize()
   }
 }
 
