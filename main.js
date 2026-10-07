@@ -170,15 +170,17 @@ var require_tasks = __commonJS({
     var TASK_LINE_RE = /^\s*[-*]\s*\[[ xX]\]/;
     async function setTaskOnLine(app2, file, line, checked) {
       try {
-        const content = await app2.vault.read(file);
-        const lines = content.split(/\r?\n/);
-        if (line == null || line < 0 || line >= lines.length) return false;
-        const original = lines[line];
-        const updated = original.replace(TASK_CHECKBOX_RE, `$1${checked ? "x" : " "}$3`);
-        if (updated === original) return false;
-        lines[line] = updated;
-        await app2.vault.modify(file, lines.join("\n"));
-        return true;
+        let changed = false;
+        await app2.vault.process(file, (content) => {
+          const lines = content.split(/\r?\n/);
+          if (line == null || line < 0 || line >= lines.length) return content;
+          const updated = lines[line].replace(TASK_CHECKBOX_RE, `$1${checked ? "x" : " "}$3`);
+          if (updated === lines[line]) return content;
+          lines[line] = updated;
+          changed = true;
+          return lines.join("\n");
+        });
+        return changed;
       } catch (err) {
         console.warn("backlinks-daily-blocks: toggle task failed", file?.path, err);
         return false;
@@ -1235,9 +1237,19 @@ var require_kanban = __commonJS({
       new Notice2(`kanban: swept ${moved} to ${toCol.name}${blocked ? `, ${blocked} blocked` : ""}`);
       return { moved, blocked };
     }
-    async function moveCard2(app2, file, line, targetCol, config, { fromCol, at } = {}) {
-      const content = await app2.vault.read(file);
-      const lines = content.split(/\r?\n/);
+    async function editLines(app2, file, fn) {
+      let out;
+      await app2.vault.process(file, (data) => {
+        const lines = data.split(/\r?\n/);
+        out = fn(lines);
+        return out === false ? data : lines.join("\n");
+      });
+      return out;
+    }
+    async function moveCard2(app2, file, line, targetCol, config, opts = {}) {
+      return editLines(app2, file, (lines) => moveCardLines(lines, line, targetCol, config, opts));
+    }
+    function moveCardLines(lines, line, targetCol, config, { fromCol, at } = {}) {
       const m = lines[line]?.match(TASK_RE2);
       if (!m) return false;
       fromCol ||= taskColumn(lines, line, m, config);
@@ -1256,12 +1268,12 @@ var require_kanban = __commonJS({
       });
       const indent = lines[line].match(/^\s*/)[0];
       lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow(at || /* @__PURE__ */ new Date()))} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
-      await app2.vault.modify(file, lines.join("\n"));
       return true;
     }
     async function logTapSpan(app2, file, line) {
-      const content = await app2.vault.read(file);
-      const lines = content.split(/\r?\n/);
+      return editLines(app2, file, (lines) => logTapLines(lines, line));
+    }
+    function logTapLines(lines, line) {
       if (!TASK_RE2.test(lines[line] || "")) return false;
       const base = indentWidth(lines[line]);
       let maxMs = 0;
@@ -1280,7 +1292,6 @@ var require_kanban = __commonJS({
         `${indent}  %% kb ${end} Doing > Idle %%`,
         `${indent}  %% kb ${start} Idle > Doing %%`
       );
-      await app2.vault.modify(file, lines.join("\n"));
       return true;
     }
     function fileHasTask(app2, path) {
@@ -1860,6 +1871,7 @@ var require_kanban = __commonJS({
       parseKanbanConfig: parseKanbanConfig2,
       parseSweeps,
       scanKanbanTasks,
+      editLines,
       moveCard: moveCard2,
       sweepColumn,
       setRankLine,
@@ -1907,6 +1919,7 @@ var require_ei = __commonJS({
     var { renderInteractive, openFileAtLine } = require_render();
     var {
       scanKanbanTasks,
+      editLines,
       moveCard: moveCard2,
       resolveKanbanConfig,
       editTags,
@@ -1950,15 +1963,15 @@ var require_ei = __commonJS({
       return config;
     }
     async function editCardTags(app2, card, who) {
-      const lines = (await app2.vault.read(card.file)).split(/\r?\n/);
-      if (!TASK_RE2.test(lines[card.line] || "")) return false;
-      editTags(lines, card.line, (tokens) => {
-        const out = tokens.filter((t) => !t.startsWith("#ei/"));
-        if (who && !out.includes(`[[${who}]]`)) out.push(`[[${who}]]`);
-        return out;
+      return editLines(app2, card.file, (lines) => {
+        if (!TASK_RE2.test(lines[card.line] || "")) return false;
+        editTags(lines, card.line, (tokens) => {
+          const out = tokens.filter((t) => !t.startsWith("#ei/"));
+          if (who && !out.includes(`[[${who}]]`)) out.push(`[[${who}]]`);
+          return out;
+        });
+        return true;
       });
-      await app2.vault.modify(card.file, lines.join("\n"));
-      return true;
     }
     function askWho(app2) {
       return new Promise((resolve) => {
@@ -2092,7 +2105,7 @@ var require_ei = __commonJS({
 // src/report.js
 var require_report = __commonJS({
   "src/report.js"(exports2, module2) {
-    var { TASK_RE: TASK_RE2, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig: parseKanbanConfig2, fmtDur, addTitleCopy } = require_kanban();
+    var { editLines, TASK_RE: TASK_RE2, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig: parseKanbanConfig2, fmtDur, addTitleCopy } = require_kanban();
     var { openFileAtLine } = require_render();
     var { chrono } = require_activity();
     var { MarkdownRenderChild, Modal, Notice: Notice2, getFrontMatterInfo, parseYaml } = require("obsidian");
@@ -2289,20 +2302,19 @@ var require_report = __commonJS({
       if (startStamp && startStamp <= prev) throw new Error("start would overlap previous segment");
       if (endStamp && endStamp >= next) throw new Error("end would overlap next segment");
       if (startStamp && endStamp && startStamp >= endStamp) throw new Error("start must be before end");
-      const content = await app2.vault.read(task.file);
-      const lines = content.split(/\r?\n/);
-      const refs = [
-        ...seg.startIdx == null ? [] : [events[seg.startIdx]],
-        ...seg.endIdx == null ? [] : [events[seg.endIdx]]
-      ];
-      for (const ref of refs) {
-        const li = ref.line;
-        const m = lines[li]?.match(HIST_RE2);
-        if (!m) throw new Error("history line not found");
-        const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
-        lines[li] = lines[li].replace(m[1], stampWrite(newStamp));
-      }
-      await app2.vault.modify(task.file, lines.join("\n"));
+      await editLines(app2, task.file, (lines) => {
+        const refs = [
+          ...seg.startIdx == null ? [] : [events[seg.startIdx]],
+          ...seg.endIdx == null ? [] : [events[seg.endIdx]]
+        ];
+        for (const ref of refs) {
+          const li = ref.line;
+          const m = lines[li]?.match(HIST_RE2);
+          if (!m) throw new Error("history line not found");
+          const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
+          lines[li] = lines[li].replace(m[1], stampWrite(newStamp));
+        }
+      });
     }
     function dragBounds(task, seg, dateStr, maxT) {
       const events = task.chrono(history);
@@ -3309,6 +3321,7 @@ var require_api = __commonJS({
   "src/api.js"(exports2, module2) {
     var {
       scanKanbanTasks,
+      editLines,
       moveCard: moveCard2,
       sweepColumn,
       setRankLine,
@@ -4168,15 +4181,15 @@ projects:
             const file = plugin.app.vault.getAbstractFileByPath(p.path);
             if (!file) continue;
             if (col) {
-              const lines2 = (await plugin.app.vault.read(file)).split(/\r?\n/);
-              const m = lines2[p.line]?.match(TASK_RE2);
-              if (m && taskColumn(lines2, p.line, m, config)?.key !== col.key) await moveCard2(plugin.app, file, p.line, col, config, {});
+              const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+              const m = lines[p.line]?.match(TASK_RE2);
+              if (m && taskColumn(lines, p.line, m, config)?.key !== col.key) await moveCard2(plugin.app, file, p.line, col, config, {});
             }
-            const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-            if (!TASK_RE2.test(lines[p.line] || "")) continue;
-            setRankLine(lines, p.line, p.rank);
-            await plugin.app.vault.modify(file, lines.join("\n"));
-            n++;
+            const ok = await editLines(plugin.app, file, (lines) => {
+              if (!TASK_RE2.test(lines[p.line] || "")) return false;
+              setRankLine(lines, p.line, p.rank);
+            });
+            if (ok !== false) n++;
           }
           return `ok ${n}`;
         },
@@ -4188,10 +4201,10 @@ projects:
           if (value != null && desk == null) throw new Error("desktop must be 1-9, a name without % or newlines, or null");
           const file = plugin.app.vault.getAbstractFileByPath(path);
           if (!file) throw new Error("no file: " + path);
-          const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-          if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
-          setDesktopLine(lines, line, desk);
-          await plugin.app.vault.modify(file, lines.join("\n"));
+          await editLines(plugin.app, file, (lines) => {
+            if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+            setDesktopLine(lines, line, desk);
+          });
           return `ok ${ref} desktop ${desk ?? "none"}`;
         },
         // A card's time guess in minutes: `%% kbest N %%` under the task. null clears.
@@ -4201,10 +4214,10 @@ projects:
           if (num != null && !(num >= 1)) throw new Error("estimate must be minutes >= 1 or null");
           const file = plugin.app.vault.getAbstractFileByPath(path);
           if (!file) throw new Error("no file: " + path);
-          const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-          if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
-          setEstLine(lines, line, num);
-          await plugin.app.vault.modify(file, lines.join("\n"));
+          await editLines(plugin.app, file, (lines) => {
+            if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+            setEstLine(lines, line, num);
+          });
           return `ok ${ref} est ${num ?? "none"}`;
         },
         // Active time: seconds a card was the one active task (Kanban Board app, by desktop).
@@ -4224,12 +4237,12 @@ projects:
           for (const [path, list] of byFile) {
             const file = plugin.app.vault.getAbstractFileByPath(path);
             if (!file) throw new Error("no file: " + path);
-            const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-            for (const [line, n, ref] of list.sort((a, b) => b[0] - a[0])) {
-              if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
-              out.push(`${ref}	${addActiveLine(lines, line, n)}`);
-            }
-            await plugin.app.vault.modify(file, lines.join("\n"));
+            await editLines(plugin.app, file, (lines) => {
+              for (const [line, n, ref] of list.sort((a, b) => b[0] - a[0])) {
+                if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+                out.push(`${ref}	${addActiveLine(lines, line, n)}`);
+              }
+            });
           }
           return "\n" + out.join("\n");
         },
@@ -5550,6 +5563,12 @@ function taskMeta(lines, line) {
   }
   return { histories, tag };
 }
+var KBACTIVE_SUM = (text) => [...(text || "").matchAll(/%%\s?kbactive (\d+)\s?%%/gi)].reduce((n, m) => n + Number(m[1]), 0);
+function logLostActive(app2, path, previous, next) {
+  if (previous == null || KBACTIVE_SUM(next) >= KBACTIVE_SUM(previous)) return;
+  const line = JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), path, before: KBACTIVE_SUM(previous), after: KBACTIVE_SUM(next), next }) + "\n";
+  app2.vault.adapter.append(".activity/kbactive-loss.log", line).catch((err) => console.warn("backlinks-daily-blocks: kbactive log failed", err));
+}
 var TaskColumnSuggest = class extends SuggestModal {
   constructor(plugin, file, line, config, fromCol) {
     super(plugin.app);
@@ -5757,6 +5776,7 @@ ${columns}`);
     const next = await this.app.vault.read(file);
     const previous = this.taskSnapshots.get(file.path);
     this.taskSnapshots.set(file.path, next);
+    logLostActive(this.app, file.path, previous, next);
     if (previous == null || this.taskWrites.has(file.path)) return;
     const before = previous.split(/\r?\n/);
     const after = next.split(/\r?\n/);

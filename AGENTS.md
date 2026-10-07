@@ -23,6 +23,9 @@ styles.css             all styling incl. wave separators; no inline styles, no i
 ## Rules
 
 - New checkbox/toggle behaviour goes through `core/tasks.js`, not per-view regex.
+- Task-note writes go through `editLines` (`kanban.js`, `vault.process`), never `vault.read` + `vault.modify`:
+  the app sends writes concurrently, and a read-await-write pair dropped `%% kbactive %%` seconds.
+  Saves that lower a note's kbactive total are logged to `.activity/kbactive-loss.log`.
 - Order card history with `chrono()` from `core/activity.js`, never a bare stamp sort: stamps are minute
   precision and the note lists moves newest first, so same-minute moves need the file position (`seq`)
   as tie-break. Stints take `stillIn` (card is in that column now); an unclosed stint of a card that

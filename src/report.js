@@ -1,5 +1,5 @@
 // report fence — daily task Gantt chart
-const { TASK_RE, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig, fmtDur, addTitleCopy } = require('./kanban');
+const { editLines, TASK_RE, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig, fmtDur, addTitleCopy } = require('./kanban');
 const { openFileAtLine } = require('./core/render');
 const { chrono } = require('./core/activity');
 const { MarkdownRenderChild, Modal, Notice, getFrontMatterInfo, parseYaml } = require('obsidian');
@@ -205,20 +205,19 @@ async function rewriteReportSegmentTimes(app, task, seg, dateStr, startVal, endV
   if (endStamp && endStamp >= next) throw new Error('end would overlap next segment');
   if (startStamp && endStamp && startStamp >= endStamp) throw new Error('start must be before end');
 
-  const content = await app.vault.read(task.file);
-  const lines = content.split(/\r?\n/);
-  const refs = [
-    ...(seg.startIdx == null ? [] : [events[seg.startIdx]]),
-    ...(seg.endIdx == null ? [] : [events[seg.endIdx]]),
-  ];
-  for (const ref of refs) {
-    const li = ref.line;
-    const m = lines[li]?.match(HIST_RE);
-    if (!m) throw new Error('history line not found');
-    const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
-    lines[li] = lines[li].replace(m[1], stampWrite(newStamp));
-  }
-  await app.vault.modify(task.file, lines.join('\n'));
+  await editLines(app, task.file, lines => {
+    const refs = [
+      ...(seg.startIdx == null ? [] : [events[seg.startIdx]]),
+      ...(seg.endIdx == null ? [] : [events[seg.endIdx]]),
+    ];
+    for (const ref of refs) {
+      const li = ref.line;
+      const m = lines[li]?.match(HIST_RE);
+      if (!m) throw new Error('history line not found');
+      const newStamp = ref === events[seg.startIdx] ? startStamp : endStamp;
+      lines[li] = lines[li].replace(m[1], stampWrite(newStamp));
+    }
+  });
 }
 
 function dragBounds(task, seg, dateStr, maxT) {

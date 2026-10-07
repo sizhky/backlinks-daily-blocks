@@ -1,5 +1,5 @@
 // plugin.api — callable via: obsidian eval "JSON.stringify(await app.plugins.plugins['backlinks-daily-blocks'].api.METHOD())"
-const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
+const { scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
 const { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require('./core/activity');
@@ -910,11 +910,11 @@ function buildApi(plugin) {
           const m = lines[p.line]?.match(TASK_RE);
           if (m && taskColumn(lines, p.line, m, config)?.key !== col.key) await moveCard(plugin.app, file, p.line, col, config, {});
         }
-        const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-        if (!TASK_RE.test(lines[p.line] || '')) continue;
-        setRankLine(lines, p.line, p.rank);
-        await plugin.app.vault.modify(file, lines.join('\n'));
-        n++;
+        const ok = await editLines(plugin.app, file, lines => {
+          if (!TASK_RE.test(lines[p.line] || '')) return false;
+          setRankLine(lines, p.line, p.rank);
+        });
+        if (ok !== false) n++;
       }
       return `ok ${n}`;
     },
@@ -927,10 +927,10 @@ function buildApi(plugin) {
       if (value != null && desk == null) throw new Error('desktop must be 1-9, a name without % or newlines, or null');
       const file = plugin.app.vault.getAbstractFileByPath(path);
       if (!file) throw new Error('no file: ' + path);
-      const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-      if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
-      setDesktopLine(lines, line, desk);
-      await plugin.app.vault.modify(file, lines.join('\n'));
+      await editLines(plugin.app, file, lines => {
+        if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
+        setDesktopLine(lines, line, desk);
+      });
       return `ok ${ref} desktop ${desk ?? 'none'}`;
     },
 
@@ -941,10 +941,10 @@ function buildApi(plugin) {
       if (num != null && !(num >= 1)) throw new Error('estimate must be minutes >= 1 or null');
       const file = plugin.app.vault.getAbstractFileByPath(path);
       if (!file) throw new Error('no file: ' + path);
-      const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-      if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
-      setEstLine(lines, line, num);
-      await plugin.app.vault.modify(file, lines.join('\n'));
+      await editLines(plugin.app, file, lines => {
+        if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
+        setEstLine(lines, line, num);
+      });
       return `ok ${ref} est ${num ?? 'none'}`;
     },
 
@@ -965,12 +965,12 @@ function buildApi(plugin) {
       for (const [path, list] of byFile) {
         const file = plugin.app.vault.getAbstractFileByPath(path);
         if (!file) throw new Error('no file: ' + path);
-        const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
-        for (const [line, n, ref] of list.sort((a, b) => b[0] - a[0])) {
-          if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
-          out.push(`${ref}\t${addActiveLine(lines, line, n)}`);
-        }
-        await plugin.app.vault.modify(file, lines.join('\n'));
+        await editLines(plugin.app, file, lines => {
+          for (const [line, n, ref] of list.sort((a, b) => b[0] - a[0])) {
+            if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
+            out.push(`${ref}\t${addActiveLine(lines, line, n)}`);
+          }
+        });
       }
       return '\n' + out.join('\n');
     },

@@ -28,6 +28,16 @@ function taskMeta(lines, line) {
   return { histories, tag };
 }
 
+
+// Diagnostic for lost %% kbactive %% seconds (2026-10-07): any save that lowers a note's
+// kbactive total appends one line to .activity/kbactive-loss.log with before and after.
+const KBACTIVE_SUM = text => [...(text || '').matchAll(/%%\s?kbactive (\d+)\s?%%/gi)].reduce((n, m) => n + Number(m[1]), 0);
+function logLostActive(app, path, previous, next) {
+  if (previous == null || KBACTIVE_SUM(next) >= KBACTIVE_SUM(previous)) return;
+  const line = JSON.stringify({ at: new Date().toISOString(), path, before: KBACTIVE_SUM(previous), after: KBACTIVE_SUM(next), next }) + '\n';
+  app.vault.adapter.append('.activity/kbactive-loss.log', line).catch(err => console.warn('backlinks-daily-blocks: kbactive log failed', err));
+}
+
 class TaskColumnSuggest extends SuggestModal {
   constructor(plugin, file, line, config, fromCol) {
     super(plugin.app);
@@ -262,6 +272,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     const next = await this.app.vault.read(file);
     const previous = this.taskSnapshots.get(file.path);
     this.taskSnapshots.set(file.path, next);
+    logLostActive(this.app, file.path, previous, next);
     if (previous == null || this.taskWrites.has(file.path)) return;
 
     const before = previous.split(/\r?\n/);

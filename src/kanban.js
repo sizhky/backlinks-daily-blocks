@@ -597,9 +597,24 @@ async function sweepColumn(app, config, fromCol, toCol, colCards) {
 
 // Rewrite one task line for its new column. Verifies the line is still a task.
 // `at` backdates the history stamp (sleep auto-park, activity switch rules); default now.
-async function moveCard(app, file, line, targetCol, config, { fromCol, at } = {}) {
-  const content = await app.vault.read(file);
-  const lines = content.split(/\r?\n/);
+// Atomic read-modify-write of a note's lines (vault.process): fn edits `lines` in place and
+// returns its result; false leaves the file untouched. Two writers can no longer interleave
+// read and write and drop each other's lines (lost %% kbactive %% seconds, 2026-10-07).
+async function editLines(app, file, fn) {
+  let out;
+  await app.vault.process(file, data => {
+    const lines = data.split(/\r?\n/);
+    out = fn(lines);
+    return out === false ? data : lines.join('\n');
+  });
+  return out;
+}
+
+async function moveCard(app, file, line, targetCol, config, opts = {}) {
+  return editLines(app, file, lines => moveCardLines(lines, line, targetCol, config, opts));
+}
+
+function moveCardLines(lines, line, targetCol, config, { fromCol, at } = {}) {
   const m = lines[line]?.match(TASK_RE);
   if (!m) return false;
   fromCol ||= taskColumn(lines, line, m, config);
@@ -624,7 +639,6 @@ async function moveCard(app, file, line, targetCol, config, { fromCol, at } = {}
   // Record the move under note lines but above any child tasks.
   const indent = lines[line].match(/^\s*/)[0];
   lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow(at || new Date()))} ${fromCol?.name || '?'} > ${targetCol.name} %%`);
-  await app.vault.modify(file, lines.join('\n'));
   return true;
 }
 
@@ -632,8 +646,10 @@ async function moveCard(app, file, line, targetCol, config, { fromCol, at } = {}
 // end = start + 1min so the pair sorts unambiguously (same-minute stamps would
 // read as an open span). The card never changes column — no flicker, no tag churn.
 async function logTapSpan(app, file, line) {
-  const content = await app.vault.read(file);
-  const lines = content.split(/\r?\n/);
+  return editLines(app, file, lines => logTapLines(lines, line));
+}
+
+function logTapLines(lines, line) {
   if (!TASK_RE.test(lines[line] || '')) return false;
   // Stamps are minute-precision: taps in the same minute would share a stamp and
   // the pair logic in spans() would collapse them. Step each tap past the card's
@@ -653,7 +669,6 @@ async function logTapSpan(app, file, line) {
   lines.splice(normalizeTaskMeta(lines, line), 0,
     `${indent}  %% kb ${end} Doing > Idle %%`,
     `${indent}  %% kb ${start} Idle > Doing %%`);
-  await app.vault.modify(file, lines.join('\n'));
   return true;
 }
 
@@ -1371,7 +1386,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 }
 
 module.exports = {
-  parseKanbanConfig, parseSweeps, scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, RANK_RE, DESKTOP_RE, EST_RE, ACTIVE_RE, logTapSpan, renderKanbanBlock, drawBoard,
+  parseKanbanConfig, parseSweeps, scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, RANK_RE, DESKTOP_RE, EST_RE, ACTIVE_RE, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
   taskColumn,
   openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, TASK_END_RE, STAMP_RE,

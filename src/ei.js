@@ -11,7 +11,7 @@
 const { MarkdownRenderChild, Notice, Modal } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
 const {
-  scanKanbanTasks, moveCard, resolveKanbanConfig, editTags,
+  scanKanbanTasks, editLines, moveCard, resolveKanbanConfig, editTags,
   openDescendants, columnColor, colKey, TASK_RE, STAMP_RE,
 } = require('./kanban');
 
@@ -56,15 +56,15 @@ function resolveEiConfig(plugin, src) {
 // Tag-line edit on one card: strip leftover #ei labels (pre-doors residue),
 // optionally append a [[who]] wikilink.
 async function editCardTags(app, card, who) {
-  const lines = (await app.vault.read(card.file)).split(/\r?\n/);
-  if (!TASK_RE.test(lines[card.line] || '')) return false;
-  editTags(lines, card.line, tokens => {
-    const out = tokens.filter(t => !t.startsWith('#ei/'));
-    if (who && !out.includes(`[[${who}]]`)) out.push(`[[${who}]]`);
-    return out;
+  return editLines(app, card.file, lines => {
+    if (!TASK_RE.test(lines[card.line] || '')) return false;
+    editTags(lines, card.line, tokens => {
+      const out = tokens.filter(t => !t.startsWith('#ei/'));
+      if (who && !out.includes(`[[${who}]]`)) out.push(`[[${who}]]`);
+      return out;
+    });
+    return true;
   });
-  await app.vault.modify(card.file, lines.join('\n'));
-  return true;
 }
 
 function askWho(app) {
