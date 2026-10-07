@@ -1112,7 +1112,7 @@ var require_kanban = __commonJS({
       new Notice2(`kanban: swept ${moved} to ${toCol.name}${blocked ? `, ${blocked} blocked` : ""}`);
       return { moved, blocked };
     }
-    async function moveCard2(app2, file, line, targetCol, config, { fromCol } = {}) {
+    async function moveCard2(app2, file, line, targetCol, config, { fromCol, at } = {}) {
       const content = await app2.vault.read(file);
       const lines = content.split(/\r?\n/);
       const m = lines[line]?.match(TASK_RE2);
@@ -1132,7 +1132,7 @@ var require_kanban = __commonJS({
         return tag ? [tag, ...rest] : rest;
       });
       const indent = lines[line].match(/^\s*/)[0];
-      lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow())} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
+      lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow(at || /* @__PURE__ */ new Date()))} ${fromCol?.name || "?"} > ${targetCol.name} %%`);
       await app2.vault.modify(file, lines.join("\n"));
       return true;
     }
@@ -2827,6 +2827,245 @@ var require_scopes = __commonJS({
   }
 });
 
+// src/core/activity.js
+var require_activity = __commonJS({
+  "src/core/activity.js"(exports2, module2) {
+    var GAP_MS = 30 * 6e4;
+    function sleepGap(lastTick, now, gapMs = GAP_MS) {
+      if (!Number.isFinite(lastTick) || lastTick <= 0) return null;
+      return now - lastTick > gapMs ? lastTick : null;
+    }
+    function stampMs(s) {
+      s = String(s).replace(/\D/g, "");
+      return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)).getTime();
+    }
+    function backdateOk(atMs, history) {
+      const latest = Math.max(0, ...history.map((h) => stampMs(h.stamp)));
+      return atMs >= latest;
+    }
+    function stints(history, want, lo, hi, openEnd) {
+      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+      const out = [];
+      for (let i = 0; i < chrono.length; i++) {
+        if (chrono[i].to.toLowerCase() !== want) continue;
+        const s = stampMs(chrono[i].stamp);
+        const raw = chrono[i + 1] ? stampMs(chrono[i + 1].stamp) : openEnd(s);
+        const cs = Math.max(s, lo), ce = Math.min(raw, hi);
+        if (ce > cs) out.push({ s: cs, e: ce, open: !chrono[i + 1] });
+      }
+      return out;
+    }
+    function planned(history, plannedCol = "todo", doingCol = "doing") {
+      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+      for (const h of chrono) {
+        const to = h.to.toLowerCase();
+        if (to === doingCol) return false;
+        if (to === plannedCol) return true;
+      }
+      return false;
+    }
+    function parseActivity(text) {
+      const out = [];
+      for (const line of String(text || "").split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const o = JSON.parse(line);
+          const s = Date.parse(o.start), e = Date.parse(o.end);
+          if (Number.isFinite(s) && Number.isFinite(e) && e > s) out.push({ ...o, s, e });
+        } catch {
+        }
+      }
+      return out.sort((a, b) => a.s - b.s);
+    }
+    function overlapMs(spans, cover) {
+      let ms = 0;
+      for (const a of spans) for (const b of cover) {
+        const s = Math.max(a.s, b.s), e = Math.min(a.e, b.e);
+        if (e > s) ms += e - s;
+      }
+      return ms;
+    }
+    function union(ivals) {
+      const sorted = ivals.slice().sort((a, b) => a.s - b.s);
+      const out = [];
+      for (const x of sorted) {
+        const last = out[out.length - 1];
+        if (last && x.s <= last.e) last.e = Math.max(last.e, x.e);
+        else out.push({ s: x.s, e: x.e });
+      }
+      return out;
+    }
+    module2.exports = { GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
+  }
+});
+
+// src/activity.js
+var require_activity2 = __commonJS({
+  "src/activity.js"(exports2, module2) {
+    var { scanKanbanTasks, resolveKanbanConfig, cleanText } = require_kanban();
+    var { parseActivity, stints, overlapMs, union, stampMs } = require_activity();
+    var LOG_DIR = ".activity";
+    var HOUR_PX = 56;
+    function dayBounds(dateStr) {
+      const lo = stampMs(dateStr + "0000");
+      const end = new Date(lo);
+      end.setHours(23, 59, 59, 999);
+      return { lo, hi: end.getTime() };
+    }
+    function fmt(ms) {
+      const m = Math.round(ms / 6e4);
+      if (m < 60) return `${m}m`;
+      return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ""}`;
+    }
+    function hhmm(ms) {
+      const d = new Date(ms);
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    }
+    function hue(s) {
+      let h = 0;
+      for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+      return h;
+    }
+    async function loadDay(plugin, dateStr, config) {
+      const { lo, hi } = dayBounds(dateStr);
+      const path = `${LOG_DIR}/${dateStr}.jsonl`;
+      const adapter = plugin.app.vault.adapter;
+      const text = await adapter.exists(path) ? await adapter.read(path) : "";
+      const spans = parseActivity(text).map((x) => ({ ...x, s: Math.max(x.s, lo), e: Math.min(x.e, hi) })).filter((x) => x.e > x.s);
+      const today = dateStr === stampOf(/* @__PURE__ */ new Date());
+      const openEnd = (s) => today ? Date.now() : Math.min(hi, s + 864e5);
+      const doing = [];
+      const byCol = await scanKanbanTasks(plugin.app, config);
+      for (const [, list] of byCol) for (const card of list) {
+        for (const x of stints(card.history, "doing", lo, hi, openEnd)) doing.push({ ...x, body: cleanText(card.body) });
+      }
+      doing.sort((a, b) => a.s - b.s);
+      return { lo, hi, spans, doing, logged: !!text };
+    }
+    function stampOf(d) {
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+    }
+    function totals({ spans, doing }) {
+      const active = union(spans), inDoing = union(doing);
+      const sum = (xs) => xs.reduce((t, x) => t + x.e - x.s, 0);
+      const both = overlapMs(active, inDoing);
+      return { active: sum(active), doing: sum(inDoing), idleDoing: sum(inDoing) - both, untracked: sum(active) - both };
+    }
+    function byApp(spans) {
+      const apps = /* @__PURE__ */ new Map();
+      for (const x of spans) {
+        const a = apps.get(x.app) || { ms: 0, titles: /* @__PURE__ */ new Map() };
+        a.ms += x.e - x.s;
+        const t = x.title || x.url || "";
+        if (t) a.titles.set(t, (a.titles.get(t) || 0) + x.e - x.s);
+        apps.set(x.app, a);
+      }
+      return [...apps.entries()].sort((a, b) => b[1].ms - a[1].ms).map(([app2, a]) => ({ app: app2, ms: a.ms, top: [...a.titles.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] || "" }));
+    }
+    async function activitySummary(plugin, dateStr, config) {
+      const day = await loadDay(plugin, dateStr, config);
+      if (!day.logged) return `
+# ${dateStr} \u2014 no activity log (${LOG_DIR}/${dateStr}.jsonl)`;
+      const t = totals(day);
+      const head = `# ${dateStr} \u2014 active ${fmt(t.active)} \xB7 doing ${fmt(t.doing)} \xB7 doing without activity ${fmt(t.idleDoing)} \xB7 activity outside doing ${fmt(t.untracked)}`;
+      return "\n" + [head, ...byApp(day.spans).map((r) => `${r.app}	${fmt(r.ms)}	${r.top}`)].join("\n");
+    }
+    function blockDate(src, ctx) {
+      const m = src.match(/^\s*date:\s*(\d{8})\s*$/m);
+      if (m) return m[1];
+      const name = (ctx.sourcePath || "").split("/").pop();
+      const d = name.match(/^(\d{8})-\d{4}/);
+      return d ? d[1] : stampOf(/* @__PURE__ */ new Date());
+    }
+    function renderActivityBlock2(plugin, src, el, ctx) {
+      const dateStr = blockDate(src, ctx);
+      const config = resolveKanbanConfig(plugin, "", null);
+      const root = el.createDiv({ cls: "bdb-activity" });
+      const draw = async () => {
+        const day = await loadDay(plugin, dateStr, config);
+        root.empty();
+        const t = totals(day);
+        const head = root.createDiv({ cls: "bdb-activity-head" });
+        head.createSpan({ cls: "bdb-activity-date", text: dateStr });
+        for (const [label, ms] of [["Active", t.active], ["Doing", t.doing], ["Doing, no activity", t.idleDoing], ["Activity outside Doing", t.untracked]]) {
+          const stat = head.createSpan({ cls: "bdb-activity-stat" });
+          stat.createSpan({ cls: "bdb-activity-stat-label", text: label });
+          stat.createSpan({ cls: "bdb-activity-stat-value", text: fmt(ms) });
+        }
+        if (!day.logged && !day.doing.length) {
+          root.createDiv({ cls: "bdb-activity-empty", text: `No activity log at ${LOG_DIR}/${dateStr}.jsonl` });
+          return;
+        }
+        const all = [...day.spans, ...day.doing];
+        const from = new Date(Math.min(...all.map((x) => x.s)));
+        from.setMinutes(0, 0, 0);
+        const to = new Date(Math.max(...all.map((x) => x.e)));
+        if (to.getMinutes() || to.getSeconds()) to.setHours(to.getHours() + 1, 0, 0, 0);
+        const hours = Math.max(1, Math.round((to - from) / 36e5));
+        const px = (ms) => (ms - from.getTime()) / 36e5 * HOUR_PX;
+        const grid = root.createDiv({ cls: "bdb-activity-grid" });
+        grid.style.setProperty("--bdb-activity-height", `${hours * HOUR_PX}px`);
+        const axis = grid.createDiv({ cls: "bdb-activity-axis" });
+        for (let h = 0; h <= hours; h++) {
+          const tick = axis.createDiv({ cls: "bdb-activity-tick", text: hhmm(from.getTime() + h * 36e5) });
+          tick.style.setProperty("--bdb-top", `${h * HOUR_PX}px`);
+        }
+        const lane = (title, items, cls, label, tip, color) => {
+          const col = grid.createDiv({ cls: "bdb-activity-lane" });
+          col.createDiv({ cls: "bdb-activity-lane-title", text: title });
+          const body = col.createDiv({ cls: "bdb-activity-lane-body" });
+          for (const x of items) {
+            const b = body.createDiv({ cls });
+            b.style.setProperty("--bdb-top", `${px(x.s)}px`);
+            b.style.setProperty("--bdb-h", `${Math.max(2, px(x.e) - px(x.s))}px`);
+            if (color) b.style.setProperty("--bdb-hue", String(color(x)));
+            b.setAttr("aria-label", tip(x));
+            if (px(x.e) - px(x.s) >= 16) b.createSpan({ cls: "bdb-activity-block-label", text: label(x) });
+          }
+        };
+        lane(
+          "Activity",
+          day.spans,
+          "bdb-activity-block",
+          (x) => `${x.app}${x.title ? " \xB7 " + x.title : ""}`,
+          (x) => `${hhmm(x.s)}-${hhmm(x.e)} ${fmt(x.e - x.s)}
+${x.app}${x.title ? "\n" + x.title : ""}${x.url ? "\n" + x.url : ""}${x.space ? "\nDesktop " + x.space : ""}`,
+          (x) => hue(x.app)
+        );
+        lane(
+          "Doing",
+          day.doing,
+          "bdb-activity-block bdb-activity-doing",
+          (x) => x.body,
+          (x) => `${hhmm(x.s)}-${hhmm(x.e)} ${fmt(x.e - x.s)}
+${x.body}`
+        );
+        const apps = byApp(day.spans).slice(0, 8);
+        if (apps.length) {
+          const list = root.createDiv({ cls: "bdb-activity-apps" });
+          for (const r of apps) {
+            const row = list.createDiv({ cls: "bdb-activity-app" });
+            const dot = row.createSpan({ cls: "bdb-activity-app-dot" });
+            dot.style.setProperty("--bdb-hue", String(hue(r.app)));
+            row.createSpan({ cls: "bdb-activity-app-name", text: r.app });
+            row.createSpan({ cls: "bdb-activity-app-title", text: r.top });
+            row.createSpan({ cls: "bdb-activity-app-time", text: fmt(r.ms) });
+          }
+        }
+      };
+      draw().catch((err) => root.setText("activity: " + err.message));
+      if (dateStr === stampOf(/* @__PURE__ */ new Date())) {
+        const child = new (require("obsidian")).MarkdownRenderChild(el);
+        child.registerInterval(window.setInterval(() => draw().catch(() => {
+        }), 6e4));
+        ctx.addChild(child);
+      }
+    }
+    module2.exports = { renderActivityBlock: renderActivityBlock2, activitySummary };
+  }
+});
+
 // src/templates.js
 var require_templates = __commonJS({
   "src/templates.js"(exports2, module2) {
@@ -2969,18 +3208,31 @@ var require_api = __commonJS({
       EI_HIST_RE
     } = require_kanban();
     var { collectDayTasks } = require_report();
+    var { backdateOk, stints, planned } = require_activity();
+    var { activitySummary } = require_activity2();
     var { saveTemplate } = require_templates();
     var { openFileAtLine } = require_render();
     var DEFAULT_COLS = "columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-";
     var HABIT_COLS = "columns: Idle~, Doing!";
     var SCOPE_NOTE = "90-99 Obsidian Meta/Kanban Scopes.md";
-    function makeConfig(opts = {}, plugin) {
+    function makeConfig2(opts = {}, plugin) {
       const defaults = plugin?.settings?.kanban || {};
       const columns = String(defaults.columns || DEFAULT_COLS.replace("columns: ", "")).split(/\r?\n|,/).map((s) => s.trim()).filter(Boolean).join(", ");
       const lines = ["columns: " + columns];
       const paths2 = opts.paths || defaults.paths;
       if (paths2) lines.push("paths: " + paths2);
       return parseKanbanConfig2(lines.join("\n"));
+    }
+    async function cardHistory(app2, file, line) {
+      const lines = (await app2.vault.read(file)).split(/\r?\n/);
+      const base = (lines[line] || "").match(/^\s*/)[0].length;
+      const out = [];
+      for (let i = line + 1; i < lines.length; i++) {
+        if (lines[i].trim() && lines[i].match(/^\s*/)[0].length <= base) break;
+        const h = lines[i].match(HIST_RE2);
+        if (h) out.push({ stamp: h[1].replace(/\D/g, ""), to: h[3] });
+      }
+      return out;
     }
     function makeHabitConfig(opts = {}) {
       const lines = [HABIT_COLS];
@@ -3290,7 +3542,7 @@ projects:
         // Returns tab-lines: col<TAB>file:line<TAB>body<TAB>age[<TAB>timestamp]
         // opts: { paths, col, tag, staleDays, limit, includePaused, timestamps }
         async active(opts = {}) {
-          const config = makeConfig(opts, plugin);
+          const config = makeConfig2(opts, plugin);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const keepPaused = !!opts.col || !!opts.includePaused;
           let rows = config.columns.filter((c) => !c.state && (keepPaused || !c.paused)).flatMap((col) => (byCol.get(col.key) || []).map((card) => cardJson(card, col)));
@@ -3310,7 +3562,7 @@ projects:
         // Every configured column and its tasks. The `full` column is unfiltered;
         // other columns only include tasks seen within `hours` (default 24).
         async board(opts = {}) {
-          const config = makeConfig(opts, plugin);
+          const config = makeConfig2(opts, plugin);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const full = String(opts.full || "Doing").toLowerCase();
           const since = `${Math.max(1, Number(opts.hours) || 24)}h`;
@@ -3357,7 +3609,7 @@ projects:
         async getDone(date, opts = {}) {
           const dateStr = String(date).replace(/[^0-9]/g, "").slice(0, 8);
           const want = opts.col && String(opts.col).toLowerCase();
-          const config = makeConfig(opts);
+          const config = makeConfig2(opts);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const rows = config.columns.filter((c) => c.state && (!want || c.name.toLowerCase() === want)).flatMap(
             (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm)}`)
@@ -3369,7 +3621,7 @@ projects:
         async getReport(a, b, c) {
           const { dates, opts } = resolveDates(a, b, c);
           const want = opts.col && String(opts.col).toLowerCase();
-          const config = makeConfig(opts);
+          const config = makeConfig2(opts);
           const multi = dates.length > 1;
           const out = [];
           for (const dateStr of dates) {
@@ -3397,7 +3649,7 @@ projects:
           const by = opts.by || "projects";
           const cap = opts.sample || 3;
           const want = opts.col && String(opts.col).toLowerCase();
-          const config = makeConfig(opts);
+          const config = makeConfig2(opts);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const dateSet = new Set(dates);
           const groups = /* @__PURE__ */ new Map();
@@ -3432,7 +3684,7 @@ projects:
           const by = opts.by || "projects";
           const want = String(opts.col || "Doing").toLowerCase();
           const cap = opts.sample || 3;
-          const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts));
           const mk = (s) => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
           const lo = mk(dates[0]).getTime();
           const hiD = mk(dates[dates.length - 1]);
@@ -3474,7 +3726,7 @@ projects:
         async chronicle(a, b, c) {
           const { dates, opts } = resolveDates(a, b, c);
           const want = String(opts.col || "Doing").toLowerCase();
-          const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts));
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts));
           const multi = dates.length > 1;
           const out = [];
           let grandTracked = 0;
@@ -3485,15 +3737,10 @@ projects:
             const today = ymd(/* @__PURE__ */ new Date()) === dateStr;
             const elapsed = Math.max(0, (today ? Date.now() : hi) - lo);
             const segs = [];
+            const openEnd = (s) => today ? Date.now() : endOfDayMs(s);
             for (const [, list] of byCol) for (const card of list) {
-              const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
-              for (let i = 0; i < chrono.length; i++) {
-                if (chrono[i].to.toLowerCase() !== want) continue;
-                const s = stampToDate(chrono[i].stamp).getTime();
-                const rawEnd = chrono[i + 1] ? stampToDate(chrono[i + 1].stamp).getTime() : today ? Date.now() : endOfDayMs(s);
-                const cs = Math.max(s, lo), ce = Math.min(rawEnd, hi);
-                if (ce <= cs) continue;
-                segs.push({ s: cs, e: ce, open: !chrono[i + 1] && today, body: cleanText(card.body) });
+              for (const x of stints(card.history, want, lo, hi, openEnd)) {
+                segs.push({ ...x, open: x.open && today, body: cleanText(card.body) });
               }
             }
             const tracked = segs.reduce((sum, x) => sum + (x.e - x.s), 0);
@@ -3508,6 +3755,37 @@ projects:
             out.push(`== total ==`, `TOTAL	${dur(grandTracked)}	${pct(grandTracked, grandElapsed)} elapsed`);
           }
           return "\n" + out.join("\n");
+        },
+        // 5.1 Planned vs unplanned time in a column (default Doing) over a date range.
+        // Planned = the card sat in Todo before its first Doing entry. Arg forms mirror getReport.
+        // Lines: header with both totals, then planned|unplanned<TAB>dur<TAB>file:line<TAB>body
+        async planned(a, b, c) {
+          const { dates, opts } = resolveDates(a, b, c);
+          const want = String(opts.col || "Doing").toLowerCase();
+          const mk = (s) => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8)).getTime();
+          const lo = mk(dates[0]), hi = endOfDayMs(mk(dates[dates.length - 1]));
+          const openEnd = (s) => Math.min(Date.now(), endOfDayMs(s));
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts, plugin));
+          const rows = [];
+          const sum = { planned: 0, unplanned: 0 };
+          for (const [, list] of byCol) for (const card of list) {
+            const ms = stints(card.history, want, lo, hi, openEnd).reduce((t, x) => t + x.e - x.s, 0);
+            if (!ms) continue;
+            const kind = planned(card.history) ? "planned" : "unplanned";
+            sum[kind] += ms;
+            rows.push([kind, ms, `${card.file.path}:${card.line}`, cleanText(card.body)]);
+          }
+          rows.sort((x, y) => y[1] - x[1]);
+          const span = dates.length > 1 ? `${dates[0]}..${dates[dates.length - 1]}` : dates[0];
+          const total = sum.planned + sum.unplanned;
+          return `
+# ${want} time ${span} \u2014 planned ${dur(sum.planned)} (${pct(sum.planned, total)}) \xB7 unplanned ${dur(sum.unplanned)} (${pct(sum.unplanned, total)})
+` + rows.map(([k, ms, ref, body]) => `${k}	${dur(ms)}	${ref}	${body}`).join("\n");
+        },
+        // 3 One day's captured activity against Doing stints. date YYYYMMDD (default today).
+        // Lines: totals, then app<TAB>dur<TAB>top title, longest first.
+        async activity(date) {
+          return activitySummary(plugin, String(date || ymd(/* @__PURE__ */ new Date())), makeConfig2({}, plugin));
         },
         // Organization/project combinations observed in note properties.
         // Default excludes combinations disabled by the scope registry note.
@@ -3550,7 +3828,7 @@ projects:
           const row = rows.find((x) => x.org.toLowerCase() === String(opts.org || "").toLowerCase() && x.project.toLowerCase() === String(opts.project || "").toLowerCase());
           if (!row) throw new Error(`unknown scope: ${opts.org || "?"} / ${opts.project || "?"}`);
           if (row.status === "inactive") throw new Error(`inactive scope: ${row.org} / ${row.project}`);
-          const config = makeConfig({}, plugin);
+          const config = makeConfig2({}, plugin);
           const col = config.columns.find((x) => x.name.toLowerCase() === String(opts.col || "Backlog").toLowerCase());
           if (!col) throw new Error("unknown col: " + opts.col);
           let at = /* @__PURE__ */ new Date(), filePath;
@@ -3585,6 +3863,9 @@ projects:
             "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
             "setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card",
             "estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)",
+            "planned(date|from,to,opts) Doing time split planned (Todo first) vs unplanned, per card",
+            "activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)",
+            "moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped",
             "setDesktop(ref,n)        set (1-9) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",
             "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
             "sweeps()                 sweep routes from settings: From<TAB>To",
@@ -3671,7 +3952,7 @@ projects:
         async moveTask(filePath, line, toCol) {
           const file = plugin.app.vault.getAbstractFileByPath(filePath);
           if (!file) throw new Error("file not found: " + filePath);
-          const config = makeConfig({}, plugin);
+          const config = makeConfig2({}, plugin);
           const col = config.columns.find((c) => c.name.toLowerCase() === String(toCol).toLowerCase());
           if (!col) throw new Error("unknown col: " + toCol);
           await moveCard2(plugin.app, file, line, col, config, {});
@@ -3679,25 +3960,30 @@ projects:
         },
         // Move several "file:line" refs to one column. Same-file refs go bottom-up so
         // each inserted history line cannot shift a ref still to move. Returns "ok <moved>".
-        async moveTasks(refs, toCol) {
-          const config = makeConfig({}, plugin);
+        // opts.at (ISO time) backdates the stamp; a card that moved after `at` is skipped.
+        async moveTasks(refs, toCol, opts = {}) {
+          const config = makeConfig2({}, plugin);
           const col = config.columns.find((c) => c.name.toLowerCase() === String(toCol).toLowerCase());
           if (!col) throw new Error("unknown col: " + toCol);
           const parsed = refs.map((r) => {
             const i = r.lastIndexOf(":");
             return { path: r.slice(0, i), line: +r.slice(i + 1) };
           }).sort((a, b) => a.path === b.path ? b.line - a.line : a.path.localeCompare(b.path));
+          const at = opts.at ? new Date(opts.at) : null;
+          if (at && Number.isNaN(at.getTime())) throw new Error("bad at: " + opts.at);
           let moved = 0;
           for (const { path, line } of parsed) {
             const file = plugin.app.vault.getAbstractFileByPath(path);
-            if (file && await moveCard2(plugin.app, file, line, col, config, {})) moved++;
+            if (!file) continue;
+            if (at && !backdateOk(at.getTime(), await cardHistory(plugin.app, file, line))) continue;
+            if (await moveCard2(plugin.app, file, line, col, config, { at })) moved++;
           }
           return `ok ${moved}`;
         },
         // Manual order: [[ref, rank], ...]. With toCol, cards not already there move first.
         // Same-file refs go bottom-up (each edit only inserts below its task). Returns "ok <n>".
         async rankTasks(pairs, toCol) {
-          const config = makeConfig({}, plugin);
+          const config = makeConfig2({}, plugin);
           const col = toCol == null ? null : config.columns.find((c) => c.name.toLowerCase() === String(toCol).toLowerCase());
           if (toCol != null && !col) throw new Error("unknown col: " + toCol);
           const parsed = pairs.map(([r, rank]) => {
@@ -3750,7 +4036,7 @@ projects:
         // Cards with a guess: "file:line<TAB>estMinutes<TAB>tookMinutes", took = summed time in `col` (default Doing).
         async estimates(opts = {}) {
           const want = String(opts.col || "Doing").toLowerCase();
-          const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts, plugin));
           const out = [];
           for (const [, list] of byCol) for (const card of list) {
             if (card.est == null) continue;
@@ -3767,7 +4053,7 @@ projects:
         // Bulk-move a column, as the board's sweep button does. refs ("file:line")
         // limits it to those cards. Returns "ok <moved> <blocked>".
         async sweep(fromCol, toCol, refs) {
-          const config = makeConfig({}, plugin);
+          const config = makeConfig2({}, plugin);
           const find = (n) => config.columns.find((c) => c.name.toLowerCase() === String(n).toLowerCase());
           const from = find(fromCol), to = find(toCol);
           if (!from || !to) throw new Error("unknown col: " + (from ? toCol : fromCol));
@@ -3823,7 +4109,73 @@ projects:
         }
       };
     }
-    module2.exports = { buildApi: buildApi2, fileNameStamp, filterSince, scopeInactive, taskNote };
+    module2.exports = { buildApi: buildApi2, makeConfig: makeConfig2, fileNameStamp, filterSince, scopeInactive, taskNote };
+  }
+});
+
+// src/sleep.js
+var require_sleep = __commonJS({
+  "src/sleep.js"(exports2, module2) {
+    var { Notice: Notice2, Platform } = require("obsidian");
+    var { scanKanbanTasks, moveCard: moveCard2, parseKanbanConfig: parseKanbanConfig2 } = require_kanban();
+    var { sleepGap, backdateOk } = require_activity();
+    var TICK_KEY = "bdb-last-tick";
+    var TICK_MS = 6e4;
+    function readTick() {
+      try {
+        return Number(window.localStorage.getItem(TICK_KEY)) || null;
+      } catch {
+        return null;
+      }
+    }
+    function writeTick(ms) {
+      try {
+        window.localStorage.setItem(TICK_KEY, String(ms));
+      } catch {
+      }
+    }
+    async function parkAll(plugin, at, makeConfig2) {
+      const boards = [
+        { config: makeConfig2(), habit: false },
+        { config: parseKanbanConfig2("columns: Idle~, Doing!"), habit: true }
+      ];
+      let moved = 0;
+      for (const { config, habit } of boards) {
+        const live = config.columns.find((c) => c.live);
+        const target = habit ? config.columns.find((c) => c.paused) : config.columns.find((c) => c.key === "parked") || config.columns.find((c) => c.paused && c.key !== "backlog");
+        if (!live || !target) continue;
+        const byCol = await scanKanbanTasks(plugin.app, config);
+        const cards = (byCol.get(live.key) || []).filter((c) => plugin.app.metadataCache.getFileCache(c.file)?.frontmatter?.metric != null === habit).filter((c) => backdateOk(at.getTime(), c.history)).sort((a, b) => a.file.path === b.file.path ? b.line - a.line : a.file.path.localeCompare(b.file.path));
+        for (const card of cards) {
+          if (await moveCard2(plugin.app, card.file, card.line, target, config, { fromCol: live, at })) moved++;
+        }
+      }
+      return moved;
+    }
+    function startSleepWatch2(plugin, makeConfig2) {
+      if (!Platform.isDesktopApp) return;
+      let busy = false;
+      const tick = async () => {
+        if (busy) return;
+        busy = true;
+        try {
+          const now = Date.now();
+          const gapStart = sleepGap(readTick(), now);
+          writeTick(now);
+          if (gapStart == null) return;
+          const n = await parkAll(plugin, new Date(gapStart), makeConfig2);
+          if (n) new Notice2(`kanban: parked ${n} Doing card${n > 1 ? "s" : ""} at ${new Date(gapStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (Mac was asleep)`);
+        } catch (err) {
+          console.warn("backlinks-daily-blocks: sleep park failed", err);
+        } finally {
+          busy = false;
+        }
+      };
+      plugin.app.workspace.onLayoutReady(tick);
+      plugin.registerInterval(window.setInterval(tick, TICK_MS));
+      plugin.register(() => writeTick(Date.now()));
+    }
+    module2.exports = { startSleepWatch: startSleepWatch2, parkAll };
   }
 });
 
@@ -5033,7 +5385,9 @@ var { renderEiBlock } = require_ei();
 var { renderReportBlock } = require_report();
 var { renderHabitsBlock, renderHabitPad } = require_habits();
 var { renderScopesBlock } = require_scopes();
-var { buildApi } = require_api();
+var { buildApi, makeConfig } = require_api();
+var { startSleepWatch } = require_sleep();
+var { renderActivityBlock } = require_activity2();
 var { saveTemplateCommand } = require_templates();
 var { BdbSettingTab, mergeSettings } = require_settings();
 var { ChronicleView, CHRONICLE_VIEW_TYPE } = require_chronicle();
@@ -5079,6 +5433,7 @@ var BacklinksDailyBlocksPlugin = class extends Plugin {
     this.settings = mergeSettings(await this.loadData());
     this.api = buildApi(this);
     globalThis.kb = this.api;
+    startSleepWatch(this, () => makeConfig({}, this));
     this.addSettingTab(new BdbSettingTab(this));
     this.registerView(DOING_VIEW_TYPE, (leaf) => new DoingView(leaf, this));
     this.addCommand({
@@ -5153,6 +5508,9 @@ ${columns}`);
     });
     this.registerMarkdownCodeBlockProcessor("habit-pad", (src, el, ctx) => {
       return renderHabitPad(this, src, el, ctx);
+    });
+    this.registerMarkdownCodeBlockProcessor("activity", (src, el, ctx) => {
+      return renderActivityBlock(this, src, el, ctx);
     });
     this.registerMarkdownCodeBlockProcessor("scopes", (src, el, ctx) => {
       return renderScopesBlock(this, src, el, ctx);

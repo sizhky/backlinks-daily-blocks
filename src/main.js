@@ -5,7 +5,9 @@ const { renderEiBlock } = require('./ei');
 const { renderReportBlock } = require('./report');
 const { renderHabitsBlock, renderHabitPad } = require('./habits');
 const { renderScopesBlock } = require('./scopes');
-const { buildApi } = require('./api');
+const { buildApi, makeConfig } = require('./api');
+const { startSleepWatch } = require('./sleep');
+const { renderActivityBlock } = require('./activity');
 const { saveTemplateCommand } = require('./templates');
 const { BdbSettingTab, mergeSettings } = require('./settings');
 const { ChronicleView, CHRONICLE_VIEW_TYPE } = require('./views/chronicle');
@@ -57,6 +59,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     this.settings = mergeSettings(await this.loadData());
     this.api = buildApi(this);
     globalThis.kb = this.api; // CLI shortcut: obsidian eval code='kb.active({limit:3})'
+    startSleepWatch(this, () => makeConfig({}, this));
     this.addSettingTab(new BdbSettingTab(this));
     this.registerView(DOING_VIEW_TYPE, leaf => new DoingView(leaf, this));
     this.addCommand({
@@ -145,6 +148,10 @@ class BacklinksDailyBlocksPlugin extends Plugin {
 
     this.registerMarkdownCodeBlockProcessor('habit-pad', (src, el, ctx) => {
       return renderHabitPad(this, src, el, ctx);
+    });
+
+    this.registerMarkdownCodeBlockProcessor('activity', (src, el, ctx) => {
+      return renderActivityBlock(this, src, el, ctx);
     });
 
     this.registerMarkdownCodeBlockProcessor('scopes', (src, el, ctx) => {

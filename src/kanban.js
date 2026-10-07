@@ -574,7 +574,8 @@ async function sweepColumn(app, config, fromCol, toCol, colCards) {
 }
 
 // Rewrite one task line for its new column. Verifies the line is still a task.
-async function moveCard(app, file, line, targetCol, config, { fromCol } = {}) {
+// `at` backdates the history stamp (sleep auto-park, activity switch rules); default now.
+async function moveCard(app, file, line, targetCol, config, { fromCol, at } = {}) {
   const content = await app.vault.read(file);
   const lines = content.split(/\r?\n/);
   const m = lines[line]?.match(TASK_RE);
@@ -600,7 +601,7 @@ async function moveCard(app, file, line, targetCol, config, { fromCol } = {}) {
   });
   // Record the move under note lines but above any child tasks.
   const indent = lines[line].match(/^\s*/)[0];
-  lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow())} ${fromCol?.name || '?'} > ${targetCol.name} %%`);
+  lines.splice(normalizeTaskMeta(lines, line), 0, `${indent}  %% kb ${stampWrite(stampNow(at || new Date()))} ${fromCol?.name || '?'} > ${targetCol.name} %%`);
   await app.vault.modify(file, lines.join('\n'));
   return true;
 }

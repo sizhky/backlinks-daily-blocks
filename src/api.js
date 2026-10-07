@@ -2,6 +2,8 @@
 const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
+const { backdateOk, stints, planned } = require('./core/activity');
+const { activitySummary } = require('./activity');
 const { saveTemplate } = require('./templates');
 const { openFileAtLine } = require('./core/render');
 
@@ -17,6 +19,19 @@ function makeConfig(opts = {}, plugin) {
   const paths = opts.paths || defaults.paths;
   if (paths) lines.push('paths: ' + paths);
   return parseKanbanConfig(lines.join('\n'));
+}
+
+// History lines ({stamp, to}) directly under one task line.
+async function cardHistory(app, file, line) {
+  const lines = (await app.vault.read(file)).split(/\r?\n/);
+  const base = (lines[line] || '').match(/^\s*/)[0].length;
+  const out = [];
+  for (let i = line + 1; i < lines.length; i++) {
+    if (lines[i].trim() && lines[i].match(/^\s*/)[0].length <= base) break;
+    const h = lines[i].match(HIST_RE);
+    if (h) out.push({ stamp: h[1].replace(/\D/g, ''), to: h[3] });
+  }
+  return out;
 }
 
 function makeHabitConfig(opts = {}) {
@@ -574,17 +589,10 @@ function buildApi(plugin) {
         const today = ymd(new Date()) === dateStr;
         const elapsed = Math.max(0, (today ? Date.now() : hi) - lo);
         const segs = [];
+        const openEnd = s => (today ? Date.now() : endOfDayMs(s));
         for (const [, list] of byCol) for (const card of list) {
-          const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
-          for (let i = 0; i < chrono.length; i++) {
-            if (chrono[i].to.toLowerCase() !== want) continue;
-            const s = stampToDate(chrono[i].stamp).getTime();
-            const rawEnd = chrono[i + 1]
-              ? stampToDate(chrono[i + 1].stamp).getTime()
-              : (today ? Date.now() : endOfDayMs(s));
-            const cs = Math.max(s, lo), ce = Math.min(rawEnd, hi);
-            if (ce <= cs) continue;
-            segs.push({ s: cs, e: ce, open: !chrono[i + 1] && today, body: cleanText(card.body) });
+          for (const x of stints(card.history, want, lo, hi, openEnd)) {
+            segs.push({ ...x, open: x.open && today, body: cleanText(card.body) });
           }
         }
         const tracked = segs.reduce((sum, x) => sum + (x.e - x.s), 0);
@@ -600,6 +608,38 @@ function buildApi(plugin) {
         out.push(`== total ==`, `TOTAL\t${dur(grandTracked)}\t${pct(grandTracked, grandElapsed)} elapsed`);
       }
       return '\n' + out.join('\n');
+    },
+
+    // 5.1 Planned vs unplanned time in a column (default Doing) over a date range.
+    // Planned = the card sat in Todo before its first Doing entry. Arg forms mirror getReport.
+    // Lines: header with both totals, then planned|unplanned<TAB>dur<TAB>file:line<TAB>body
+    async planned(a, b, c) {
+      const { dates, opts } = resolveDates(a, b, c);
+      const want = String(opts.col || 'Doing').toLowerCase();
+      const mk = s => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8)).getTime();
+      const lo = mk(dates[0]), hi = endOfDayMs(mk(dates[dates.length - 1]));
+      const openEnd = s => Math.min(Date.now(), endOfDayMs(s));
+      const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
+      const rows = [];
+      const sum = { planned: 0, unplanned: 0 };
+      for (const [, list] of byCol) for (const card of list) {
+        const ms = stints(card.history, want, lo, hi, openEnd).reduce((t, x) => t + x.e - x.s, 0);
+        if (!ms) continue;
+        const kind = planned(card.history) ? 'planned' : 'unplanned';
+        sum[kind] += ms;
+        rows.push([kind, ms, `${card.file.path}:${card.line}`, cleanText(card.body)]);
+      }
+      rows.sort((x, y) => y[1] - x[1]);
+      const span = dates.length > 1 ? `${dates[0]}..${dates[dates.length - 1]}` : dates[0];
+      const total = sum.planned + sum.unplanned;
+      return `\n# ${want} time ${span} — planned ${dur(sum.planned)} (${pct(sum.planned, total)}) · unplanned ${dur(sum.unplanned)} (${pct(sum.unplanned, total)})\n`
+        + rows.map(([k, ms, ref, body]) => `${k}\t${dur(ms)}\t${ref}\t${body}`).join('\n');
+    },
+
+    // 3 One day's captured activity against Doing stints. date YYYYMMDD (default today).
+    // Lines: totals, then app<TAB>dur<TAB>top title, longest first.
+    async activity(date) {
+      return activitySummary(plugin, String(date || ymd(new Date())), makeConfig({}, plugin));
     },
 
     // Organization/project combinations observed in note properties.
@@ -684,6 +724,9 @@ function buildApi(plugin) {
         'rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first',
         'setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card',
         'estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)',
+        'planned(date|from,to,opts) Doing time split planned (Todo first) vs unplanned, per card',
+        'activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)',
+        'moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped',
         'setDesktop(ref,n)        set (1-9) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it',
         'sweep(from,to,refs?)     bulk-move a column (refs = file:line list)',
         'sweeps()                 sweep routes from settings: From<TAB>To',
@@ -784,16 +827,21 @@ function buildApi(plugin) {
 
     // Move several "file:line" refs to one column. Same-file refs go bottom-up so
     // each inserted history line cannot shift a ref still to move. Returns "ok <moved>".
-    async moveTasks(refs, toCol) {
+    // opts.at (ISO time) backdates the stamp; a card that moved after `at` is skipped.
+    async moveTasks(refs, toCol, opts = {}) {
       const config = makeConfig({}, plugin);
       const col = config.columns.find(c => c.name.toLowerCase() === String(toCol).toLowerCase());
       if (!col) throw new Error('unknown col: ' + toCol);
       const parsed = refs.map(r => { const i = r.lastIndexOf(':'); return { path: r.slice(0, i), line: +r.slice(i + 1) }; })
         .sort((a, b) => a.path === b.path ? b.line - a.line : a.path.localeCompare(b.path));
+      const at = opts.at ? new Date(opts.at) : null;
+      if (at && Number.isNaN(at.getTime())) throw new Error('bad at: ' + opts.at);
       let moved = 0;
       for (const { path, line } of parsed) {
         const file = plugin.app.vault.getAbstractFileByPath(path);
-        if (file && await moveCard(plugin.app, file, line, col, config, {})) moved++;
+        if (!file) continue;
+        if (at && !backdateOk(at.getTime(), await cardHistory(plugin.app, file, line))) continue;
+        if (await moveCard(plugin.app, file, line, col, config, { at })) moved++;
       }
       return `ok ${moved}`;
     },
@@ -939,4 +987,4 @@ function buildApi(plugin) {
   };
 }
 
-module.exports = { buildApi, fileNameStamp, filterSince, scopeInactive, taskNote };
+module.exports = { buildApi, makeConfig, fileNameStamp, filterSince, scopeInactive, taskNote };

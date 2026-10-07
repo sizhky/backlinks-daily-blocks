@@ -1464,3 +1464,28 @@ textarea.bdb-config-preview {
   .bdb-doing-live-dot { animation: none; }
   .bdb-doing-item { transition: none; }
 }
+
+/* activity block: captured Mac activity beside Doing stints */
+.bdb-activity { font-size: 12px; padding: 12px 4px; }
+.bdb-activity-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 12px; }
+.bdb-activity-date { font-weight: 600; font-size: 13px; }
+.bdb-activity-stat { display: inline-flex; gap: 6px; align-items: baseline; }
+.bdb-activity-stat-label { color: var(--text-muted); font-size: 11px; }
+.bdb-activity-stat-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+.bdb-activity-empty { color: var(--text-muted); }
+.bdb-activity-grid { display: grid; grid-template-columns: 44px 1fr 1fr; gap: 8px; }
+.bdb-activity-axis { position: relative; height: var(--bdb-activity-height); margin-top: 20px; }
+.bdb-activity-tick { position: absolute; top: var(--bdb-top); transform: translateY(-50%); color: var(--text-faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+.bdb-activity-lane-title { height: 20px; color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.bdb-activity-lane-body { position: relative; height: var(--bdb-activity-height); border-left: 1px solid var(--background-modifier-border);
+  background: repeating-linear-gradient(to bottom, var(--background-modifier-border) 0 1px, transparent 1px 56px); }
+.bdb-activity-block { position: absolute; left: 4px; right: 4px; top: var(--bdb-top); height: var(--bdb-h); overflow: hidden;
+  border-radius: 3px; background: hsl(var(--bdb-hue, 210) 55% 50% / 0.35); border-left: 2px solid hsl(var(--bdb-hue, 210) 60% 55%); }
+.bdb-activity-doing { background: color-mix(in srgb, var(--interactive-accent) 30%, transparent); border-left-color: var(--interactive-accent); }
+.bdb-activity-block-label { display: block; padding: 1px 4px; font-size: 10px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bdb-activity-apps { margin-top: 14px; display: grid; gap: 4px; }
+.bdb-activity-app { display: grid; grid-template-columns: 10px 140px 1fr auto; gap: 8px; align-items: center; }
+.bdb-activity-app-dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--bdb-hue) 60% 55%); }
+.bdb-activity-app-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bdb-activity-app-title { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bdb-activity-app-time { font-variant-numeric: tabular-nums; }
