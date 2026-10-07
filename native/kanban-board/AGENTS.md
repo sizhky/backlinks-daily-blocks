@@ -72,6 +72,10 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - `ObsidianClient.boardScript` runs one `obsidian eval` that returns tab rows:
   `@column<TAB>Name<TAB>live|done`, then `col<TAB>file:line<TAB>body<TAB>age<TAB>orgs<TAB>projects`.
   Live columns come from `kb.active({includePaused:true})`; done columns from `kb.board`.
+- `ObsidianClient.eval` never relies on the CLI awaiting a promise: on 2026-10-07 async evals (even a
+  50 ms timer) returned empty output with exit 0 most of the time while sync evals always worked, which
+  emptied the board. Each call is a sync eval that parks the result in `window.__kbr[id]`, then sync polls
+  (40 ms) until `KBR:ok:`/`KBR:err:`. Errors from `kb` now surface instead of vanishing.
 - The CLI prefixes output with `=> `. `Board.parse` must strip it and the space after it, or the
   first column is silently dropped (this happened; a test covers it).
 - `Card.identifier` is `KEY-yyMMdd-HHmm[.NN]` from a daily-note file name (HHmm alone repeated across days);
@@ -222,6 +226,8 @@ Before building or wording any UI, ask what Apple would do and do that.
   stint its own equal-width column with a 2 pt gap, so cards never overlap in x (a one-card-at-a-time
   "focus" line was tried and rejected: it hid real parallel work). Hover details use `hoverTip`/`HoverCard`
   (instant, follows the pointer), not `.help`, whose ~1 s delay felt unresponsive.
+  The calendar is one viewport-sized `Canvas` culled to visible hours (`CalendarLayout` precomputed per data
+  load); per-block SwiftUI views and a defaults write per scroll tick made zoom chug.
   Zoom (`timeline.hour`, `CalendarDay.zoomRange` 24 to 3600 pt per hour) goes through `TimelineModel.zoom`:
   Cmd + scroll sends the pointer as pivot, the +/- buttons the view centre; `CalendarDay.apply` keeps the time
   under the pivot fixed via `ScrollPosition` and the tracked content offset. Sub-hour gridlines appear at

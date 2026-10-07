@@ -112,9 +112,34 @@ struct ObsidianClient {
     String(decoding: try JSONEncoder().encode(s), as: UTF8.self)
   }
 
+  /// Runs `code` in Obsidian and returns its value as the CLI prints it (`=> value`).
+  /// The CLI does not reliably wait for promises: async results often came back as empty output
+  /// with exit 0 (even a 50 ms timer), while synchronous evals always worked. So every call is two
+  /// synchronous evals: start the code and park its result in `window.__kbr[id]`, then poll for it.
   private func eval(_ code: String) async throws -> String {
-    try await run(["eval", "code=\(code)"])
+    let id = UUID().uuidString
+    let start = "(()=>{const S=(window.__kbr=window.__kbr||{});S['\(id)']=null;"
+      + "Promise.resolve().then(()=>(\(code))).then(v=>{S['\(id)']={ok:v==null?'':String(v)}},"
+      + "e=>{S['\(id)']={err:String(e&&e.stack||e)}});return 'started'})()"
+    _ = try await run(["eval", "code=\(start)"])
+    let fetch = "(()=>{const S=window.__kbr||{},r=S['\(id)'];if(r==null)return '\(Self.pending)';delete S['\(id)'];"
+      + "return r.err!=null?'\(Self.failed)'+r.err:'\(Self.done)'+r.ok})()"
+    let deadline = Date().addingTimeInterval(30)
+    while Date() < deadline {
+      let raw = try await run(["eval", "code=\(fetch)"])
+      let out = raw.hasPrefix("=> ") ? String(raw.dropFirst(3)) : raw
+      if out.hasPrefix(Self.done) {
+        var value = String(out.dropFirst(Self.done.count))
+        if value.hasSuffix("\n") { value.removeLast() }
+        return "=> " + value
+      }
+      if out.hasPrefix(Self.failed) { throw ObsidianError(String(out.dropFirst(Self.failed.count)).trimmingCharacters(in: .whitespacesAndNewlines)) }
+      try await Task.sleep(for: .milliseconds(40))
+    }
+    throw ObsidianError("Obsidian did not answer within 30 s")
   }
+
+  private static let pending = "KBR:pending", done = "KBR:ok:", failed = "KBR:err:"
 
   private func run(_ arguments: [String]) async throws -> String {
     guard !NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").isEmpty else {
