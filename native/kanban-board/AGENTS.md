@@ -279,7 +279,8 @@ Before building or wording any UI, ask what Apple would do and do that.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
 
-- Project desktops (Settings > Tracking: one square per desktop plus No desktop, drag project pills between them,
+- Project desktops (Settings > Tracking: one square per desktop plus No desktop, drag project pills between them;
+  inside a square pills group under collapsible orgs (first org of the first card naming the project, `tracking.collapsed`);
   instant `HoverCard` with the full name; or right-click a sidebar project > Desktop; orgs are not offered, by request)
   go through `store.projectDesktop` / `store.setDesktop(_:project:)` and are `DesktopPin` rules `{project, desktop}` in
   `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.

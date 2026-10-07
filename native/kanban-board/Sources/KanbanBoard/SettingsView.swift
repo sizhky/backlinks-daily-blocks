@@ -142,6 +142,8 @@ struct TrackingSettings: View {
   @AppStorage(ReportKey.mull) private var mull = 60
   @State private var target: String?
   @State private var tip: (text: String, at: CGPoint)?
+  /// Collapsed org groups as `region id|org`, tab-separated; all expanded by default.
+  @AppStorage("tracking.collapsed") private var shut = ""
 
   /// A drop region: a desktop (`ref` = what pins store), a pin whose desktop no longer exists, or none.
   struct Region: Identifiable {
@@ -207,8 +209,8 @@ struct TrackingSettings: View {
         if !r.projects.isEmpty { Text("\(r.projects.count)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit() }
       }
       ScrollView {
-        FlowLayout(spacing: 5) {
-          ForEach(r.projects, id: \.self) { pill($0) }
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(groups(r.projects), id: \.org) { g in orgGroup(r.id + "|" + g.org, g.org, g.projects) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -227,6 +229,50 @@ struct TrackingSettings: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("\(r.title), \(r.projects.count) projects")
+  }
+
+  /// Org of each project: the first org of the first card that names it (same rule as `Report.projectOrgs`).
+  private var projectOrg: [String: String] {
+    var out: [String: String] = [:]
+    for c in store.columns.flatMap(\.cards) { for p in c.projects where out[p.lowercased()] == nil { if let o = c.orgs.first { out[p.lowercased()] = o } } }
+    return out
+  }
+
+  /// `projects` grouped by org, orgs sorted, "No organization" (empty org) last.
+  private func groups(_ projects: [String]) -> [(org: String, projects: [String])] {
+    let orgs = projectOrg
+    let byOrg = Dictionary(grouping: projects) { orgs[$0.lowercased()] ?? "" }
+    return byOrg.map { (org: $0.key, projects: $0.value) }.sorted { a, b in
+      a.org.isEmpty != b.org.isEmpty ? !a.org.isEmpty : a.org.localizedCaseInsensitiveCompare(b.org) == .orderedAscending
+    }
+  }
+
+  private func orgGroup(_ key: String, _ org: String, _ projects: [String]) -> some View {
+    let open = !shut.split(separator: "\t").contains { $0 == key }
+    return VStack(alignment: .leading, spacing: 5) {
+      Button {
+        var set = shut.split(separator: "\t").map(String.init).filter { $0 != key }
+        if open { set.append(key) }
+        withAnimation(.easeOut(duration: 0.15)) { shut = set.joined(separator: "\t") }
+      } label: {
+        HStack(spacing: 5) {
+          Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+            .rotationEffect(.degrees(open ? 90 : 0)).foregroundStyle(.secondary)
+          if !org.isEmpty { OrgIcon(name: org, size: 13).clipShape(.rect(cornerRadius: 3)) }
+          Text(org.isEmpty ? "No organization" : org).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+          Text("\(projects.count)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+          Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("\(org.isEmpty ? "No organization" : org), \(projects.count) projects, \(open ? "expanded" : "collapsed")")
+      if open {
+        FlowLayout(spacing: 5) {
+          ForEach(projects, id: \.self) { pill($0) }
+        }
+      }
+    }
   }
 
   private func pill(_ name: String) -> some View {
