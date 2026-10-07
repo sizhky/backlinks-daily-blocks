@@ -55,6 +55,8 @@ final class TimelineModel: ObservableObject {
   @Published var day = Calendar.current.startOfDay(for: Date())
   @Published private(set) var spans: [Span] = []
   @Published private(set) var stints: [DoingStint] = []
+  /// Calendar geometry inputs, rebuilt only when spans or stints change.
+  @Published private(set) var layout = CalendarLayout()
   @Published var filter = ""
   /// Zoom requests for the calendar; the pivot is in window (SwiftUI .global) coordinates, nil = view centre.
   let zoom = PassthroughSubject<ZoomRequest, Never>()
@@ -107,14 +109,14 @@ final class TimelineModel: ObservableObject {
     var fresh = (try? Data(contentsOf: url)).map(ActivityLog.parse) ?? []
     // The open span is not in the file yet; show it live for today.
     if isToday, let open = activity.openSpan { fresh.append(open) }
-    if fresh != spans { spans = fresh }
+    if fresh != spans { spans = fresh; layout = CalendarLayout(spans: spans, stints: stints) }
     error = nil
     guard chronicle else { return }
     let day = self.day
     Task {
       let text = (try? await client.chronicle(day)) ?? ""
       let fresh = ActivityLog.stints(text, day: day)
-      if day == self.day, fresh != stints { stints = fresh }
+      if day == self.day, fresh != stints { stints = fresh; layout = CalendarLayout(spans: spans, stints: stints) }
     }
   }
 }
@@ -124,15 +126,13 @@ final class TimelineModel: ObservableObject {
 struct TimelineScreen: View {
   @EnvironmentObject var model: TimelineModel
   @AppStorage("timeline.mode") private var mode = "calendar"
-  @AppStorage("timeline.hour") private var hourHeight = 72.0
 
   var body: some View {
     VStack(spacing: 0) {
       header
       Divider().overlay(Palette.hairline)
       if mode == "calendar" {
-        CalendarDay(spans: model.spans, stints: model.stints, day: model.day, isToday: model.isToday,
-                    hourHeight: $hourHeight, zoom: model.zoom)
+        CalendarDay(layout: model.layout, day: model.day, isToday: model.isToday, zoom: model.zoom)
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       } else {
         list
@@ -282,30 +282,50 @@ struct TimelineRowView: View {
   static func clock(_ d: Date) -> String { d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits)) }
 }
 
+/// Precomputed calendar content for one day, rebuilt only when the data changes (never per frame).
+struct CalendarLayout {
+  var blocks: [ActivityBlock] = []
+  var tints: [Color] = []
+  var sessions: [ActivitySession] = []
+  var stints: [DoingStint] = []
+  var lane: [Int] = [], lanes: [Int] = []
+
+  init() {}
+  init(spans: [Span], stints: [DoingStint]) {
+    blocks = ActivityLog.blocks(spans)
+    tints = blocks.map { Color(ProjectColor.pair($0.app).light) }
+    sessions = ActivityLog.sessions(blocks).filter { s in !blocks.contains { $0.start == s.start && $0.end == s.end } }
+    self.stints = stints
+    (lane, lanes) = ActivityLog.lanes(stints.map { ($0.start, $0.end) })
+  }
+}
+
 /// Calendar day: hours down the left, the Mac's activity and the Doing stints as vertical blocks,
-/// a red line at now. Overlapping Doing stints sit side by side.
+/// a red line at now. Overlapping Doing stints sit side by side, never overlapping in x.
+/// Drawn by one viewport-sized Canvas, culled to the visible hours; the ScrollView only holds an
+/// empty spacer of the day's height for scrolling and hover. Per-block views made zoom chug.
 struct CalendarDay: View {
-  let spans: [Span]
-  let stints: [DoingStint]
+  let layout: CalendarLayout
   let day: Date
   let isToday: Bool
-  @Binding var hourHeight: Double
   let zoom: PassthroughSubject<ZoomRequest, Never>
   static let gutter = 64.0
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
   static let zoomRange = 24.0...3600.0
+  static let hourKey = "timeline.hour"
+
+  @State private var hourHeight = UserDefaults.standard.object(forKey: CalendarDay.hourKey) as? Double ?? 72
   @State private var position = ScrollPosition(edge: .top)
   @State private var offsetY = 0.0
   @State private var viewport = CGRect.zero
-  /// Hover card: text and pointer position in the calendar's coordinate space.
-  @State private var tip: (text: String, at: CGPoint)?
+  /// Pointer in content coordinates (y from midnight).
+  @State private var pointer: CGPoint?
+  @State private var save: Task<Void, Never>?
 
   private func y(_ d: Date) -> Double { max(0, min(24, d.timeIntervalSince(day) / 3600)) * hourHeight }
+  private func column(_ width: Double) -> Double { (width - Self.gutter - 24) / 2 }
 
   var body: some View {
-    let blocks = ActivityLog.blocks(spans)
-    let sessions = ActivityLog.sessions(blocks)
-    let layout = ActivityLog.lanes(stints.map { ($0.start, $0.end) })
     VStack(spacing: 0) {
       HStack(spacing: 0) {
         Spacer().frame(width: Self.gutter, height: 0)  // a bare Color.clear grew tall and pushed the calendar down
@@ -316,60 +336,40 @@ struct CalendarDay: View {
       .padding(.vertical, 8).padding(.horizontal, 12)
       Divider().overlay(Palette.hairline)
       ScrollView {
-          ZStack(alignment: .topLeading) {
-            grid
-            GeometryReader { geo in
-              let col = (geo.size.width - Self.gutter - 24) / 2
-              ZStack(alignment: .topLeading) {
-                ForEach(blocks) { b in
-                  ActivityBlockView(block: b, height: max(1, y(b.end) - y(b.start)))
-                    .frame(width: col - 8, height: max(1, y(b.end) - y(b.start)))
-                    .hoverTip(ActivityBlockView.tip(b), $tip)
-                    .offset(x: Self.gutter + 12, y: y(b.start))
-                }
-                // A session of short blocks reads as stripes; one label names its main app.
-                ForEach(sessions) { ss in
-                  let h = y(ss.end) - y(ss.start)
-                  if h >= 18, !blocks.contains(where: { $0.start == ss.start && $0.end == ss.end }) {
-                    SessionLabel(session: ss)
-                      .frame(maxWidth: col - 24, alignment: .leading)
-                      .allowsHitTesting(false)
-                      .offset(x: Self.gutter + 20, y: y(ss.start) + 3)
-                  }
-                }
-                // Parallel cards sit side by side: each gets an equal column with a gap, never overlapping in x.
-                ForEach(Array(stints.enumerated()), id: \.element.id) { i, st in
-                  let gap = 2.0
-                  let w = (col - 8 + gap) / Double(layout.of[i])
-                  DoingBlockView(stint: st, height: max(2, y(st.end) - y(st.start)), narrow: w < 60)
-                    .frame(width: max(1, w - gap), height: max(2, y(st.end) - y(st.start) - 1))
-                    .hoverTip(DoingBlockView.tip(st, others: layout.of[i] - 1), $tip)
-                    .offset(x: Self.gutter + 12 + col + Double(layout.lane[i]) * w, y: y(st.start))
-                }
-                if isToday { nowLine(width: geo.size.width).allowsHitTesting(false) }
-                if let tip { HoverCard(text: tip.text, at: tip.at, bounds: geo.size).allowsHitTesting(false) }
-              }
-            }
-            .frame(height: 24 * hourHeight)
-            .coordinateSpace(.named(HoverTip.space))
-            // A block redrawn under the pointer (live reload) can miss its own hover end; leaving the calendar always clears.
-            .onHover { if !$0 { tip = nil } }
-          }
+        Color.clear
           .frame(height: 24 * hourHeight + 16)
+          .contentShape(Rectangle())
+          .onContinuousHover { phase in
+            switch phase {
+            case .active(let p): pointer = p
+            case .ended: pointer = nil
+            }
+          }
+      }
+      .scrollPosition($position)
+      .onScrollGeometryChange(for: Double.self) { $0.contentOffset.y } action: { _, v in offsetY = v }
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { viewport = $0 }
+      .background(alignment: .topLeading) {
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+          Canvas { gc, size in draw(gc, size: size, now: ctx.date) }
         }
-        .scrollPosition($position)
-        .onScrollGeometryChange(for: Double.self) { $0.contentOffset.y } action: { _, y in offsetY = y }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { viewport = $0 }
-        .onAppear { position.scrollTo(y: max(0, y(focusTime) - 120)) }
-        .onChange(of: day) { position.scrollTo(y: max(0, y(focusTime) - 120)) }
-        .onReceive(zoom) { apply($0) }
+      }
+      .overlay(alignment: .topLeading) {
+        if let p = pointer, let text = hit(p) {
+          HoverCard(text: text, at: CGPoint(x: p.x, y: p.y - offsetY), bounds: viewport.size).allowsHitTesting(false)
+        }
+      }
+      .onAppear { position.scrollTo(y: max(0, y(focusTime) - 120)) }
+      .onChange(of: day) { position.scrollTo(y: max(0, y(focusTime) - 120)) }
+      .onReceive(zoom) { apply($0) }
     }
   }
 
   /// Keeps the time under the pivot (pointer, or the view centre) fixed while the hour height changes.
+  /// The height is saved 0.5 s after the last change: a defaults write per scroll tick woke every observer.
   private func apply(_ z: ZoomRequest) {
-    let pointer = z.pivot.map { $0.y - viewport.minY } ?? viewport.height / 2
-    let pivotY = min(max(0, pointer), viewport.height)
+    let pointerY = z.pivot.map { $0.y - viewport.minY } ?? viewport.height / 2
+    let pivotY = min(max(0, pointerY), viewport.height)
     let hours = (offsetY + pivotY) / hourHeight
     let next = min(Self.zoomRange.upperBound, max(Self.zoomRange.lowerBound, hourHeight * z.factor))
     guard next != hourHeight else { return }
@@ -377,10 +377,15 @@ struct CalendarDay: View {
     let target = max(0, hours * next - pivotY)
     offsetY = target
     position.scrollTo(y: target)
+    save?.cancel()
+    save = Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(500))
+      if !Task.isCancelled { UserDefaults.standard.set(next, forKey: Self.hourKey) }
+    }
   }
 
   /// Now for today, else the first activity of the day.
-  private var focusTime: Date { isToday ? Date() : (spans.first?.start ?? stints.first?.start ?? day.addingTimeInterval(9 * 3600)) }
+  private var focusTime: Date { isToday ? Date() : (layout.blocks.first?.start ?? layout.stints.first?.start ?? day.addingTimeInterval(9 * 3600)) }
 
   /// Minutes between sub-hour gridlines at this zoom; nil = hours only.
   private var tick: Int? {
@@ -392,138 +397,130 @@ struct CalendarDay: View {
     }
   }
 
-  private var grid: some View {
-    VStack(spacing: 0) {
-      ForEach(0..<24, id: \.self) { h in
-        ZStack(alignment: .topLeading) {
-          HStack(alignment: .top, spacing: 0) {
-            Text(Self.hourLabel(h)).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(Palette.muted)
-              .frame(width: Self.gutter - 8, alignment: .trailing).offset(y: -6)
-            Rectangle().fill(Palette.hairline).frame(height: 1).padding(.leading, 8)
-          }
-          if let tick {
-            ForEach(Array(stride(from: tick, to: 60, by: tick)), id: \.self) { m in
-              HStack(spacing: 0) {
-                Text(String(format: ":%02d", m)).font(.system(size: 9.5)).monospacedDigit().foregroundStyle(Palette.muted.opacity(0.7))
-                  .frame(width: Self.gutter - 8, alignment: .trailing)
-                Rectangle().fill(Palette.hairline.opacity(m % 15 == 0 ? 0.8 : 0.4)).frame(height: 1).padding(.leading, 8)
-              }
-              .offset(y: hourHeight * Double(m) / 60 - 6)
-            }
-          }
-        }
-        .frame(height: hourHeight, alignment: .top)
+  // MARK: Drawing (canvas y = content y - offsetY)
+
+  private func draw(_ gc: GraphicsContext, size: CGSize, now: Date) {
+    let top = offsetY, bottom = offsetY + size.height
+    let visible = { (a: Double, b: Double) in b >= top - 2 && a <= bottom + 2 }
+    let col = column(size.width)
+    // Grid
+    let step = Double(tick ?? 60)
+    var minute = max(0, floor(top / hourHeight * 60 / step) * step)
+    while minute <= min(24 * 60, bottom / hourHeight * 60 + step) {
+      let cy = minute / 60 * hourHeight - top
+      let isHour = minute.truncatingRemainder(dividingBy: 60) == 0
+      gc.fill(Path(CGRect(x: Self.gutter, y: cy, width: size.width - Self.gutter, height: 1)),
+              with: .color(isHour ? Palette.hairline : Palette.hairline.opacity(0.5)))
+      let label = isHour ? Self.hourLabel(Int(minute / 60)) : String(format: ":%02d", Int(minute) % 60)
+      gc.draw(Text(label).font(.system(size: isHour ? 10.5 : 9.5)).monospacedDigit()
+                .foregroundStyle(isHour ? Palette.muted : Palette.muted.opacity(0.7)),
+              at: CGPoint(x: Self.gutter - 8, y: cy), anchor: .trailing)
+      minute += step
+    }
+    // Activity
+    let ax = Self.gutter + 12, aw = col - 8
+    for (i, b) in layout.blocks.enumerated() {
+      let y0 = y(b.start), y1 = y(b.end)
+      guard visible(y0, y1) else { continue }
+      let r = CGRect(x: ax, y: y0 - top, width: aw, height: max(1, y1 - y0))
+      block(gc, r, tint: layout.tints[i], title: b.title.isEmpty ? b.app : b.title, icon: b.bundle,
+            dur: TimelineScreen.dur(b.end.timeIntervalSince(b.start)))
+    }
+    for ss in layout.sessions {
+      let y0 = y(ss.start), y1 = y(ss.end)
+      guard y1 - y0 >= 18, visible(y0, y1) else { continue }
+      // Sticky: the label stays on screen while any of its session is.
+      let ly = min(max(y0, top) + 3, y1 - 20) - top
+      sessionLabel(gc, ss, at: CGPoint(x: ax + 8, y: ly), maxWidth: aw - 16)
+    }
+    // Doing
+    let dx = ax + col
+    for (i, st) in layout.stints.enumerated() {
+      let y0 = y(st.start), y1 = y(st.end)
+      guard visible(y0, y1) else { continue }
+      let w = (aw + 2) / Double(layout.lanes[i])
+      let r = CGRect(x: dx + Double(layout.lane[i]) * w, y: y0 - top, width: max(1, w - 2), height: max(2, y1 - y0 - 1))
+      block(gc, r, tint: Palette.indigo, title: r.width >= 60 ? st.title : nil, icon: nil,
+            dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: 0.28)
+    }
+    // Now
+    if isToday {
+      let ny = y(now) - top
+      if ny >= -4 && ny <= size.height + 4 {
+        gc.fill(Path(ellipseIn: CGRect(x: Self.gutter - 4, y: ny - 3.5, width: 7, height: 7)), with: .color(Palette.danger))
+        gc.fill(Path(CGRect(x: Self.gutter, y: ny - 0.75, width: size.width - Self.gutter, height: 1.5)), with: .color(Palette.danger))
       }
     }
   }
 
-  private func nowLine(width: Double) -> some View {
-    TimelineView(.periodic(from: .now, by: 30)) { ctx in
-      HStack(spacing: 0) {
-        Circle().fill(Palette.danger).frame(width: 7, height: 7)
-        Rectangle().fill(Palette.danger).frame(height: 1.5)
-      }
-      .frame(width: width - Self.gutter + 4)
-      .offset(x: Self.gutter - 4, y: y(ctx.date) - 3.5)
+  private func block(_ gc: GraphicsContext, _ r: CGRect, tint: Color, title: String?, icon: String?, dur: String, fill: Double = 0.22) {
+    let shape = Path(roundedRect: r, cornerRadius: min(4, r.height / 2), style: .continuous)
+    gc.fill(shape, with: .color(tint.opacity(fill)))
+    gc.fill(Path(CGRect(x: r.minX, y: r.minY, width: 3, height: r.height)), with: .color(tint))
+    guard let title, r.height >= 18 else { return }
+    var inner = gc
+    inner.clip(to: shape)
+    let d = inner.resolve(Text(dur).font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.secondary))
+    let dSize = d.measure(in: r.size)
+    inner.draw(d, at: CGPoint(x: r.maxX - 6, y: r.minY + 4), anchor: .topTrailing)
+    var x = r.minX + 8
+    if let icon {
+      inner.draw(Image(nsImage: AppIcon.icon(icon)), in: CGRect(x: x, y: r.minY + 4, width: 14, height: 14))
+      x += 20
     }
+    let room = max(0, r.maxX - 6 - dSize.width - 8 - x)
+    var label = inner
+    label.clip(to: Path(CGRect(x: x, y: r.minY, width: room, height: r.height)))
+    label.draw(Text(title).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Palette.text),
+               at: CGPoint(x: x, y: r.minY + 3), anchor: .topLeading)
+  }
+
+  private func sessionLabel(_ gc: GraphicsContext, _ ss: ActivitySession, at p: CGPoint, maxWidth: Double) {
+    var parts = Text(ss.app).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Palette.text)
+    if !ss.title.isEmpty, ss.title != ss.app {
+      parts = parts + Text("  " + ss.title).font(.system(size: 11.5)).foregroundStyle(Palette.secondary)
+    }
+    parts = parts + Text("  " + TimelineScreen.dur(ss.end.timeIntervalSince(ss.start))).font(.system(size: 11)).foregroundStyle(Palette.secondary)
+    if ss.apps > 1 { parts = parts + Text("  +\(ss.apps - 1) apps").font(.system(size: 10.5)).foregroundStyle(Palette.muted) }
+    let t = gc.resolve(parts)
+    let w = min(maxWidth, t.measure(in: CGSize(width: 2000, height: 20)).width + 7 + 20 + 8)
+    let pill = Path(roundedRect: CGRect(x: p.x, y: p.y, width: w, height: 20), cornerRadius: 10)
+    gc.fill(pill, with: .color(Palette.window.opacity(0.88)))
+    gc.stroke(pill, with: .color(Palette.hairline))
+    gc.draw(Image(nsImage: AppIcon.icon(ss.bundle)), in: CGRect(x: p.x + 7, y: p.y + 3, width: 14, height: 14))
+    var inner = gc
+    inner.clip(to: Path(CGRect(x: p.x + 27, y: p.y, width: max(0, w - 34), height: 20)))
+    inner.draw(t, at: CGPoint(x: p.x + 27, y: p.y + 10), anchor: .leading)
+  }
+
+  // MARK: Hover hit test (content coordinates)
+
+  private func hit(_ p: CGPoint) -> String? {
+    let col = column(viewport.width)
+    let ax = Self.gutter + 12, aw = col - 8, dx = ax + col
+    let t = day.addingTimeInterval(p.y / hourHeight * 3600)
+    // At low zoom a 5 s block is under a pixel; accept the nearest block within 2 pt.
+    let slack = 2 / hourHeight * 3600
+    if p.x >= ax, p.x <= ax + aw,
+       let b = layout.blocks.first(where: { $0.start.addingTimeInterval(-slack) <= t && $0.end.addingTimeInterval(slack) >= t }) {
+      return "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
+    }
+    if p.x >= dx, p.x <= dx + aw {
+      for (i, st) in layout.stints.enumerated() where st.start <= t && st.end >= t {
+        let w = (aw + 2) / Double(layout.lanes[i])
+        let x0 = dx + Double(layout.lane[i]) * w
+        guard p.x >= x0, p.x <= x0 + w else { continue }
+        let others = layout.lanes[i] - 1
+        return "\(st.title)\n\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
+          + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
+      }
+    }
+    return nil
   }
 
   static func hourLabel(_ h: Int) -> String {
-    Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date())!
+    Calendar.current.date(bySettingHour: h % 24, minute: 0, second: 0, of: Date())!
       .formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated)))
-  }
-}
-
-struct ActivityBlockView: View {
-  let block: ActivityBlock
-  let height: Double
-  var body: some View {
-    let tint = Color(ProjectColor.pair(block.app).light)
-    ZStack(alignment: .topLeading) {
-      RoundedRectangle(cornerRadius: 4, style: .continuous).fill(tint.opacity(0.22))
-      Rectangle().fill(tint).frame(width: 3)
-      if height >= 18 {
-        HStack(spacing: 6) {
-          AppIcon(bundle: block.bundle).frame(width: 14, height: 14)
-          Text(block.title.isEmpty ? block.app : block.title).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
-          Spacer(minLength: 4)
-          Text(TimelineScreen.dur(block.end.timeIntervalSince(block.start))).font(.system(size: 11)).monospacedDigit()
-            .foregroundStyle(Palette.secondary)
-        }
-        .padding(.leading, 8).padding(.trailing, 6).padding(.top, 3)
-      }
-    }
-    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-  }
-
-  static func tip(_ b: ActivityBlock) -> String {
-    "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
-  }
-}
-
-struct SessionLabel: View {
-  let session: ActivitySession
-  var body: some View {
-    HStack(spacing: 6) {
-      AppIcon(bundle: session.bundle).frame(width: 14, height: 14)
-      Text(session.app).font(.system(size: 11.5, weight: .semibold))
-      if !session.title.isEmpty, session.title != session.app {
-        Text(session.title).font(.system(size: 11.5)).foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
-      }
-      Text(TimelineScreen.dur(session.end.timeIntervalSince(session.start))).font(.system(size: 11)).monospacedDigit()
-        .foregroundStyle(Palette.secondary)
-      if session.apps > 1 {
-        Text("+\(session.apps - 1) apps").font(.system(size: 10.5)).foregroundStyle(Palette.muted)
-      }
-    }
-    .padding(.horizontal, 7).frame(height: 20)
-    .background(Capsule().fill(Palette.window.opacity(0.88)))
-    .overlay(Capsule().strokeBorder(Palette.hairline))
-    .fixedSize(horizontal: false, vertical: true)
-    .help("\(TimelineRowView.clock(session.start))–\(TimelineRowView.clock(session.end))")
-  }
-}
-
-struct DoingBlockView: View {
-  let stint: DoingStint
-  let height: Double
-  /// Too thin for text: the block is a coloured bar and the hover card carries the details.
-  var narrow = false
-  var body: some View {
-    ZStack(alignment: .topLeading) {
-      RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Palette.indigo.opacity(0.28))
-      Rectangle().fill(Palette.indigo).frame(width: 3)
-      if height >= 18, !narrow {
-        HStack(spacing: 6) {
-          Text(stint.title).font(.system(size: 11.5, weight: .medium)).lineLimit(height >= 36 ? 2 : 1)
-          Spacer(minLength: 4)
-          Text(TimelineScreen.dur(stint.end.timeIntervalSince(stint.start)) + (stint.open ? "+" : ""))
-            .font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.secondary)
-        }
-        .padding(.leading, 8).padding(.trailing, 6).padding(.top, 3)
-      }
-    }
-    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-  }
-
-  static func tip(_ st: DoingStint, others: Int) -> String {
-    "\(st.title)\n\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
-      + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
-  }
-}
-
-/// Instant hover card (the system `.help` tooltip waits about a second).
-enum HoverTip { static let space = "calendar" }
-
-extension View {
-  /// Shows `text` in the calendar's hover card while the pointer is over this view, following the pointer.
-  func hoverTip(_ text: String, _ tip: Binding<(text: String, at: CGPoint)?>) -> some View {
-    onContinuousHover(coordinateSpace: .named(HoverTip.space)) { phase in
-      switch phase {
-      case .active(let p): tip.wrappedValue = (text, p)
-      case .ended: if tip.wrappedValue?.text == text { tip.wrappedValue = nil }
-      }
-    }
   }
 }
 
