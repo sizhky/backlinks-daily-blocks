@@ -24,7 +24,6 @@ Sources/KanbanBoard/   SwiftUI app
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
   DesktopStore.swift   current Spaces (private CGS via dlsym) + names in <vault>/.activity/desktops.json
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
-  MissionControlOverlay.swift  name panels over Mission Control's "Desktop N" labels (screen capture + Vision OCR)
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
@@ -122,8 +121,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Desktop names: macOS has none, so `DesktopStore` keeps them in `<vault>/.activity/desktops.json`
   keyed by Space UUID (Desktop 1 reports an empty UUID; `space-<id64>` stands in). `Card.desktop` is a
   String: a number 1-9 or a name, resolved with `store.desktops.resolve`. `renameDesktop` rewrites cards
-  that used the old reference. Mission Control labels cannot be renamed without Dock injection (SIP off);
-  `MissionControlOverlay` floats name panels over the "Desktop N" labels instead, found by OCR (see Gotchas).
+  that used the old reference. Mission Control keeps showing "Desktop N": renaming those labels needs Dock
+  injection (SIP off). A name tag floated over them was tried and removed at the user's request (looked wrong);
+  do not bring back approximations of system UI.
 - Desktop per card: `Card.desktop`, stored in the note as `%% kbdesktop N %%` (plugin `DESKTOP_RE`, written by
   `kb.setDesktop`, read as the last board-script column). Frontmatter `kbdesktop: N` is the per-note default; the task line beats it. The app keeps no desktop state of its own. Clicking the
   "Desktop N" pill calls `store.switchDesktop`: press the user's macOS "Switch to Desktop N" shortcut (read from
@@ -226,7 +226,5 @@ Before building or wording any UI, ask what Apple would do and do that.
   with infinite recursion when Mission Control opened. Panels get fixed frames and `sizingOptions = []`.
 - Dragging a borderless non-activating panel: `isMovableByWindowBackground` plus `mouseDownCanMoveWindow`
   did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
-- The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS, so the
-  Keyboard Maestro path to "Desktop N" buttons is dead, and the open Mission Control is one full-screen
-  Dock window. The group's presence is only the "open" signal; label frames come from ScreenCaptureKit
-  (own app excluded, top 35% of the main display) plus `VNRecognizeTextRequest`. Needs Screen Recording.
+- The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
+  Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.

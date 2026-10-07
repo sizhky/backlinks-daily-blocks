@@ -70,7 +70,6 @@ final class BoardStore: ObservableObject {
   private let client = ObsidianClient()
   private var loop: Task<Void, Never>?
   let activity = ActivityMonitor()
-  private let overlay = MissionControlOverlay()
   private var desktopMenu: DesktopMenu?
   private(set) var widget: TrackerWidget?
   private var desktopSink: Any?
@@ -233,7 +232,6 @@ final class BoardStore: ObservableObject {
         let vault = URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)
         desktops.start(dir: vault.appendingPathComponent(".activity", isDirectory: true))
         activity.start(vault: vault)
-        overlay.start()
       } catch { self.error = error.localizedDescription }
     }
     loop = Task { [weak self] in

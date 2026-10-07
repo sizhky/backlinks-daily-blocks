@@ -13,7 +13,6 @@
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSScreenCaptureUsageDescription</key><string>Kanban Board reads the Mission Control labels to show your desktop names over them.</string>
   <key>NSAppleEventsUsageDescription</key><string>Kanban Board reads the active tab address to record which page you work on.</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict>
