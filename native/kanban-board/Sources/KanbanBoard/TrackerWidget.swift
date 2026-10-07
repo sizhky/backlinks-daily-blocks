@@ -9,6 +9,8 @@ enum WidgetKey {
   /// Bottom-left corner of the widget, `NSStringFromPoint`.
   static let origin = "widget.origin"
   static let title = "widget.title", desktop = "widget.desktop", url = "widget.url"
+  /// The desktop number in small type under a named desktop.
+  static let desktopNumber = "widget.desktop.number"
   static let width = "widget.width"
   static let color = "widget.color", font = "widget.font"
 }
@@ -142,6 +144,7 @@ struct WidgetView: View {
   @AppStorage(WidgetKey.width) private var width = 240.0
   @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
   @AppStorage(WidgetKey.font) private var family = ""
+  @AppStorage(WidgetKey.desktopNumber) private var desktopNumber = true
   @State private var toast: [DoingChange] = []
 
   /// Doing cards, most recently started first.
@@ -196,11 +199,11 @@ struct WidgetView: View {
 
   /// One element: its own font size and justification; hidden elements take no space.
   @ViewBuilder
-  private func part(_ p: WidgetPart, lines: Int = 1, _ content: () -> Text) -> some View {
+  private func part(_ p: WidgetPart, lines: Int = 1, scale: Double = 1, _ content: () -> Text) -> some View {
     if prefs.shown(p) {
       let a = prefs.align(p)
       content()
-        .font(WidgetStyle.font(family, prefs.size(p), p.weight, design: p == .timer ? .rounded : .default))
+        .font(WidgetStyle.font(family, prefs.size(p) * scale, p.weight, design: p == .timer ? .rounded : .default))
         .lineLimit(lines)
         .truncationMode(p == .window || p == .url ? .middle : .tail)
         .multilineTextAlignment(a.text)
@@ -213,6 +216,9 @@ struct WidgetView: View {
     if let c = activity.context {
       if let name = c.desktop ?? c.space.map({ "Desktop \($0)" }) {
         part(.desktop) { Text(Image(systemName: "rectangle.3.group")) + Text(" " + name) }.opacity(0.75)
+        if desktopNumber, c.desktop != nil, let n = c.space {
+          part(.desktop, scale: 0.8) { Text("Desktop \(n)") }.opacity(0.5).padding(.top, -prefs.size(.desktop) * 0.25)
+        }
       }
     } else {
       part(.desktop) { Text(Image(systemName: "moon.fill")) + Text(" Away") }.opacity(0.75)

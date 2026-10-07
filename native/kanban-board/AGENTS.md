@@ -284,6 +284,7 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 - Project desktops (Settings > Tracking: one square per desktop plus No desktop, drag project pills between them;
   inside a square pills group under collapsible orgs (first org of the first card naming the project, `tracking.collapsed`);
+  each desktop square's name renames in place (double-click or pencil; empty resets) via `store.renameDesktop`;
   no hover tooltip, pills show the full name; the drag is the board's pattern, not system drag-and-drop (it dropped the image at the
   cursor and popped the pill in): `FloatingPill` follows `DragPointer`, the hovered square shows a ghost (its org group forced open),
   release animates onto `frames.ghost`, then `setDesktop` and the swap run unanimated; or right-click a sidebar project > Desktop; orgs are not offered, by request)

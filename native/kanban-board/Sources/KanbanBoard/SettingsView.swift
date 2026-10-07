@@ -57,6 +57,7 @@ struct WidgetSettings: View {
   @AppStorage(WidgetKey.width) private var width = 240.0
   @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
   @AppStorage(WidgetKey.font) private var family = ""
+  @AppStorage(WidgetKey.desktopNumber) private var desktopNumber = true
   @StateObject private var previewGrip = WidgetGrip()
   private let families = NSFontManager.shared.availableFontFamilies
   private let previewSide = 260.0
@@ -85,6 +86,8 @@ struct WidgetSettings: View {
       }
       Section("Elements") {
         ForEach(WidgetPart.allCases) { p in elementRow(p) }
+        Toggle("Desktop number under a named desktop", isOn: $desktopNumber)
+          .toggleStyle(.checkbox).disabled(!prefs.shown(.desktop))
       }
     }
     .formStyle(.grouped)
@@ -143,6 +146,10 @@ struct TrackingSettings: View {
   /// Pill drag, the `DragController` shape: a floating copy at mouse rate, a ghost where it lands.
   @State private var drag: PillDrag?
   @State private var ignoring = false
+  /// The desktop (`Region.id` = space uuid) whose name is being edited, and the draft name.
+  @State private var renaming: String?
+  @State private var draft = ""
+  @FocusState private var naming: Bool
   @State private var frames = FrameRegistry()
   @StateObject private var pointer = DragPointer()
   /// Collapsed org groups as `region id|org`, tab-separated; all expanded by default.
@@ -256,7 +263,7 @@ struct TrackingSettings: View {
   private func region(_ r: Region) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 6) {
-        Text(r.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+        title(r)
         if r.current { Circle().fill(Color.accentColor).frame(width: 6, height: 6).help("Current desktop") }
         Spacer(minLength: 0)
         if !r.projects.isEmpty { Text("\(r.projects.count)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit() }
@@ -294,6 +301,39 @@ struct TrackingSettings: View {
     return byOrg.map { (org: $0.key, projects: $0.value) }.sorted { a, b in
       a.org.isEmpty != b.org.isEmpty ? !a.org.isEmpty : a.org.localizedCaseInsensitiveCompare(b.org) == .orderedAscending
     }
+  }
+
+  /// A desktop's name; double-click or the pencil edits it in place. Empty resets to "Desktop N".
+  @ViewBuilder private func title(_ r: Region) -> some View {
+    let space = desktops.spaces.first { $0.uuid == r.id }
+    if let space, renaming == r.id {
+      TextField("Desktop \(space.number)", text: $draft)
+        .textFieldStyle(.plain).font(.system(size: 12.5, weight: .semibold))
+        .focused($naming)
+        .onSubmit { rename(space) }
+        .onExitCommand { renaming = nil }
+        .onChange(of: naming) { _, on in if !on, renaming == r.id { rename(space) } }
+    } else {
+      Text(r.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+        .onTapGesture(count: 2) { if let space { startRename(space) } }
+      if let space {
+        Button { startRename(space) } label: { Image(systemName: "pencil").font(.system(size: 10)) }
+          .buttonStyle(.plain).foregroundStyle(.secondary).help("Rename \(space.name)")
+          .accessibilityLabel("Rename \(space.name)")
+      }
+    }
+  }
+
+  private func startRename(_ space: DesktopSpace) {
+    draft = space.label ?? ""
+    renaming = space.uuid
+    naming = true
+  }
+
+  private func rename(_ space: DesktopSpace) {
+    renaming = nil
+    let name = draft.trimmingCharacters(in: .whitespaces)
+    if name != (space.label ?? "") { store.renameDesktop(space, to: name.isEmpty ? nil : name) }
   }
 
   /// The square a pill is being dragged over, once it has left home.
