@@ -8,6 +8,7 @@ import KanbanCore
 final class TimelineWindow {
   private var window: NSWindow?
   private let model: TimelineModel
+  private var zoomMonitor: Any?
 
   init(activity: ActivityMonitor) { model = TimelineModel(activity: activity) }
 
@@ -29,6 +30,15 @@ final class TimelineWindow {
       }
       w.setFrameAutosaveName("Timeline")
       window = w
+      // Cmd + scroll zooms the calendar (hour height); plain scroll still scrolls.
+      zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+        guard e.modifierFlags.contains(.command), let w = self?.window, e.window === w else { return e }
+        let delta = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY * 0.01 : e.scrollingDeltaY * 0.12
+        let d = UserDefaults.standard
+        let hour = d.object(forKey: "timeline.hour") as? Double ?? 72
+        d.set(min(480, max(24, hour * exp(delta))), forKey: "timeline.hour")
+        return nil
+      }
     }
     model.start()
     window?.makeKeyAndOrderFront(nil)
@@ -280,7 +290,7 @@ struct CalendarDay: View {
   var body: some View {
     let blocks = ActivityLog.blocks(spans)
     let sessions = ActivityLog.sessions(blocks)
-    let layout = ActivityLog.lanes(stints.map { ($0.start, $0.end) })
+    let focus = ActivityLog.focus(stints)
     VStack(spacing: 0) {
       HStack(spacing: 0) {
         Spacer().frame(width: Self.gutter, height: 0)  // a bare Color.clear grew tall and pushed the calendar down
@@ -311,11 +321,11 @@ struct CalendarDay: View {
                       .offset(x: Self.gutter + 20, y: y(ss.start) + 3)
                   }
                 }
-                ForEach(Array(stints.enumerated()), id: \.element.id) { i, st in
-                  let w = (col - 8) / Double(layout.of[i])
+                // One card at a time: the most recently started of those in Doing.
+                ForEach(focus) { st in
                   DoingBlockView(stint: st, height: max(2, y(st.end) - y(st.start)))
-                    .frame(width: max(2, w - 2), height: max(2, y(st.end) - y(st.start)))
-                    .offset(x: Self.gutter + 12 + col + Double(layout.lane[i]) * w, y: y(st.start))
+                    .frame(width: col - 8, height: max(2, y(st.end) - y(st.start) - 1))
+                    .offset(x: Self.gutter + 12 + col, y: y(st.start))
                 }
                 if isToday { nowLine(width: geo.size.width) }
               }
@@ -323,7 +333,7 @@ struct CalendarDay: View {
             .frame(height: 24 * hourHeight)
             // Laid out (not offset) at the focus time, so scrollTo lands there.
             VStack(spacing: 0) {
-              Color.clear.frame(width: 1, height: max(0, y(focus) - 120))
+              Color.clear.frame(width: 1, height: max(0, y(focusTime) - 120))
               Color.clear.frame(width: 1, height: 1).id("focus")
             }
           }
@@ -336,7 +346,7 @@ struct CalendarDay: View {
   }
 
   /// Now for today, else the first activity of the day.
-  private var focus: Date { isToday ? Date() : (spans.first?.start ?? stints.first?.start ?? day.addingTimeInterval(9 * 3600)) }
+  private var focusTime: Date { isToday ? Date() : (spans.first?.start ?? stints.first?.start ?? day.addingTimeInterval(9 * 3600)) }
 
   private var grid: some View {
     VStack(spacing: 0) {
@@ -416,7 +426,7 @@ struct SessionLabel: View {
 }
 
 struct DoingBlockView: View {
-  let stint: DoingStint
+  let stint: FocusStint
   let height: Double
   var body: some View {
     ZStack(alignment: .topLeading) {
@@ -433,7 +443,8 @@ struct DoingBlockView: View {
       }
     }
     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-    .help("\(stint.title)\n\(TimelineRowView.clock(stint.start))–\(TimelineRowView.clock(stint.end))\(stint.open ? " (running)" : "")")
+    .help("\(stint.title)\n\(TimelineRowView.clock(stint.start))–\(TimelineRowView.clock(stint.end))\(stint.open ? " (running)" : "")"
+      + (stint.parallel > 0 ? "\n\(stint.parallel) other card\(stint.parallel == 1 ? "" : "s") in Doing" : ""))
   }
 }
 

@@ -45,13 +45,6 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(out[0].spans, 2)
   }
 
-  func testLanesPlaceOverlapsSideBySide() {
-    let t = Date(timeIntervalSince1970: 0)
-    let r = ActivityLog.lanes([(t, t + 10), (t + 5, t + 15), (t + 20, t + 30), (t + 12, t + 18)])
-    XCTAssertEqual(r.lane, [0, 1, 0, 0])
-    XCTAssertEqual(r.of, [2, 2, 1, 2])
-  }
-
   func testSessionsJoinContinuousBlocksAndPickTheMostUsedApp() {
     let t = Date(timeIntervalSince1970: 0)
     func b(_ app: String, _ a: Double, _ e: Double) -> ActivityBlock { ActivityBlock(start: t + a, end: t + e, app: app, bundle: app, title: app + " w", spans: 1) }
@@ -60,5 +53,17 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(out[0].app, "Arc")
     XCTAssertEqual(out[0].apps, 2)
     XCTAssertEqual(out[0].end, t + 780)
+  }
+
+  func testFocusShowsTheLatestStartedCardWithoutOverlap() {
+    let t = Date(timeIntervalSince1970: 0)
+    let h = 3600.0
+    let a = DoingStint(start: t + 9 * h, end: t + 12 * h, title: "A", open: false)
+    let b = DoingStint(start: t + 10 * h, end: t + 11 * h, title: "B", open: false)
+    let out = ActivityLog.focus([a, b])
+    XCTAssertEqual(out.map(\.title), ["A", "B", "A"])
+    XCTAssertEqual(out[1].parallel, 1)
+    XCTAssertEqual(out[2].start, t + 11 * h)
+    for (x, y) in zip(out, out.dropFirst()) { XCTAssertLessThanOrEqual(x.end, y.start) }
   }
 }

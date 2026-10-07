@@ -20,7 +20,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Desktops.swift       DesktopSpace, Desktops.parse/resolve/cleanLabel (desktop names by Space UUID)
   DoingChange.swift    diff of live cards between two refreshes (widget toast)
   Hex.swift            #RRGGBB[AA] parse and format (widget colour setting)
-  Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
+  Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/focus, TimelineRow, DoingStint
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
@@ -218,6 +218,9 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Timeline window reads the app's own `<vault>/.activity/YYYYMMDD.jsonl` (plus `ActivityMonitor.openSpan`
   for the live span) and Doing stints from `kb.chronicle(date)`. Doing totals use `ActivityLog.unionSeconds`:
   parallel Doing cards overlap, and a plain sum read 536h for one day. Today reloads every 5 s.
+  The calendar's Doing column draws `ActivityLog.focus`: one card at a time, the most recently started
+  of those in Doing (same rule as the widget hero), never side-by-side lanes. Cmd + scroll zooms
+  (`timeline.hour`, 24 to 480 pt per hour) through a local scrollWheel monitor on the Timeline window.
 
 ## Gotchas
 
