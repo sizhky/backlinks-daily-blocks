@@ -55,6 +55,7 @@ final class ReportsModel: ObservableObject {
     guard let dir = activity.dir else { error = "Activity capture has not started"; return }
     generation += 1
     let gen = generation, span = interval, rules = activity.rules, open = activity.openSpan, idle = ActivityMonitor.idleAfter
+    let labels = Dictionary(DesktopStore.shared.spaces.compactMap { d in d.label.map { (d.number, $0) } }, uniquingKeysWith: { a, _ in a })
     let mull = UserDefaults.standard.object(forKey: ReportKey.mull) as? Int ?? 60
     let last = min(span.end.addingTimeInterval(-1), Date())
     loading = true
@@ -64,7 +65,7 @@ final class ReportsModel: ObservableObject {
         let result = await Task.detached(priority: .userInitiated) {
           let cards = ReportCard.parse(text)
           let spans = Self.spans(dir: dir, from: span.start, to: last, open: open, idle: idle)
-          return (cards, Report.attribute(spans: spans, cards: cards, rules: rules))
+          return (cards, Report.attribute(spans: spans, cards: cards, rules: rules, labels: labels))
         }.value
         guard gen == generation else { return }
         cards = result.0
@@ -265,6 +266,10 @@ struct ReportRow: View {
         Text(label).lineLimit(1).foregroundStyle(node.kind == .noCard || node.kind == .unattributed ? Palette.muted : Palette.text)
         tags
         Spacer(minLength: 12)
+        if node.kind == .card, node.doing - node.seconds >= 60 {
+          Text("\(TimelineScreen.dur(node.doing)) in Doing").font(.system(size: 11.5)).foregroundStyle(Palette.muted).monospacedDigit()
+            .help("Time in Doing; the rest went to another card, a project with no card, or nobody")
+        }
         Text(TimelineScreen.dur(node.seconds)).monospacedDigit()
         Text("\(Int((node.seconds / total * 100).rounded()))%").monospacedDigit().foregroundStyle(Palette.muted)
           .frame(width: 40, alignment: .trailing)

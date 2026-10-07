@@ -297,6 +297,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   context (`SwitchEngine.owns`) split it, else cards with no affinity, else a matching rule's scope gets
   "No card" time, else Unattributed. A card's share splits equally across its org x project pairs.
   Ad hoc uses `reports.mull` minutes (Settings > Tracking). Attribution runs off the main actor.
+  Spans recorded before their desktop had a name carry only `space`; `Report.attribute(labels:)` names them from the
+  current desktops by number, or a card pinned to "Trading" got 0 of its 80 min (2026-10-07). Every card with Doing
+  time in the range stays in the breakdown, with "N in Doing" beside its attributed time when they differ.
 - One active task (`Focus.pick`): among Doing cards, owners of the current context win, else cards with no
   affinity, ties to the latest into Doing; away = none. The widget shows that card as the hero with its active
   time running and the other Doing cards as dimmed paused rows. Reports use the same pick per moment.

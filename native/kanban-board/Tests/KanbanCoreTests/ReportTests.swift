@@ -111,4 +111,20 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(series.map(\.unattributed).sorted { !$0 && $1 }, [false, true])
     XCTAssertEqual(Report.series(out, org: "divami") { $0 }.map(\.name), ["P"])
   }
+
+  func testUnnamedSpansTakeTheCurrentDesktopName() {
+    let cards = [card("a", 0, 60, desktop: "Trading")]
+    let spans = [span(0, 20, space: 5)]
+    XCTAssertEqual(minutes(Report.attribute(spans: spans, cards: cards, rules: [], calendar: cal), .card("a")), 0)
+    XCTAssertEqual(minutes(Report.attribute(spans: spans, cards: cards, rules: [], labels: [5: "Trading"], calendar: cal), .card("a")), 20)
+  }
+
+  func testCardsWithDoingTimeButNoAttributionStayInTheTree() {
+    let a = card("a", 0, 60, desktop: "3")
+    let out = Report.attribute(spans: [span(0, 30, space: 2)], cards: [a], rules: [], calendar: cal)
+    let leaf = Report.tree(out, cards: [a]).first { $0.kind == .org }?.children.first?.children.first
+    XCTAssertEqual(leaf?.ref, "a")
+    XCTAssertEqual(leaf?.seconds, 0)
+    XCTAssertEqual(leaf?.doing, 3600)
+  }
 }

@@ -66,7 +66,9 @@ public enum Report {
   /// same, A pinned to desktop 2, span on desktop 2             -> A 60 min
   /// same, both pinned to desktop 3, span on desktop 2          -> unattributed 60 min
   /// ```
-  public static func attribute(spans: [Span], cards: [ReportCard], rules: [ActivityRule],
+  /// `labels` (desktop number -> current name) names spans recorded before their desktop had a name;
+  /// without it a card pinned to "Trading" never matches the earlier `space 5` spans.
+  public static func attribute(spans: [Span], cards: [ReportCard], rules: [ActivityRule], labels: [Int: String] = [:],
                                calendar: Calendar = .current) -> [Allocation] {
     let stints = cards.indices.flatMap { i in cards[i].stints.map { (s: $0.start, e: $0.end, card: i) } }.sorted { $0.s < $1.s }
     let orgOf = projectOrgs(cards)
@@ -77,7 +79,8 @@ public enum Report {
     var next = 0
     var active: [(s: Date, e: Date, card: Int)] = []
     for span in spans.sorted(by: { $0.start < $1.start }) {
-      let ctx = Sample(app: span.app, bundle: span.bundle, title: span.title, url: span.url, space: span.space, desktop: span.desktop)
+      let ctx = Sample(app: span.app, bundle: span.bundle, title: span.title, url: span.url, space: span.space,
+                       desktop: span.desktop ?? span.space.flatMap { labels[$0] })
       for piece in hourPieces(span.start, span.end, calendar) {
         while next < stints.count, stints[next].s < piece.end { active.append(stints[next]); next += 1 }
         active.removeAll { $0.e <= piece.start }
@@ -138,6 +141,8 @@ public struct ReportNode: Identifiable, Equatable, Sendable {
   public let name: String
   public var ref: String?
   public var seconds: Double = 0, adhocSeconds: Double = 0
+  /// Doing time in the range from the move stamps, before attribution (shows cards that got none).
+  public var doing: Double = 0
   public var adhoc: Set<String> = [], untracked: Set<String> = []
   public var children: [ReportNode] = []
 }
@@ -158,8 +163,9 @@ extension Report {
     return acc.values.map { (bucket: $0.0, name: $0.1, unattributed: $0.2, seconds: $0.3) }.sorted { $0.bucket < $1.bucket }
   }
 
-  /// Breakdown tree, largest first; unattributed time is the last top-level row. Untracked cards
-  /// (done in range, no Doing time) appear with zero seconds under each of their projects.
+  /// Breakdown tree, largest first; unattributed time is the last top-level row. Every card with Doing
+  /// time in the range appears, even with no attributed time (parked, worked elsewhere), with `doing`
+  /// set; untracked cards (done in range, no Doing time) appear with zero seconds.
   /// ```
   /// allocs [Divami/P card a 30 min, unattributed 10 min], card a ad hoc
   ///   -> [Divami 30m (P 30m (a 30m)), Unattributed 10m]; Divami.adhoc = [a]
@@ -170,12 +176,13 @@ extension Report {
     var projects: [String: [String: ReportNode]] = [:]
     var leaves: [String: [String: [String: ReportNode]]] = [:]
     var unattributed = ReportNode(id: "u", kind: .unattributed, name: "")
-    func add(org: String, project: String, ref: String?, seconds: Double) {
+    func add(org: String, project: String, ref: String?, seconds: Double, doing: Double = 0) {
       let ok = org.lowercased(), pk = project.lowercased()
       let card = ref.flatMap { byRef[$0] }
       let adhoc = card?.adhoc == true, untracked = card?.untracked == true
       func bump(_ n: inout ReportNode) {
         n.seconds += seconds
+        n.doing += doing
         if adhoc { n.adhocSeconds += seconds; n.adhoc.insert(ref!) }
         if untracked { n.untracked.insert(ref!) }
       }
@@ -192,8 +199,15 @@ extension Report {
       case .card(let ref): add(org: a.org, project: a.project, ref: ref, seconds: a.seconds)
       }
     }
-    for c in cards where c.untracked { for (o, p) in pairs(c) { add(org: o, project: p, ref: c.ref, seconds: 0) } }
-    let order: (ReportNode, ReportNode) -> Bool = { $0.seconds != $1.seconds ? $0.seconds > $1.seconds : $0.name < $1.name }
+    for c in cards {
+      let doing = c.stints.reduce(0) { $0 + $1.duration }
+      guard doing > 0 || c.untracked else { continue }
+      let pairs = pairs(c)
+      for (o, p) in pairs { add(org: o, project: p, ref: c.ref, seconds: 0, doing: doing / Double(pairs.count)) }
+    }
+    let order: (ReportNode, ReportNode) -> Bool = {
+      $0.seconds != $1.seconds ? $0.seconds > $1.seconds : $0.doing != $1.doing ? $0.doing > $1.doing : $0.name < $1.name
+    }
     var out = orgs.map { ok, org -> ReportNode in
       var org = org
       org.children = (projects[ok] ?? [:]).map { pk, p -> ReportNode in
