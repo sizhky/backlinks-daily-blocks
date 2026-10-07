@@ -23,6 +23,10 @@ styles.css             all styling incl. wave separators; no inline styles, no i
 ## Rules
 
 - New checkbox/toggle behaviour goes through `core/tasks.js`, not per-view regex.
+- Order card history with `chrono()` from `core/activity.js`, never a bare stamp sort: stamps are minute
+  precision and the note lists moves newest first, so same-minute moves need the file position (`seq`)
+  as tie-break. Stints take `stillIn` (card is in that column now); an unclosed stint of a card that
+  left the column is not running. Both bugs once showed ~40 finished cards as Doing all day.
 - New content rendering goes through `core/notes.js` + `core/render.js`.
 - Daily-note filename contract: `YYYYMMDD-HHmm.md` (optionally `.excalidraw.md`).
 - Atlas mutates frontmatter of the host note — respect `bdb-disable-sync: true` and template skips.
