@@ -165,7 +165,6 @@ struct WidgetView: View {
       footer
     }
     .foregroundStyle(WidgetStyle.color(color))
-    .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
     .padding(margin)
     .frame(width: width)
     .fixedSize(horizontal: false, vertical: true)
