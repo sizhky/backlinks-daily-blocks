@@ -20,7 +20,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Desktops.swift       DesktopSpace, Desktops.parse/resolve/cleanLabel (desktop names by Space UUID)
   DoingChange.swift    diff of live cards between two refreshes (widget toast)
   Hex.swift            #RRGGBB[AA] parse and format (widget colour setting)
-  Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints, TimelineRow, DoingStint
+  Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
@@ -28,7 +28,7 @@ Sources/KanbanBoard/   SwiftUI app
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
   WidgetParts.swift    WidgetPart (per-element show/justification/size keys), WidgetAlign, WidgetPrefs
-  TimelineWindow.swift Timeline window (Shift-Cmd-T, menu bar): day strip + per-second activity list beside Doing stints
+  TimelineWindow.swift Timeline window (Shift-Cmd-T, menu bar): calendar day (Activity | Doing columns) or per-second list
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
@@ -223,6 +223,8 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 - `make run` can fail with launch error -600 if `open` races `pkill`; the Makefile sleeps 1 s.
 - Scroll views clip overlays (the rail badge); give the content side padding.
+- A bare `Color.clear.frame(width:)` in an HStack is flexible in height and steals space from a sibling
+  ScrollView; give spacers an explicit height. `scrollTo` targets must be placed by layout, not `.offset`.
 - Hidden title bar: the traffic lights sit over the org rail, which starts 52 pt down. Do not
   move content into the top-left 80x40 area.
 - Keyboard shortcut buttons must be hidden with `opacity(0)` and a zero frame, all of them.

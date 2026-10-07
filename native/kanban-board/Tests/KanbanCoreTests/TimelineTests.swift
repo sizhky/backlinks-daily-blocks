@@ -34,4 +34,31 @@ final class TimelineTests: XCTestCase {
     let t = Date(timeIntervalSince1970: 0)
     XCTAssertEqual(ActivityLog.unionSeconds([(t, t + 10), (t + 5, t + 20), (t + 30, t + 40)]), 30)
   }
+
+  func testBlocksMergeSameAppWithinGap() {
+    let t = Date(timeIntervalSince1970: 0)
+    func s(_ app: String, _ a: Double, _ b: Double, _ title: String = "") -> Span { Span(start: t + a, end: t + b, app: app, bundle: app, title: title) }
+    let out = ActivityLog.blocks([s("Arc", 0, 300, "Docs"), s("Arc", 300, 540, "YouTube"), s("Mail", 540, 600), s("Arc", 700, 760)])
+    XCTAssertEqual(out.map(\.app), ["Arc", "Mail", "Arc"])
+    XCTAssertEqual(out[0].end, t + 540)
+    XCTAssertEqual(out[0].title, "Docs")
+    XCTAssertEqual(out[0].spans, 2)
+  }
+
+  func testLanesPlaceOverlapsSideBySide() {
+    let t = Date(timeIntervalSince1970: 0)
+    let r = ActivityLog.lanes([(t, t + 10), (t + 5, t + 15), (t + 20, t + 30), (t + 12, t + 18)])
+    XCTAssertEqual(r.lane, [0, 1, 0, 0])
+    XCTAssertEqual(r.of, [2, 2, 1, 2])
+  }
+
+  func testSessionsJoinContinuousBlocksAndPickTheMostUsedApp() {
+    let t = Date(timeIntervalSince1970: 0)
+    func b(_ app: String, _ a: Double, _ e: Double) -> ActivityBlock { ActivityBlock(start: t + a, end: t + e, app: app, bundle: app, title: app + " w", spans: 1) }
+    let out = ActivityLog.sessions([b("Arc", 0, 600), b("Mail", 600, 720), b("Arc", 720, 780), b("Arc", 1800, 1860)])
+    XCTAssertEqual(out.count, 2)
+    XCTAssertEqual(out[0].app, "Arc")
+    XCTAssertEqual(out[0].apps, 2)
+    XCTAssertEqual(out[0].end, t + 780)
+  }
 }

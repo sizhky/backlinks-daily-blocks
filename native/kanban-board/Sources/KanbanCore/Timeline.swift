@@ -81,3 +81,94 @@ public enum ActivityLog {
     }
   }
 }
+
+/// Consecutive spans of one app, merged for the calendar view.
+public struct ActivityBlock: Equatable, Sendable, Identifiable {
+  public let start: Date, end: Date, app: String, bundle: String
+  /// The window title seen longest inside the block.
+  public let title: String
+  public let spans: Int
+  public var id: String { "\(start.timeIntervalSince1970)|\(app)" }
+}
+
+extension ActivityLog {
+  /// Merges consecutive spans of the same app separated by less than `gap` seconds.
+  /// ```
+  /// [Arc 10:00-10:05, Arc 10:05-10:09, Mail 10:09-10:10] -> [Arc 10:00-10:09 (2), Mail 10:09-10:10]
+  /// ```
+  public static func blocks(_ spans: [Span], gap: TimeInterval = 60) -> [ActivityBlock] {
+    var out: [ActivityBlock] = []
+    var group: [Span] = []
+    func flush() {
+      guard let first = group.first, let last = group.last else { return }
+      var seen: [String: TimeInterval] = [:]
+      for s in group where !s.title.isEmpty { seen[s.title, default: 0] += s.end.timeIntervalSince(s.start) }
+      let title = seen.max { $0.value < $1.value }?.key ?? ""
+      out.append(ActivityBlock(start: first.start, end: last.end, app: first.app, bundle: first.bundle, title: title, spans: group.count))
+      group = []
+    }
+    for s in spans {
+      if let last = group.last, last.app != s.app || s.start.timeIntervalSince(last.end) >= gap { flush() }
+      group.append(s)
+    }
+    flush()
+    return out
+  }
+
+  /// Side-by-side column for each interval, as a calendar lays out overlapping events, plus the
+  /// column count of each one's overlap cluster. Input order is kept.
+  /// ```
+  /// [0-10, 5-15, 20-30] -> lanes [0, 1, 0], widths [2, 2, 1]
+  /// ```
+  public static func lanes(_ ivals: [(Date, Date)]) -> (lane: [Int], of: [Int]) {
+    let order = ivals.indices.sorted { ivals[$0].0 < ivals[$1].0 }
+    var lane = Array(repeating: 0, count: ivals.count), of = Array(repeating: 1, count: ivals.count)
+    var ends: [Date] = []          // per lane, end of its last interval in the current cluster
+    var cluster: [Int] = []
+    var clusterEnd = Date.distantPast
+    func close() { for i in cluster { of[i] = ends.count }; cluster = []; ends = [] }
+    for i in order {
+      let (a, b) = ivals[i]
+      if a >= clusterEnd { close() }
+      if let free = ends.firstIndex(where: { $0 <= a }) { lane[i] = free; ends[free] = b } else { lane[i] = ends.count; ends.append(b) }
+      cluster.append(i)
+      clusterEnd = max(clusterEnd, b)
+    }
+    close()
+    return (lane, of)
+  }
+}
+
+/// A run of continuous activity (blocks less than `gap` apart), labelled by its most-used app.
+public struct ActivitySession: Equatable, Sendable, Identifiable {
+  public let start: Date, end: Date
+  public let app: String, bundle: String, title: String
+  /// Distinct apps in the session.
+  public let apps: Int
+  public var id: String { "\(start.timeIntervalSince1970)" }
+}
+
+extension ActivityLog {
+  /// ```
+  /// [Arc 10:00-10:10, Mail 10:10-10:12, Arc 10:30-10:31] gap 60 -> [Arc 10:00-10:12 (2 apps), Arc 10:30-10:31]
+  /// ```
+  public static func sessions(_ blocks: [ActivityBlock], gap: TimeInterval = 60) -> [ActivitySession] {
+    var out: [ActivitySession] = []
+    var run: [ActivityBlock] = []
+    func flush() {
+      guard let first = run.first, let last = run.last else { return }
+      var time: [String: TimeInterval] = [:]
+      for b in run { time[b.app, default: 0] += b.end.timeIntervalSince(b.start) }
+      let top = time.max { $0.value < $1.value }!.key
+      let lead = run.filter { $0.app == top }.max { $0.end.timeIntervalSince($0.start) < $1.end.timeIntervalSince($1.start) }!
+      out.append(ActivitySession(start: first.start, end: last.end, app: top, bundle: lead.bundle, title: lead.title, apps: time.count))
+      run = []
+    }
+    for b in blocks {
+      if let last = run.last, b.start.timeIntervalSince(last.end) >= gap { flush() }
+      run.append(b)
+    }
+    flush()
+    return out
+  }
+}

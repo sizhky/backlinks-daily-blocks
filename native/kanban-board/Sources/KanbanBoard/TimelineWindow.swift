@@ -107,16 +107,19 @@ final class TimelineModel: ObservableObject {
 
 struct TimelineScreen: View {
   @EnvironmentObject var model: TimelineModel
-  @State private var hovered: String?
+  @AppStorage("timeline.mode") private var mode = "calendar"
+  @AppStorage("timeline.hour") private var hourHeight = 72.0
 
   var body: some View {
     VStack(spacing: 0) {
       header
-      DayStrip(spans: model.spans, stints: model.stints, day: model.day)
-        .frame(height: 64)
-        .padding(.horizontal, 20).padding(.bottom, 12)
       Divider().overlay(Palette.hairline)
-      list
+      if mode == "calendar" {
+        CalendarDay(spans: model.spans, stints: model.stints, day: model.day, isToday: model.isToday, hourHeight: hourHeight)
+          .overlay(alignment: .bottomLeading) { zoom.padding(12) }
+      } else {
+        list
+      }
     }
     .background(Palette.base)
     .foregroundStyle(Palette.text)
@@ -131,6 +134,11 @@ struct TimelineScreen: View {
         Text(summary).font(.system(size: 12)).foregroundStyle(Palette.muted).monospacedDigit()
       }
       Spacer()
+      Picker("View", selection: $mode) {
+        Image(systemName: "calendar.day.timeline.left").help("Calendar").tag("calendar")
+        Image(systemName: "list.bullet").help("List").tag("list")
+      }
+      .labelsHidden().pickerStyle(.segmented).fixedSize()
       TextField("Filter", text: $model.filter)
         .textFieldStyle(.plain)
         .padding(.horizontal, 10).frame(width: 200, height: 28)
@@ -144,6 +152,19 @@ struct TimelineScreen: View {
       .buttonStyle(.bordered)
     }
     .padding(.horizontal, 20).padding(.top, 30).padding(.bottom, 14)
+  }
+
+  private var zoom: some View {
+    VStack(spacing: 0) {
+      Button { hourHeight = min(480, hourHeight * 1.5) } label: { Image(systemName: "plus").frame(width: 28, height: 26) }
+        .help("Zoom in")
+      Divider().overlay(Palette.hairline).frame(width: 28)
+      Button { hourHeight = max(24, hourHeight / 1.5) } label: { Image(systemName: "minus").frame(width: 28, height: 26) }
+        .help("Zoom out")
+    }
+    .buttonStyle(.pointing)
+    .background(RoundedRectangle(cornerRadius: 6).fill(Palette.card))
+    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
   }
 
   private var summary: String {
@@ -244,34 +265,175 @@ struct TimelineRowView: View {
   static func clock(_ d: Date) -> String { d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits)) }
 }
 
-/// 24-hour overview: activity lane coloured by app, Doing lane below.
-struct DayStrip: View {
+/// Calendar day: hours down the left, the Mac's activity and the Doing stints as vertical blocks,
+/// a red line at now. Overlapping Doing stints sit side by side.
+struct CalendarDay: View {
   let spans: [Span]
   let stints: [DoingStint]
   let day: Date
+  let isToday: Bool
+  let hourHeight: Double
+  static let gutter = 64.0
+
+  private func y(_ d: Date) -> Double { max(0, min(24, d.timeIntervalSince(day) / 3600)) * hourHeight }
 
   var body: some View {
-    GeometryReader { geo in
-      let w = geo.size.width
-      let x = { (d: Date) in max(0, min(w, d.timeIntervalSince(day) / 86400 * w)) }
-      ZStack(alignment: .topLeading) {
-        ForEach(Array(stride(from: 0, through: 24, by: 3)), id: \.self) { h in
-          Rectangle().fill(Palette.hairline).frame(width: 1, height: 44).offset(x: w * Double(h) / 24)
-          Text(String(format: "%02d", h)).font(.system(size: 9)).foregroundStyle(Palette.muted).monospacedDigit()
-            .offset(x: w * Double(h) / 24 + 3, y: 46)
+    let blocks = ActivityLog.blocks(spans)
+    let sessions = ActivityLog.sessions(blocks)
+    let layout = ActivityLog.lanes(stints.map { ($0.start, $0.end) })
+    VStack(spacing: 0) {
+      HStack(spacing: 0) {
+        Spacer().frame(width: Self.gutter, height: 0)  // a bare Color.clear grew tall and pushed the calendar down
+        Text("ACTIVITY").frame(maxWidth: .infinity, alignment: .leading)
+        Text("DOING").frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .font(.system(size: 10.5, weight: .semibold)).tracking(0.4).foregroundStyle(Palette.muted)
+      .padding(.vertical, 8).padding(.horizontal, 12)
+      Divider().overlay(Palette.hairline)
+      ScrollViewReader { proxy in
+        ScrollView {
+          ZStack(alignment: .topLeading) {
+            grid
+            GeometryReader { geo in
+              let col = (geo.size.width - Self.gutter - 24) / 2
+              ZStack(alignment: .topLeading) {
+                ForEach(blocks) { b in
+                  ActivityBlockView(block: b, height: max(1, y(b.end) - y(b.start)))
+                    .frame(width: col - 8, height: max(1, y(b.end) - y(b.start)))
+                    .offset(x: Self.gutter + 12, y: y(b.start))
+                }
+                // A session of short blocks reads as stripes; one label names its main app.
+                ForEach(sessions) { ss in
+                  let h = y(ss.end) - y(ss.start)
+                  if h >= 18, !blocks.contains(where: { $0.start == ss.start && $0.end == ss.end }) {
+                    SessionLabel(session: ss)
+                      .frame(maxWidth: col - 24, alignment: .leading)
+                      .offset(x: Self.gutter + 20, y: y(ss.start) + 3)
+                  }
+                }
+                ForEach(Array(stints.enumerated()), id: \.element.id) { i, st in
+                  let w = (col - 8) / Double(layout.of[i])
+                  DoingBlockView(stint: st, height: max(2, y(st.end) - y(st.start)))
+                    .frame(width: max(2, w - 2), height: max(2, y(st.end) - y(st.start)))
+                    .offset(x: Self.gutter + 12 + col + Double(layout.lane[i]) * w, y: y(st.start))
+                }
+                if isToday { nowLine(width: geo.size.width) }
+              }
+            }
+            .frame(height: 24 * hourHeight)
+            // Laid out (not offset) at the focus time, so scrollTo lands there.
+            VStack(spacing: 0) {
+              Color.clear.frame(width: 1, height: max(0, y(focus) - 120))
+              Color.clear.frame(width: 1, height: 1).id("focus")
+            }
+          }
+          .frame(height: 24 * hourHeight + 16)
         }
-        ForEach(spans, id: \.start) { s in
-          Rectangle().fill(Color(ProjectColor.pair(s.app).light))
-            .frame(width: max(1, x(s.end) - x(s.start)), height: 18).offset(x: x(s.start), y: 2)
-            .help("\(s.app) \(TimelineRowView.clock(s.start))–\(TimelineRowView.clock(s.end))")
-        }
-        ForEach(stints) { st in
-          RoundedRectangle(cornerRadius: 2).fill(Palette.indigo.opacity(0.8))
-            .frame(width: max(1, x(st.end) - x(st.start)), height: 14).offset(x: x(st.start), y: 26)
-            .help("\(st.title) \(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end))")
-        }
+        .onAppear { proxy.scrollTo("focus", anchor: .top) }
+        .onChange(of: day) { proxy.scrollTo("focus", anchor: .top) }
       }
     }
+  }
+
+  /// Now for today, else the first activity of the day.
+  private var focus: Date { isToday ? Date() : (spans.first?.start ?? stints.first?.start ?? day.addingTimeInterval(9 * 3600)) }
+
+  private var grid: some View {
+    VStack(spacing: 0) {
+      ForEach(0..<24, id: \.self) { h in
+        HStack(alignment: .top, spacing: 0) {
+          Text(Self.hourLabel(h)).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(Palette.muted)
+            .frame(width: Self.gutter - 8, alignment: .trailing).offset(y: -6)
+          Rectangle().fill(Palette.hairline).frame(height: 1).padding(.leading, 8)
+        }
+        .frame(height: hourHeight, alignment: .top)
+      }
+    }
+  }
+
+  private func nowLine(width: Double) -> some View {
+    TimelineView(.periodic(from: .now, by: 30)) { ctx in
+      HStack(spacing: 0) {
+        Circle().fill(Palette.danger).frame(width: 7, height: 7)
+        Rectangle().fill(Palette.danger).frame(height: 1.5)
+      }
+      .frame(width: width - Self.gutter + 4)
+      .offset(x: Self.gutter - 4, y: y(ctx.date) - 3.5)
+    }
+  }
+
+  static func hourLabel(_ h: Int) -> String {
+    Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date())!
+      .formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated)))
+  }
+}
+
+struct ActivityBlockView: View {
+  let block: ActivityBlock
+  let height: Double
+  var body: some View {
+    let tint = Color(ProjectColor.pair(block.app).light)
+    ZStack(alignment: .topLeading) {
+      RoundedRectangle(cornerRadius: 4, style: .continuous).fill(tint.opacity(0.22))
+      Rectangle().fill(tint).frame(width: 3)
+      if height >= 18 {
+        HStack(spacing: 6) {
+          AppIcon(bundle: block.bundle).frame(width: 14, height: 14)
+          Text(block.title.isEmpty ? block.app : block.title).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+          Spacer(minLength: 4)
+          Text(TimelineScreen.dur(block.end.timeIntervalSince(block.start))).font(.system(size: 11)).monospacedDigit()
+            .foregroundStyle(Palette.secondary)
+        }
+        .padding(.leading, 8).padding(.trailing, 6).padding(.top, 3)
+      }
+    }
+    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    .help("\(block.app)\(block.title.isEmpty ? "" : " · " + block.title)\n\(TimelineRowView.clock(block.start))–\(TimelineRowView.clock(block.end))")
+  }
+}
+
+struct SessionLabel: View {
+  let session: ActivitySession
+  var body: some View {
+    HStack(spacing: 6) {
+      AppIcon(bundle: session.bundle).frame(width: 14, height: 14)
+      Text(session.app).font(.system(size: 11.5, weight: .semibold))
+      if !session.title.isEmpty, session.title != session.app {
+        Text(session.title).font(.system(size: 11.5)).foregroundStyle(Palette.secondary).lineLimit(1).truncationMode(.middle)
+      }
+      Text(TimelineScreen.dur(session.end.timeIntervalSince(session.start))).font(.system(size: 11)).monospacedDigit()
+        .foregroundStyle(Palette.secondary)
+      if session.apps > 1 {
+        Text("+\(session.apps - 1) apps").font(.system(size: 10.5)).foregroundStyle(Palette.muted)
+      }
+    }
+    .padding(.horizontal, 7).frame(height: 20)
+    .background(Capsule().fill(Palette.window.opacity(0.88)))
+    .overlay(Capsule().strokeBorder(Palette.hairline))
+    .fixedSize(horizontal: false, vertical: true)
+    .help("\(TimelineRowView.clock(session.start))–\(TimelineRowView.clock(session.end))")
+  }
+}
+
+struct DoingBlockView: View {
+  let stint: DoingStint
+  let height: Double
+  var body: some View {
+    ZStack(alignment: .topLeading) {
+      RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Palette.indigo.opacity(0.28))
+      Rectangle().fill(Palette.indigo).frame(width: 3)
+      if height >= 18 {
+        HStack(spacing: 6) {
+          Text(stint.title).font(.system(size: 11.5, weight: .medium)).lineLimit(height >= 36 ? 2 : 1)
+          Spacer(minLength: 4)
+          Text(TimelineScreen.dur(stint.end.timeIntervalSince(stint.start)) + (stint.open ? "+" : ""))
+            .font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.secondary)
+        }
+        .padding(.leading, 8).padding(.trailing, 6).padding(.top, 3)
+      }
+    }
+    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    .help("\(stint.title)\n\(TimelineRowView.clock(stint.start))–\(TimelineRowView.clock(stint.end))\(stint.open ? " (running)" : "")")
   }
 }
 
