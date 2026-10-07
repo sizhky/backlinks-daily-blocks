@@ -475,10 +475,12 @@ final class BoardStore: ObservableObject {
     switchDesktop(space.number)
   }
 
-  /// Presses the user's "Switch to Desktop N" shortcut. Needs Accessibility permission.
+  /// Presses Right Cmd+N while BetterTouchTool runs, else the macOS "Switch to Desktop N" shortcut.
+  /// Needs Accessibility permission.
   func switchDesktop(_ n: Int) {
+    let bttRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.hegenberg.BetterTouchTool").isEmpty
     let hotkeys = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys") ?? [:]
-    guard let key = Spaces.shortcut(n, in: hotkeys) else {
+    guard let key = bttRunning ? Spaces.rightCommand(n) : Spaces.shortcut(n, in: hotkeys) else {
       error = "Enable Switch to Desktop \(n) in Keyboard Shortcuts > Mission Control"
       return
     }
@@ -486,9 +488,12 @@ final class BoardStore: ObservableObject {
       error = "Allow Kanban Board in Privacy & Security > Accessibility, then try again"
       return
     }
-    for down in [true, false] {
-      let event = CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: down)
-      event?.flags = CGEventFlags(rawValue: key.flags)
+    // Right Cmd is pressed as its own key around the digit so modifier-side tracking sees it.
+    let modifier: [(UInt16, Bool, UInt64)] = bttRunning ? [(Spaces.rightCommandKey, true, key.flags)] : []
+    let release: [(UInt16, Bool, UInt64)] = bttRunning ? [(Spaces.rightCommandKey, false, 0)] : []
+    for (code, down, flags) in modifier + [(key.code, true, key.flags), (key.code, false, key.flags)] + release {
+      let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+      event?.flags = CGEventFlags(rawValue: flags)
       event?.post(tap: .cghidEventTap)
     }
   }

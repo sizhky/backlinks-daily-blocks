@@ -16,4 +16,17 @@ public enum Spaces {
     else { return nil }
     return (p[1].uint16Value, p[2].uint64Value)
   }
+
+  /// BetterTouchTool binds Right Cmd+N to desktop N. Right Cmd = `maskCommand` plus device bit `NX_DEVICERCMDKEYMASK`.
+  /// ```
+  /// 2 -> (code: 19, flags: 0x100010)
+  /// ```
+  public static func rightCommand(_ n: Int) -> (code: UInt16, flags: UInt64)? {
+    let digits: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
+    guard range.contains(n) else { return nil }
+    return (digits[n - 1], 0x100010)
+  }
+
+  /// Key code of the right Command key.
+  public static let rightCommandKey: UInt16 = 54
 }

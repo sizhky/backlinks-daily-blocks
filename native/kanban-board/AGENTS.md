@@ -141,7 +141,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   `kb.setDesktop`, read as the last board-script column). Frontmatter `kbdesktop: N` is the per-note default; the task line beats it. The app keeps no desktop state of its own. Clicking the
   "Desktop N" pill calls `store.switchDesktop`: press the user's macOS "Switch to Desktop N" shortcut (read from
   `AppleSymbolicHotKeys` by `Spaces.shortcut`). Double-click a card or list row opens it in Obsidian (`store.open`). Needs Accessibility permission and the shortcut
-  enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.
+  enabled in Keyboard Shortcuts > Mission Control (any combination). While BetterTouchTool runs, it presses Right Cmd+N
+  instead (`Spaces.rightCommand`: right Command key down, digit with `NX_DEVICERCMDKEYMASK`, key up), the user's BTT binding.
 - Menus are custom, never SwiftUI `Menu` or `.contextMenu`. Items are `MenuItem` values; card, column and view items live in
   `BoardStore.cardItems` / `columnItems` / `statusItems` / `desktopItems` so the inspector and the right-click menu share them.
   "Copy ID" (`store.copyID`, Shift-Cmd-C on the selected card) copies `Card.identifier`; clicking the ID (`CopyIDButton`: card, list row, inspector) does the same. Both show a `Toast` via `store.show` (one at a time, 1.6 s). Open with `MenuTrigger` (button) or `.rightClickMenu` (AppKit catcher that takes only right clicks). `MenuHost` draws panels

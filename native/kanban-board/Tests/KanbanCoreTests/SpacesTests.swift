@@ -17,4 +17,11 @@ final class SpacesTests: XCTestCase {
     XCTAssertNil(Spaces.shortcut(3, in: hotkey(1)))
     XCTAssertNil(Spaces.shortcut(0, in: hotkey(1)))
   }
+
+  func testRightCommand() {
+    XCTAssertEqual(Spaces.rightCommand(1)?.code, 18)
+    XCTAssertEqual(Spaces.rightCommand(9)?.code, 25)
+    XCTAssertEqual(Spaces.rightCommand(2)?.flags, 0x100010)
+    XCTAssertNil(Spaces.rightCommand(10))
+  }
 }
