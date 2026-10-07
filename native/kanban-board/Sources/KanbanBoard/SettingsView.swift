@@ -132,21 +132,32 @@ enum ReportKey {
   static let mull = "reports.mull"
 }
 
-/// 2.4 Org and project desktops, stored as `DesktopPin` rules in `rules.json`, and the Reports mulling time.
-/// A card's own desktop beats its project's, and a project's beats its org's (`ActivityRule.applying`).
+/// 2.4 Project desktops, stored as `DesktopPin` rules in `rules.json`, and the Reports mulling time.
+/// A card's own desktop beats its project's (`ActivityRule.applying`). Org desktops are not offered.
 struct TrackingSettings: View {
   @EnvironmentObject var store: BoardStore
   @EnvironmentObject var activity: ActivityMonitor
   @EnvironmentObject var desktops: DesktopStore
   @AppStorage(ReportKey.mull) private var mull = 60
+  /// Expanded orgs, tab-separated; all collapsed by default.
+  @AppStorage("tracking.expanded") private var open = ""
 
   var body: some View {
     Form {
-      Section("Organization desktops") {
-        ForEach(names(.org), id: \.self) { row(.org, $0) }
-      }
       Section("Project desktops") {
-        ForEach(names(.project), id: \.self) { row(.project, $0) }
+        ForEach(groups, id: \.org) { g in
+          DisclosureGroup(isExpanded: expanded(g.org)) {
+            ForEach(g.projects, id: \.self) { row(.project, $0) }
+          } label: {
+            HStack(spacing: 8) {
+              if !g.org.isEmpty { OrgIcon(name: g.org, size: 18).clipShape(.rect(cornerRadius: 4)) }
+              Text(g.org.isEmpty ? "No organization" : g.org)
+              Spacer()
+              let n = g.projects.filter { p in pins.contains { $0.kind == .project && $0.name.caseInsensitiveCompare(p) == .orderedSame } }.count
+              if n > 0 { Text("\(n) pinned").foregroundStyle(.secondary).monospacedDigit() }
+            }
+          }
+        }
       }
       Section {
         LabeledContent("Minimum mulling time") {
@@ -163,13 +174,30 @@ struct TrackingSettings: View {
 
   private var pins: [DesktopPin] { DesktopPin.pins(activity.rules) }
 
-  /// Names on the board plus names that only have a pin, sorted.
-  private func names(_ kind: DesktopPin.Kind) -> [String] {
-    let cards = store.columns.flatMap(\.cards)
-    let found = kind == .org ? cards.flatMap(\.orgs) : cards.flatMap(\.projects)
-    var seen = Set<String>(), out: [String] = []
-    for n in found + pins.filter({ $0.kind == kind }).map(\.name) where seen.insert(n.lowercased()).inserted { out.append(n) }
-    return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+  /// Projects on the board grouped by their org, orgs and projects sorted; a project with two orgs
+  /// is listed under both. Pinned projects no longer on the board go under "No organization".
+  private var groups: [(org: String, projects: [String])] {
+    let sort = { (a: String, b: String) in a.localizedCaseInsensitiveCompare(b) == .orderedAscending }
+    var byOrg: [String: [String]] = [:], seen = Set<String>()
+    for card in store.columns.flatMap(\.cards) {
+      for org in card.orgs.isEmpty ? [""] : card.orgs {
+        for p in card.projects where seen.insert(org.lowercased() + "\t" + p.lowercased()).inserted { byOrg[org, default: []].append(p) }
+      }
+    }
+    let listed = Set(byOrg.values.joined().map { $0.lowercased() })
+    for pin in pins where pin.kind == .project && !listed.contains(pin.name.lowercased()) { byOrg["", default: []].append(pin.name) }
+    return byOrg.map { (org: $0.key, projects: $0.value.sorted(by: sort)) }
+      .sorted { a, b in a.org.isEmpty != b.org.isEmpty ? !a.org.isEmpty : sort(a.org, b.org) }
+  }
+
+  private func expanded(_ org: String) -> Binding<Bool> {
+    Binding(
+      get: { open.split(separator: "\t").contains { $0 == org } },
+      set: { on in
+        var set = open.split(separator: "\t").map(String.init).filter { $0 != org }
+        if on { set.append(org) }
+        open = set.joined(separator: "\t")
+      })
   }
 
   private func binding(_ kind: DesktopPin.Kind, _ name: String) -> Binding<String?> {
@@ -187,7 +215,7 @@ struct TrackingSettings: View {
       if let stale { Text(stale).tag(String?.some(stale)) }
     } label: {
       HStack(spacing: 8) {
-        if kind == .org { OrgIcon(name: name, size: 18).clipShape(.rect(cornerRadius: 4)) } else { Monogram(name: name, size: 16) }
+        Monogram(name: name, size: 16)
         Text(name)
       }
     }

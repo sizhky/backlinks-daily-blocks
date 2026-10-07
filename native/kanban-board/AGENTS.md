@@ -35,7 +35,7 @@ Sources/KanbanBoard/   SwiftUI app
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
   Menu.swift           custom Linear-style menus: MenuItem, MenuController, MenuHost, MenuTrigger, rightClickMenu
-  SettingsView.swift   Settings window (Cmd-,); Density metrics; Tracking tab (org/project desktops, mulling time)
+  SettingsView.swift   Settings window (Cmd-,); Density metrics; Tracking tab (project desktops, mulling time)
   Style.swift          Palette, StatusGlyph, Pill, FlowLayout, Monogram, OrgIcon, renderTitle
 Tests/KanbanCoreTests/ XCTest, millisecond-scale
 ```
@@ -277,7 +277,7 @@ Before building or wording any UI, ask what Apple would do and do that.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
 
-- Org and project desktops (Settings > Tracking) are `DesktopPin` rules `{org|project, desktop}` in
+- Project desktops (Settings > Tracking; orgs are not offered, by request) are `DesktopPin` rules `{project, desktop}` in
   `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.
   A pin gives every card of that scope desktop affinity, so `SwitchEngine` parks and resumes them.
   Precedence lives in `ActivityRule.applying`: card `kbdesktop` beats project desktop beats org desktop.
