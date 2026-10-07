@@ -24,8 +24,21 @@ final class BoardStore: ObservableObject {
   /// Selected workspaces; empty = all. "" (Filter.noOrg) selects cards with no org.
   @Published var orgScope: [String] = UserDefaults.standard.stringArray(forKey: "kanban.orgs")
     ?? UserDefaults.standard.string(forKey: "kanban.org").map { [$0] } ?? [] {
-    didSet { UserDefaults.standard.set(orgScope, forKey: "kanban.orgs") }
+    didSet {
+      UserDefaults.standard.set(orgScope, forKey: "kanban.orgs")
+      // Each workspace selection keeps its own filter: switching brings that selection's filter back.
+      if Self.scopeKey(oldValue) != Self.scopeKey(orgScope) {
+        orgQueries[Self.scopeKey(oldValue)] = query
+        query = orgQueries[Self.scopeKey(orgScope)] ?? ""
+      }
+    }
   }
+  /// Last filter per workspace selection (`scopeKey`), kept as the filter changes; survives restarts.
+  private var orgQueries: [String: String] = UserDefaults.standard.dictionary(forKey: "kanban.orgQueries") as? [String: String] ?? [:] {
+    didSet { UserDefaults.standard.set(orgQueries, forKey: "kanban.orgQueries") }
+  }
+  /// Order-free key of a workspace selection; "" = all workspaces.
+  static func scopeKey(_ orgs: [String]) -> String { orgs.map { $0.lowercased() }.sorted().joined(separator: "\t") }
   @Published var orgOrder: [String] = UserDefaults.standard.stringArray(forKey: "kanban.orgOrder") ?? [] {
     didSet { UserDefaults.standard.set(orgOrder, forKey: "kanban.orgOrder") }
   }
@@ -65,7 +78,10 @@ final class BoardStore: ObservableObject {
   @Published var paletteIndex = 0
   @Published var editing: ViewDraft?
   @Published var query: String {
-    didSet { UserDefaults.standard.set(query, forKey: "kanban.query") }
+    didSet {
+      UserDefaults.standard.set(query, forKey: "kanban.query")
+      if orgQueries[Self.scopeKey(orgScope)] != query { orgQueries[Self.scopeKey(orgScope)] = query }
+    }
   }
 
   private let client = ObsidianClient()

@@ -157,6 +157,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   editor and the header popover.
 - Single-valued query keys (`project`, `org`, `col`) replace on click; `tag` adds. Use
   `Query.toggling`, not string appends.
+- Each workspace selection keeps its own filter: `orgQueries` (`kanban.orgQueries`, keyed by `scopeKey`, order-free)
+  is updated on every filter change and on switching away; switching back restores it. `apply(view)` sets orgs, then query.
 - A saved view stores `(query, orgs)`; legacy single `org` is read as a one-item list. Applying a view sets both.
 - Add a new filter key in two places: `Filter.test` and `Catalog.make`. The catalog drives autocomplete in
   the filter field (Tab or Return accepts) and in cmd-K; `view:Name` applies the view.
