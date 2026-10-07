@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import KanbanCore
 
@@ -31,12 +32,13 @@ final class TimelineWindow {
       w.setFrameAutosaveName("Timeline")
       window = w
       // Cmd + scroll zooms the calendar (hour height); plain scroll still scrolls.
+      // The pointer (top-left window coordinates, as SwiftUI's .global) is the zoom pivot.
       zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
-        guard e.modifierFlags.contains(.command), let w = self?.window, e.window === w else { return e }
+        guard e.modifierFlags.contains(.command), let self, let w = self.window, e.window === w,
+              let content = w.contentView else { return e }
         let delta = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY * 0.01 : e.scrollingDeltaY * 0.12
-        let d = UserDefaults.standard
-        let hour = d.object(forKey: "timeline.hour") as? Double ?? 72
-        d.set(min(480, max(24, hour * exp(delta))), forKey: "timeline.hour")
+        let p = content.convert(e.locationInWindow, from: nil)
+        self.model.zoom.send(ZoomRequest(factor: exp(delta), pivot: CGPoint(x: p.x, y: content.isFlipped ? p.y : content.bounds.height - p.y)))
         return nil
       }
     }
@@ -46,12 +48,16 @@ final class TimelineWindow {
   }
 }
 
+struct ZoomRequest { let factor: Double; let pivot: CGPoint? }
+
 @MainActor
 final class TimelineModel: ObservableObject {
   @Published var day = Calendar.current.startOfDay(for: Date())
   @Published private(set) var spans: [Span] = []
   @Published private(set) var stints: [DoingStint] = []
   @Published var filter = ""
+  /// Zoom requests for the calendar; the pivot is in window (SwiftUI .global) coordinates, nil = view centre.
+  let zoom = PassthroughSubject<ZoomRequest, Never>()
   @Published private(set) var error: String?
 
   private let activity: ActivityMonitor
@@ -125,7 +131,8 @@ struct TimelineScreen: View {
       header
       Divider().overlay(Palette.hairline)
       if mode == "calendar" {
-        CalendarDay(spans: model.spans, stints: model.stints, day: model.day, isToday: model.isToday, hourHeight: hourHeight)
+        CalendarDay(spans: model.spans, stints: model.stints, day: model.day, isToday: model.isToday,
+                    hourHeight: $hourHeight, zoom: model.zoom)
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       } else {
         list
@@ -166,10 +173,10 @@ struct TimelineScreen: View {
 
   private var zoom: some View {
     VStack(spacing: 0) {
-      Button { hourHeight = min(480, hourHeight * 1.5) } label: { Image(systemName: "plus").frame(width: 28, height: 26) }
+      Button { model.zoom.send(ZoomRequest(factor: 1.5, pivot: nil)) } label: { Image(systemName: "plus").frame(width: 28, height: 26) }
         .help("Zoom in")
       Divider().overlay(Palette.hairline).frame(width: 28)
-      Button { hourHeight = max(24, hourHeight / 1.5) } label: { Image(systemName: "minus").frame(width: 28, height: 26) }
+      Button { model.zoom.send(ZoomRequest(factor: 1 / 1.5, pivot: nil)) } label: { Image(systemName: "minus").frame(width: 28, height: 26) }
         .help("Zoom out")
     }
     .buttonStyle(.pointing)
@@ -282,8 +289,14 @@ struct CalendarDay: View {
   let stints: [DoingStint]
   let day: Date
   let isToday: Bool
-  let hourHeight: Double
+  @Binding var hourHeight: Double
+  let zoom: PassthroughSubject<ZoomRequest, Never>
   static let gutter = 64.0
+  /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
+  static let zoomRange = 24.0...3600.0
+  @State private var position = ScrollPosition(edge: .top)
+  @State private var offsetY = 0.0
+  @State private var viewport = CGRect.zero
   /// Hover card: text and pointer position in the calendar's coordinate space.
   @State private var tip: (text: String, at: CGPoint)?
 
@@ -302,8 +315,7 @@ struct CalendarDay: View {
       .font(.system(size: 10.5, weight: .semibold)).tracking(0.4).foregroundStyle(Palette.muted)
       .padding(.vertical, 8).padding(.horizontal, 12)
       Divider().overlay(Palette.hairline)
-      ScrollViewReader { proxy in
-        ScrollView {
+      ScrollView {
           ZStack(alignment: .topLeading) {
             grid
             GeometryReader { geo in
@@ -340,30 +352,65 @@ struct CalendarDay: View {
             }
             .frame(height: 24 * hourHeight)
             .coordinateSpace(.named(HoverTip.space))
-            // Laid out (not offset) at the focus time, so scrollTo lands there.
-            VStack(spacing: 0) {
-              Color.clear.frame(width: 1, height: max(0, y(focusTime) - 120))
-              Color.clear.frame(width: 1, height: 1).id("focus")
-            }
+            // A block redrawn under the pointer (live reload) can miss its own hover end; leaving the calendar always clears.
+            .onHover { if !$0 { tip = nil } }
           }
           .frame(height: 24 * hourHeight + 16)
         }
-        .onAppear { proxy.scrollTo("focus", anchor: .top) }
-        .onChange(of: day) { proxy.scrollTo("focus", anchor: .top) }
-      }
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: Double.self) { $0.contentOffset.y } action: { _, y in offsetY = y }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { viewport = $0 }
+        .onAppear { position.scrollTo(y: max(0, y(focusTime) - 120)) }
+        .onChange(of: day) { position.scrollTo(y: max(0, y(focusTime) - 120)) }
+        .onReceive(zoom) { apply($0) }
     }
+  }
+
+  /// Keeps the time under the pivot (pointer, or the view centre) fixed while the hour height changes.
+  private func apply(_ z: ZoomRequest) {
+    let pointer = z.pivot.map { $0.y - viewport.minY } ?? viewport.height / 2
+    let pivotY = min(max(0, pointer), viewport.height)
+    let hours = (offsetY + pivotY) / hourHeight
+    let next = min(Self.zoomRange.upperBound, max(Self.zoomRange.lowerBound, hourHeight * z.factor))
+    guard next != hourHeight else { return }
+    hourHeight = next
+    let target = max(0, hours * next - pivotY)
+    offsetY = target
+    position.scrollTo(y: target)
   }
 
   /// Now for today, else the first activity of the day.
   private var focusTime: Date { isToday ? Date() : (spans.first?.start ?? stints.first?.start ?? day.addingTimeInterval(9 * 3600)) }
 
+  /// Minutes between sub-hour gridlines at this zoom; nil = hours only.
+  private var tick: Int? {
+    switch hourHeight {
+    case 2400...: 1
+    case 800...: 5
+    case 200...: 15
+    default: nil
+    }
+  }
+
   private var grid: some View {
     VStack(spacing: 0) {
       ForEach(0..<24, id: \.self) { h in
-        HStack(alignment: .top, spacing: 0) {
-          Text(Self.hourLabel(h)).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(Palette.muted)
-            .frame(width: Self.gutter - 8, alignment: .trailing).offset(y: -6)
-          Rectangle().fill(Palette.hairline).frame(height: 1).padding(.leading, 8)
+        ZStack(alignment: .topLeading) {
+          HStack(alignment: .top, spacing: 0) {
+            Text(Self.hourLabel(h)).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(Palette.muted)
+              .frame(width: Self.gutter - 8, alignment: .trailing).offset(y: -6)
+            Rectangle().fill(Palette.hairline).frame(height: 1).padding(.leading, 8)
+          }
+          if let tick {
+            ForEach(Array(stride(from: tick, to: 60, by: tick)), id: \.self) { m in
+              HStack(spacing: 0) {
+                Text(String(format: ":%02d", m)).font(.system(size: 9.5)).monospacedDigit().foregroundStyle(Palette.muted.opacity(0.7))
+                  .frame(width: Self.gutter - 8, alignment: .trailing)
+                Rectangle().fill(Palette.hairline.opacity(m % 15 == 0 ? 0.8 : 0.4)).frame(height: 1).padding(.leading, 8)
+              }
+              .offset(y: hourHeight * Double(m) / 60 - 6)
+            }
+          }
         }
         .frame(height: hourHeight, alignment: .top)
       }
@@ -410,7 +457,7 @@ struct ActivityBlockView: View {
   }
 
   static func tip(_ b: ActivityBlock) -> String {
-    "\(b.app)\(b.title.isEmpty ? "" : "\n" + b.title)\n\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
+    "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
   }
 }
 

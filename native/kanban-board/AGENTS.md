@@ -221,7 +221,11 @@ Before building or wording any UI, ask what Apple would do and do that.
   The calendar's Doing column keeps genuinely parallel cards visible: `ActivityLog.lanes` gives each overlapping
   stint its own equal-width column with a 2 pt gap, so cards never overlap in x (a one-card-at-a-time
   "focus" line was tried and rejected: it hid real parallel work). Hover details use `hoverTip`/`HoverCard`
-  (instant, follows the pointer), not `.help`, whose ~1 s delay felt unresponsive. Cmd + scroll zooms
+  (instant, follows the pointer), not `.help`, whose ~1 s delay felt unresponsive.
+  Zoom (`timeline.hour`, `CalendarDay.zoomRange` 24 to 3600 pt per hour) goes through `TimelineModel.zoom`:
+  Cmd + scroll sends the pointer as pivot, the +/- buttons the view centre; `CalendarDay.apply` keeps the time
+  under the pivot fixed via `ScrollPosition` and the tracked content offset. Sub-hour gridlines appear at
+  200 (15 min), 800 (5 min), and 2400 (1 min) pt per hour. Cmd + scroll zooms
   (`timeline.hour`, 24 to 480 pt per hour) through a local scrollWheel monitor on the Timeline window.
 
 ## Gotchas
