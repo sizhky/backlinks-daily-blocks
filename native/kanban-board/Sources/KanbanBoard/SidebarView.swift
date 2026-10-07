@@ -39,6 +39,7 @@ struct SidebarView: View {
             item(f.name, leading: AnyView(Monogram(name: f.name, size: 18)), active: false, count: f.count) {
               store.append("project:" + store.quote(f.name))
             }
+            .rightClickMenu { [.submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name))] }
           }
           showAll(store.facets(\.projects), "Projects")
         }

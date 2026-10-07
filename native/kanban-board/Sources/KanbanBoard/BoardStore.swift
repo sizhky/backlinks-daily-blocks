@@ -418,6 +418,15 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  /// The desktop a project is pinned to (Settings > Tracking, sidebar menu); nil = none.
+  func projectDesktop(_ project: String) -> String? {
+    DesktopPin.pins(activity.rules).first { $0.kind == .project && $0.name.caseInsensitiveCompare(project) == .orderedSame }?.desktop
+  }
+
+  func setDesktop(_ ref: String?, project: String) {
+    activity.saveRules(DesktopPin.setting(activity.rules, kind: .project, name: project, desktop: ref))
+  }
+
   /// Names a desktop and rewrites cards that pointed at its old name or its number, so links survive.
   func renameDesktop(_ space: DesktopSpace, to name: String?) {
     let old = space.ref
@@ -426,6 +435,10 @@ final class BoardStore: ObservableObject {
       return
     }
     guard let fresh = desktops.spaces.first(where: { $0.uuid == space.uuid }), fresh.ref != old else { return }
+    let pins = DesktopPin.pins(activity.rules).filter { $0.desktop.caseInsensitiveCompare(old) == .orderedSame }
+    if !pins.isEmpty {
+      activity.saveRules(pins.reduce(activity.rules) { DesktopPin.setting($0, kind: $1.kind, name: $1.name, desktop: fresh.ref) })
+    }
     let cards = columns.flatMap(\.cards).filter { $0.desktop?.caseInsensitiveCompare(old) == .orderedSame }
     guard !cards.isEmpty else { return }
     writeGen += 1

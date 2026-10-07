@@ -277,9 +277,10 @@ Before building or wording any UI, ask what Apple would do and do that.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
 
-- Project desktops (Settings > Tracking; orgs are not offered, by request) are `DesktopPin` rules `{project, desktop}` in
+- Project desktops (Settings > Tracking, or right-click a sidebar project > Desktop; orgs are not offered, by request)
+  go through `store.projectDesktop` / `store.setDesktop(_:project:)` and are `DesktopPin` rules `{project, desktop}` in
   `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.
-  A pin gives every card of that scope desktop affinity, so `SwitchEngine` parks and resumes them.
+  `renameDesktop` rewrites pins on the old name as it does cards. A pin gives every card of that scope desktop affinity, so `SwitchEngine` parks and resumes them.
   Precedence lives in `ActivityRule.applying`: card `kbdesktop` beats project desktop beats org desktop.
 - Reports tab (`timeline.mode` = `reports`): `kb.reportCards(from, to, {mull})` gives cards with stints;
   `Report.attribute` splits each active minute (day logs, `impute` at the idle threshold): owners of the

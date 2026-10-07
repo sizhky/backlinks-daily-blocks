@@ -202,8 +202,8 @@ struct TrackingSettings: View {
 
   private func binding(_ kind: DesktopPin.Kind, _ name: String) -> Binding<String?> {
     Binding(
-      get: { pins.first { $0.kind == kind && $0.name.caseInsensitiveCompare(name) == .orderedSame }?.desktop },
-      set: { activity.saveRules(DesktopPin.setting(activity.rules, kind: kind, name: name, desktop: $0)) })
+      get: { store.projectDesktop(name) },
+      set: { store.setDesktop($0, project: name) })
   }
 
   private func row(_ kind: DesktopPin.Kind, _ name: String) -> some View {

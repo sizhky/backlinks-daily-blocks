@@ -415,11 +415,21 @@ extension BoardStore {
   }
 
   func desktopItems(_ card: Card) -> [MenuItem] {
-    let mine = desktops.resolve(card.desktop)
+    desktopChoices(card.desktop) { self.setDesktop($0, for: card) }
+  }
+
+  /// Desktop menu for a project row in the sidebar: pins every card of the project (`DesktopPin`).
+  func desktopItems(project: String) -> [MenuItem] {
+    desktopChoices(projectDesktop(project)) { self.setDesktop($0, project: project) }
+  }
+
+  /// None, then the user's desktops (numbers when the Space probe fails), the current one checked.
+  private func desktopChoices(_ current: String?, set: @escaping (String?) -> Void) -> [MenuItem] {
+    let mine = desktops.resolve(current)
     let spaces = desktops.spaces.isEmpty
-      ? Spaces.range.map { n in MenuItem.action("Desktop \(n)", checked: card.desktop == String(n)) { self.setDesktop(String(n), for: card) } }
-      : desktops.spaces.map { d in MenuItem.action(d.name, checked: mine?.uuid == d.uuid) { self.setDesktop(d.ref, for: card) } }
-    return [.action("None", checked: card.desktop == nil) { self.setDesktop(nil, for: card) }, .separator] + spaces
+      ? Spaces.range.map { n in MenuItem.action("Desktop \(n)", checked: current == String(n)) { set(String(n)) } }
+      : desktops.spaces.map { d in MenuItem.action(d.name, checked: mine?.uuid == d.uuid) { set(d.ref) } }
+    return [.action("None", checked: current == nil) { set(nil) }, .separator] + spaces
   }
 }
 
