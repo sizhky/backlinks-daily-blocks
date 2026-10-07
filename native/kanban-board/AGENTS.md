@@ -228,7 +228,7 @@ Before building or wording any UI, ask what Apple would do and do that.
   with infinite recursion when Mission Control opened. Panels get fixed frames and `sizingOptions = []`.
 - Dragging a borderless non-activating panel: `isMovableByWindowBackground` plus `mouseDownCanMoveWindow`
   did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
-  The tracker widget is click-through (`ignoresMouseEvents`) until Cmd is held with the pointer over it;
+  The tracker widget is click-through (`ignoresMouseEvents`) until Fn (`.function`) is held with the pointer over it;
   global plus local `NSEvent` monitors (flagsChanged, mouseMoved, leftMouseUp) set `WidgetGrip.armed`.
   The panel is always a square of the Size setting (`widget.width`); content is clipped to it, and the
   armed area, highlight, toast, and window frame are that one square.

@@ -31,7 +31,7 @@ enum WidgetStyle {
 
 /// Always-visible, transparent panel that shows what is being tracked right now: the Doing
 /// card(s) with time since they entered Doing, and the current app, window, desktop, and URL.
-/// Clicks pass through; holding Cmd over the widget arms it (highlight) so it can be dragged.
+/// Clicks pass through; holding Fn over the widget arms it (highlight) so it can be dragged.
 /// The frame persists.
 @MainActor
 final class TrackerWidget {
@@ -79,9 +79,9 @@ final class TrackerWidget {
     }) { monitors.append(l) }
   }
 
-  /// Armed = Cmd held with the pointer over the widget; only then does it take the mouse.
+  /// Armed = Fn held with the pointer over the widget; only then does it take the mouse.
   private func updateGrip() {
-    let armed = panel.isVisible && NSEvent.modifierFlags.contains(.command) && panel.frame.contains(NSEvent.mouseLocation)
+    let armed = panel.isVisible && NSEvent.modifierFlags.contains(.function) && panel.frame.contains(NSEvent.mouseLocation)
     guard armed != grip.armed else { return }
     grip.armed = armed
     panel.ignoresMouseEvents = !armed
@@ -290,7 +290,7 @@ final class DragHostingView<Content: View>: NSHostingView<Content> {
   override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
 }
 
-/// Whether the widget currently takes the mouse (Cmd held over it).
+/// Whether the widget currently takes the mouse (Fn held over it).
 @MainActor
 final class WidgetGrip: ObservableObject {
   @Published var armed = false
