@@ -226,5 +226,7 @@ Before building or wording any UI, ask what Apple would do and do that.
   with infinite recursion when Mission Control opened. Panels get fixed frames and `sizingOptions = []`.
 - Dragging a borderless non-activating panel: `isMovableByWindowBackground` plus `mouseDownCanMoveWindow`
   did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
+  The tracker widget is click-through (`ignoresMouseEvents`) until Cmd is held with the pointer over it;
+  global plus local `NSEvent` monitors (flagsChanged, mouseMoved, leftMouseUp) set `WidgetGrip.armed`.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.

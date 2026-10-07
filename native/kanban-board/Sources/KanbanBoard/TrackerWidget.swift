@@ -12,11 +12,14 @@ enum WidgetKey {
 
 /// Always-visible, transparent panel that shows what is being tracked right now: the Doing
 /// card(s) with time since they entered Doing, and the current app, window, desktop, and URL.
-/// Empty pixels pass clicks through; drag the text to move it. The frame persists.
+/// Clicks pass through; holding Cmd over the widget arms it (highlight) so it can be dragged.
+/// The frame persists.
 @MainActor
 final class TrackerWidget {
   private let panel: NSPanel
   private var observer: NSObjectProtocol?
+  private var monitors: [Any] = []
+  let grip = WidgetGrip()
 
   init(store: BoardStore) {
     panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 60),
@@ -30,7 +33,7 @@ final class TrackerWidget {
     // Fixed frame, no SwiftUI window sizing: `.preferredContentSize` made NSHostingView resize the
     // panel inside its own windowDidLayout, an infinite recursion when Mission Control opened.
     let host = DragHostingView(rootView: WidgetView().environmentObject(store).environmentObject(store.activity)
-      .environmentObject(store.desktops))
+      .environmentObject(store.desktops).environmentObject(grip))
     host.sizingOptions = []
     panel.contentView = host
     if !panel.setFrameUsingName("TrackerWidget"), let screen = NSScreen.main {
@@ -45,6 +48,25 @@ final class TrackerWidget {
       MainActor.assumeIsolated { self?.applySize(); self?.applyVisibility() }
     }
     applyVisibility()
+    panel.ignoresMouseEvents = true
+    // Global monitors see events aimed at other apps (the usual case, since the widget ignores the
+    // mouse); local monitors see them while the widget itself is grabbed.
+    let mask: NSEvent.EventTypeMask = [.flagsChanged, .mouseMoved, .leftMouseUp]
+    if let g = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
+      MainActor.assumeIsolated { self?.updateGrip() }
+    }) { monitors.append(g) }
+    if let l = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] e in
+      MainActor.assumeIsolated { self?.updateGrip() }
+      return e
+    }) { monitors.append(l) }
+  }
+
+  /// Armed = Cmd held with the pointer over the widget; only then does it take the mouse.
+  private func updateGrip() {
+    let armed = panel.isVisible && NSEvent.modifierFlags.contains(.command) && panel.frame.contains(NSEvent.mouseLocation)
+    guard armed != grip.armed else { return }
+    grip.armed = armed
+    panel.ignoresMouseEvents = !armed
   }
 
   /// Transparent area: width from settings, height for a few tasks plus the activity lines.
@@ -79,7 +101,7 @@ struct WidgetView: View {
   @AppStorage(WidgetKey.size) private var size = 13.0
   @AppStorage(WidgetKey.width) private var width = 360.0
   @State private var toast: [DoingChange] = []
-  @State private var hover = false
+  @EnvironmentObject var grip: WidgetGrip
 
   private var doing: [Card] {
     store.columns.filter { $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.flatMap(\.cards)
@@ -115,10 +137,9 @@ struct WidgetView: View {
     .foregroundStyle(.white)
     .shadow(color: .black.opacity(0.9), radius: 1.5, y: 0.5)
     .padding(.horizontal, 10).padding(.vertical, 6)
-    // Near-zero alpha keeps the widget invisible but makes the whole text block grabbable;
+    // Near-zero alpha keeps the widget invisible but makes the whole text block grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
-    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(hover ? 0.08 : 0.001)))
-    .onHover { hover = $0 }
+    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(grip.armed ? 0.08 : 0.001)))
     .frame(width: width, alignment: .leading)
     .overlay { if !toast.isEmpty { ToastCover(changes: toast, size: size) } }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -184,4 +205,10 @@ final class DragHostingView<Content: View>: NSHostingView<Content> {
   override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
   override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+}
+
+/// Whether the widget currently takes the mouse (Cmd held over it).
+@MainActor
+final class WidgetGrip: ObservableObject {
+  @Published var armed = false
 }
