@@ -61,6 +61,24 @@ public enum ActivityLog {
     return out
   }
 
+  /// Multi-day `kb.chronicle(from, to)`: rows grouped under `== yyyyMMdd ==` headers, keyed by that header.
+  public static func stintsByDay(_ text: String, calendar: Calendar = .current) -> [String: [DoingStint]] {
+    var out: [String: [DoingStint]] = [:]
+    var key: String?, rows: [Substring] = []
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "yyyyMMdd"
+    func flush() {
+      guard let key, let day = f.date(from: key) else { return }
+      out[key] = stints(rows.joined(separator: "\n"), day: calendar.startOfDay(for: day), calendar: calendar)
+    }
+    for line in text.split(separator: "\n") {
+      if let m = line.wholeMatch(of: #/== (\d{8}) ==/#) { flush(); key = String(m.1); rows = [] } else { rows.append(line) }
+    }
+    flush()
+    return out
+  }
+
   /// Wall-clock seconds covered by possibly overlapping intervals (stints of parallel Doing cards).
   /// ```
   /// [0-10, 5-20, 30-40] -> 30

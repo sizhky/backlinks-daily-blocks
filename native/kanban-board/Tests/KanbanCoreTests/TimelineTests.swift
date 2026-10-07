@@ -69,4 +69,12 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(out[0].end, t + 320, "20 s gap carried forward")
     XCTAssertEqual(out[1].end, t + 400, "200 s gap is real absence")
   }
+
+  func testStintsByDaySplitsChronicleSections() {
+    let text = "=> \n== 20261005 ==\n0900:1000\t1h\tA\nTOTAL\t1h\t4%\n== 20261006 ==\n(none)\nTOTAL\t0m\t0%\n== total ==\nTOTAL\t1h\t2%"
+    let out = ActivityLog.stintsByDay(text)
+    XCTAssertEqual(out["20261005"]?.map(\.title), ["A"])
+    XCTAssertEqual(out["20261006"]?.count, 0)
+    XCTAssertNil(out["total"])
+  }
 }

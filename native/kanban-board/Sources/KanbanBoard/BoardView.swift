@@ -78,6 +78,7 @@ struct BoardHeader: View {
           IconButton(icon: "list.bullet", help: "List", active: store.mode == .list) { store.mode = .list }
           IconButton(icon: "book.closed", help: "Logbook", active: store.mode == .logbook) { store.mode = .logbook }
         }
+        IconButton(icon: "calendar.day.timeline.left", help: "Timeline (⇧⌘T)") { store.openTimeline() }
         IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
       }
       .padding(.horizontal, 14).frame(height: 46)

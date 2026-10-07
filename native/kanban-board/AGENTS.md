@@ -28,7 +28,7 @@ Sources/KanbanBoard/   SwiftUI app
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
   WidgetParts.swift    WidgetPart (per-element show/justification/size keys), WidgetAlign, WidgetPrefs
-  TimelineWindow.swift Timeline window (Shift-Cmd-T, menu bar): calendar day (Activity | Doing columns) or per-second list
+  TimelineWindow.swift Timeline window (Shift-Cmd-T, toolbar icon, menu bar): Day / Week calendar or per-second list
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
@@ -226,6 +226,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   stint its own equal-width column with a 2 pt gap, so cards never overlap in x (a one-card-at-a-time
   "focus" line was tried and rejected: it hid real parallel work). Hover details use `hoverTip`/`HoverCard`
   (instant, follows the pointer), not `.help`, whose ~1 s delay felt unresponsive.
+  `CalendarDay` draws N days (`days`/`layouts`): Day = one day split Activity | Doing; Week = the 7 days of
+  `Calendar.dateInterval(of: .weekOfYear)` (locale first weekday), each split 55/45, Doing from one
+  `kb.chronicle(from, to)` parsed by `ActivityLog.stintsByDay`. Arrows step a day or a week.
   `TimelineModel.load` runs `ActivityLog.impute` once: gaps under 60 s (dropped sub-5 s visits, capture
   restarts) carry the previous span forward; 60 s or more stays empty and shows as Away in the list. The log
   file is never rewritten.

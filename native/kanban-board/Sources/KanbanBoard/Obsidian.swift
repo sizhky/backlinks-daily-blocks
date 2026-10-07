@@ -67,6 +67,14 @@ struct ObsidianClient {
     return try await eval("kb.chronicle(\(f.string(from: day)))")
   }
 
+  /// Doing stints for a date range (`kb.chronicle(from, to)`), sections headed `== yyyyMMdd ==`.
+  func chronicle(_ from: Date, to: Date) async throws -> String {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "yyyyMMdd"
+    return try await eval("kb.chronicle(\"\(f.string(from: from))\",\"\(f.string(from: to))\")")
+  }
+
   /// Absolute path of the vault folder (desktop adapter `basePath`).
   func vaultPath() async throws -> String {
     let out = try await eval("app.vault.adapter.basePath").trimmingCharacters(in: .whitespacesAndNewlines)

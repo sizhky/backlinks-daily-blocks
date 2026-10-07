@@ -58,6 +58,13 @@ final class TimelineModel: ObservableObject {
   /// Calendar geometry inputs, rebuilt only when spans or stints change.
   @Published private(set) var layout = CalendarLayout()
   @Published var filter = ""
+  /// Week view: the 7 days of the week containing `day`, one layout each.
+  @Published private(set) var week = false
+  @Published private(set) var weekDays: [Date] = []
+  @Published private(set) var weekLayouts: [CalendarLayout] = []
+  @Published private(set) var weekActive: TimeInterval = 0
+  private var weekSpans: [[Span]] = []
+  private var weekStints: [String: [DoingStint]] = [:]
   /// Zoom requests for the calendar; the pivot is in window (SwiftUI .global) coordinates, nil = view centre.
   let zoom = PassthroughSubject<ZoomRequest, Never>()
   @Published private(set) var error: String?
@@ -71,6 +78,22 @@ final class TimelineModel: ObservableObject {
 
   var isToday: Bool { Calendar.current.isDateInToday(day) }
 
+  /// Days the calendar shows, and their layouts.
+  var days: [Date] { week ? weekDays : [day] }
+  var layouts: [CalendarLayout] { week ? weekLayouts : [layout] }
+  var showsToday: Bool { days.contains { Calendar.current.isDateInToday($0) } }
+
+  func setWeek(_ on: Bool) {
+    guard on != week else { return }
+    week = on
+    load(chronicle: true)
+  }
+
+  static func weekDays(containing day: Date, calendar: Calendar = .current) -> [Date] {
+    let start = calendar.dateInterval(of: .weekOfYear, for: day)?.start ?? day
+    return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
+  }
+
   var rows: [TimelineRow] {
     let q = filter.trimmingCharacters(in: .whitespaces)
     guard !q.isEmpty else { return ActivityLog.rows(spans) }
@@ -83,15 +106,15 @@ final class TimelineModel: ObservableObject {
     guard timer == nil else { return }
     timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
-        guard let self, self.isToday else { return }
+        guard let self, self.showsToday else { return }
         self.ticks += 1
         self.load(chronicle: self.ticks % 6 == 0)
       }
     }
   }
 
-  func shift(_ days: Int) {
-    day = Calendar.current.date(byAdding: .day, value: days, to: day) ?? day
+  func shift(_ steps: Int) {
+    day = Calendar.current.date(byAdding: .day, value: steps * (week ? 7 : 1), to: day) ?? day
     load(chronicle: true)
   }
 
@@ -100,16 +123,26 @@ final class TimelineModel: ObservableObject {
     load(chronicle: true)
   }
 
-  private func load(chronicle: Bool) {
-    guard let dir = activity.dir else { error = "Activity capture has not started"; return }
+  private static let ymd: DateFormatter = {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyyMMdd"
-    let url = dir.appendingPathComponent(f.string(from: day) + ".jsonl")
+    return f
+  }()
+
+  /// One day's spans from its log file, the live span for today, gaps under 60 s filled.
+  private func spans(for day: Date, in dir: URL) -> [Span] {
+    let url = dir.appendingPathComponent(Self.ymd.string(from: day) + ".jsonl")
     var fresh = (try? Data(contentsOf: url)).map(ActivityLog.parse) ?? []
     // The open span is not in the file yet; show it live for today.
-    if isToday, let open = activity.openSpan { fresh.append(open) }
-    fresh = ActivityLog.impute(fresh)
+    if Calendar.current.isDateInToday(day), let open = activity.openSpan { fresh.append(open) }
+    return ActivityLog.impute(fresh)
+  }
+
+  private func load(chronicle: Bool) {
+    guard let dir = activity.dir else { error = "Activity capture has not started"; return }
+    if week { return loadWeek(dir: dir, chronicle: chronicle) }
+    let fresh = spans(for: day, in: dir)
     if fresh != spans { spans = fresh; layout = CalendarLayout(spans: spans, stints: stints) }
     error = nil
     guard chronicle else { return }
@@ -119,6 +152,29 @@ final class TimelineModel: ObservableObject {
       let fresh = ActivityLog.stints(text, day: day)
       if day == self.day, fresh != stints { stints = fresh; layout = CalendarLayout(spans: spans, stints: stints) }
     }
+  }
+
+  private func loadWeek(dir: URL, chronicle: Bool) {
+    let days = Self.weekDays(containing: day)
+    let fresh = days.map { spans(for: $0, in: dir) }
+    let changed = days != weekDays || fresh != weekSpans
+    weekDays = days
+    weekSpans = fresh
+    if changed { rebuildWeek() }
+    error = nil
+    guard chronicle, let first = days.first, let last = days.last else { return }
+    Task {
+      let text = (try? await client.chronicle(first, to: last)) ?? ""
+      let byDay = ActivityLog.stintsByDay(text)
+      guard days == weekDays, byDay != weekStints else { return }
+      weekStints = byDay
+      rebuildWeek()
+    }
+  }
+
+  private func rebuildWeek() {
+    weekLayouts = zip(weekDays, weekSpans).map { CalendarLayout(spans: $1, stints: weekStints[Self.ymd.string(from: $0)] ?? []) }
+    weekActive = weekSpans.joined().reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
   }
 }
 
@@ -132,13 +188,15 @@ struct TimelineScreen: View {
     VStack(spacing: 0) {
       header
       Divider().overlay(Palette.hairline)
-      if mode == "calendar" {
-        CalendarDay(layout: model.layout, day: model.day, isToday: model.isToday, zoom: model.zoom)
-          .overlay(alignment: .bottomLeading) { zoom.padding(12) }
-      } else {
+      if mode == "list" {
         list
+      } else {
+        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom)
+          .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
     }
+    .onAppear { model.setWeek(mode == "week") }
+    .onChange(of: mode) { model.setWeek(mode == "week") }
     .background(Palette.base)
     .foregroundStyle(Palette.text)
     .frame(minWidth: 640, minHeight: 420)
@@ -147,13 +205,14 @@ struct TimelineScreen: View {
   private var header: some View {
     HStack(spacing: 12) {
       VStack(alignment: .leading, spacing: 2) {
-        Text(model.day.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+        Text(title)
           .font(.system(size: 20, weight: .semibold)).tracking(-0.3)
         Text(summary).font(.system(size: 12)).foregroundStyle(Palette.muted).monospacedDigit()
       }
       Spacer()
       Picker("View", selection: $mode) {
-        Image(systemName: "calendar.day.timeline.left").help("Calendar").tag("calendar")
+        Image(systemName: "calendar.day.timeline.left").help("Day").tag("calendar")
+        Image(systemName: "calendar").help("Week").tag("week")
         Image(systemName: "list.bullet").help("List").tag("list")
       }
       .labelsHidden().pickerStyle(.segmented).fixedSize()
@@ -163,9 +222,10 @@ struct TimelineScreen: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Palette.card))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
       HStack(spacing: 2) {
-        Button { model.shift(-1) } label: { Image(systemName: "chevron.left") }.help("Previous day")
-        Button("Today") { model.today() }.disabled(model.isToday)
-        Button { model.shift(1) } label: { Image(systemName: "chevron.right") }.help("Next day").disabled(model.isToday)
+        Button { model.shift(-1) } label: { Image(systemName: "chevron.left") }.help(model.week ? "Previous week" : "Previous day")
+        Button("Today") { model.today() }.disabled(model.week ? model.showsToday : model.isToday)
+        Button { model.shift(1) } label: { Image(systemName: "chevron.right") }.help(model.week ? "Next week" : "Next day")
+          .disabled(model.week ? model.showsToday : model.isToday)
       }
       .buttonStyle(.bordered)
     }
@@ -185,7 +245,18 @@ struct TimelineScreen: View {
     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
   }
 
+  private var title: String {
+    guard model.week, let a = model.weekDays.first, let b = model.weekDays.last else {
+      return model.day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+    }
+    return "\(a.formatted(.dateTime.day().month(.abbreviated))) – \(b.formatted(.dateTime.day().month(.abbreviated).year()))"
+  }
+
   private var summary: String {
+    if model.week {
+      let doing = model.weekLayouts.reduce(0.0) { $0 + ActivityLog.unionSeconds($1.stints.map { ($0.start, $0.end) }) }
+      return "Active \(Self.dur(model.weekActive)) · Doing \(Self.dur(doing))"
+    }
     let active = model.spans.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
     let doing = ActivityLog.unionSeconds(model.stints.map { ($0.start, $0.end) })
     return "Active \(Self.dur(active)) · Doing \(Self.dur(doing)) · \(model.spans.count) spans"
@@ -301,14 +372,14 @@ struct CalendarLayout {
   }
 }
 
-/// Calendar day: hours down the left, the Mac's activity and the Doing stints as vertical blocks,
-/// a red line at now. Overlapping Doing stints sit side by side, never overlapping in x.
-/// Drawn by one viewport-sized Canvas, culled to the visible hours; the ScrollView only holds an
-/// empty spacer of the day's height for scrolling and hover. Per-block views made zoom chug.
+/// Calendar of one or more days: hours down the left; per day, the Mac's activity and the Doing
+/// stints as vertical blocks, and a red line at now. Overlapping Doing stints sit side by side,
+/// never overlapping in x. Drawn by one viewport-sized Canvas, culled to the visible hours; the
+/// ScrollView only holds an empty spacer of the day's height for scrolling and hover. Per-block
+/// views made zoom chug.
 struct CalendarDay: View {
-  let layout: CalendarLayout
-  let day: Date
-  let isToday: Bool
+  let days: [Date]
+  let layouts: [CalendarLayout]
   let zoom: PassthroughSubject<ZoomRequest, Never>
   static let gutter = 64.0
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
@@ -323,18 +394,25 @@ struct CalendarDay: View {
   @State private var pointer: CGPoint?
   @State private var save: Task<Void, Never>?
 
-  private func y(_ d: Date) -> Double { max(0, min(24, d.timeIntervalSince(day) / 3600)) * hourHeight }
-  private func column(_ width: Double) -> Double { (width - Self.gutter - 24) / 2 }
+  private var single: Bool { days.count == 1 }
+  /// y of a time within its own day.
+  private func y(_ d: Date, _ day: Date) -> Double { max(0, min(24, d.timeIntervalSince(day) / 3600)) * hourHeight }
+
+  /// Horizontal slots of each day: activity strip, then Doing strip.
+  private func slots(width: Double) -> [(ax: Double, aw: Double, dx: Double, dw: Double)] {
+    let usable = width - Self.gutter - 12
+    let dayW = usable / Double(max(1, days.count))
+    return days.indices.map { i in
+      let x0 = Self.gutter + 12 + Double(i) * dayW
+      let aw = single ? dayW / 2 - 8 : dayW * 0.55 - 2
+      let dw = single ? dayW / 2 - 8 : dayW * 0.45 - 6
+      return (x0, aw, x0 + aw + (single ? 8 : 2), dw)
+    }
+  }
 
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 0) {
-        Spacer().frame(width: Self.gutter, height: 0)  // a bare Color.clear grew tall and pushed the calendar down
-        Text("ACTIVITY").frame(maxWidth: .infinity, alignment: .leading)
-        Text("DOING").frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .font(.system(size: 10.5, weight: .semibold)).tracking(0.4).foregroundStyle(Palette.muted)
-      .padding(.vertical, 8).padding(.horizontal, 12)
+      header
       Divider().overlay(Palette.hairline)
       ScrollView {
         Color.clear
@@ -360,10 +438,38 @@ struct CalendarDay: View {
           HoverCard(text: text, at: CGPoint(x: p.x, y: p.y - offsetY), bounds: viewport.size).allowsHitTesting(false)
         }
       }
-      .onAppear { position.scrollTo(y: max(0, y(focusTime) - 120)) }
-      .onChange(of: day) { position.scrollTo(y: max(0, y(focusTime) - 120)) }
+      .onAppear { position.scrollTo(y: max(0, focusY - 120)) }
+      .onChange(of: days) { position.scrollTo(y: max(0, focusY - 120)) }
       .onReceive(zoom) { apply($0) }
     }
+  }
+
+  /// One day: ACTIVITY / DOING. A week: day name and active time per column.
+  private var header: some View {
+    GeometryReader { geo in
+      let sl = slots(width: geo.size.width)
+      ZStack(alignment: .topLeading) {
+        if single {
+          Text("ACTIVITY").offset(x: sl[0].ax)
+          Text("DOING").offset(x: sl[0].dx)
+        } else {
+          ForEach(days.indices, id: \.self) { i in
+            let today = Calendar.current.isDateInToday(days[i])
+            let active = layouts[i].blocks.reduce(0.0) { $0 + $1.end.timeIntervalSince($1.start) }
+            VStack(alignment: .leading, spacing: 1) {
+              Text(days[i].formatted(.dateTime.weekday(.abbreviated).day())).foregroundStyle(today ? Palette.danger : Palette.secondary)
+              Text(active > 0 ? TimelineScreen.dur(active) : "–").font(.system(size: 10)).foregroundStyle(Palette.muted).monospacedDigit()
+            }
+            .lineLimit(1)
+            .frame(width: sl[i].dx + sl[i].dw - sl[i].ax, alignment: .leading)
+            .offset(x: sl[i].ax)
+          }
+        }
+      }
+      .font(.system(size: 10.5, weight: .semibold)).tracking(0.4).foregroundStyle(Palette.muted)
+      .frame(maxHeight: .infinity, alignment: .center)
+    }
+    .frame(height: single ? 30 : 38)
   }
 
   /// Keeps the time under the pivot (pointer, or the view centre) fixed while the hour height changes.
@@ -385,8 +491,12 @@ struct CalendarDay: View {
     }
   }
 
-  /// Now for today, else the first activity of the day.
-  private var focusTime: Date { isToday ? Date() : (layout.blocks.first?.start ?? layout.stints.first?.start ?? day.addingTimeInterval(9 * 3600)) }
+  /// Now if a shown day is today, else the earliest activity, else 9 AM.
+  private var focusY: Double {
+    if let i = days.firstIndex(where: { Calendar.current.isDateInToday($0) }) { return y(Date(), days[i]) }
+    let firsts = days.indices.compactMap { i in (layouts[i].blocks.first?.start ?? layouts[i].stints.first?.start).map { y($0, days[i]) } }
+    return firsts.min() ?? 9 * hourHeight
+  }
 
   /// Minutes between sub-hour gridlines at this zoom; nil = hours only.
   private var tick: Int? {
@@ -403,7 +513,7 @@ struct CalendarDay: View {
   private func draw(_ gc: GraphicsContext, size: CGSize, now: Date) {
     let top = offsetY, bottom = offsetY + size.height
     let visible = { (a: Double, b: Double) in b >= top - 2 && a <= bottom + 2 }
-    let col = column(size.width)
+    let sl = slots(width: size.width)
     // Grid
     let step = Double(tick ?? 60)
     var minute = max(0, floor(top / hourHeight * 60 / step) * step)
@@ -418,38 +528,47 @@ struct CalendarDay: View {
               at: CGPoint(x: Self.gutter - 8, y: cy), anchor: .trailing)
       minute += step
     }
-    // Activity
-    let ax = Self.gutter + 12, aw = col - 8
-    for (i, b) in layout.blocks.enumerated() {
-      let y0 = y(b.start), y1 = y(b.end)
-      guard visible(y0, y1) else { continue }
-      let r = CGRect(x: ax, y: y0 - top, width: aw, height: max(1, y1 - y0))
-      block(gc, r, tint: layout.tints[i], title: b.title.isEmpty ? b.app : b.title, icon: b.bundle,
-            dur: TimelineScreen.dur(b.end.timeIntervalSince(b.start)))
-    }
-    for ss in layout.sessions {
-      let y0 = y(ss.start), y1 = y(ss.end)
-      guard y1 - y0 >= 18, visible(y0, y1) else { continue }
-      // Sticky: the label stays on screen while any of its session is.
-      let ly = min(max(y0, top) + 3, y1 - 20) - top
-      sessionLabel(gc, ss, at: CGPoint(x: ax + 8, y: ly), maxWidth: aw - 16)
-    }
-    // Doing
-    let dx = ax + col
-    for (i, st) in layout.stints.enumerated() {
-      let y0 = y(st.start), y1 = y(st.end)
-      guard visible(y0, y1) else { continue }
-      let w = (aw + 2) / Double(layout.lanes[i])
-      let r = CGRect(x: dx + Double(layout.lane[i]) * w, y: y0 - top, width: max(1, w - 2), height: max(2, y1 - y0 - 1))
-      block(gc, r, tint: Palette.indigo, title: r.width >= 60 ? st.title : nil, icon: nil,
-            dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: 0.28)
-    }
-    // Now
-    if isToday {
-      let ny = y(now) - top
-      if ny >= -4 && ny <= size.height + 4 {
-        gc.fill(Path(ellipseIn: CGRect(x: Self.gutter - 4, y: ny - 3.5, width: 7, height: 7)), with: .color(Palette.danger))
-        gc.fill(Path(CGRect(x: Self.gutter, y: ny - 0.75, width: size.width - Self.gutter, height: 1.5)), with: .color(Palette.danger))
+    for (i, day) in days.enumerated() {
+      let layout = layouts[i], s = sl[i]
+      // Day separators in the week view
+      if !single, i > 0 {
+        gc.fill(Path(CGRect(x: s.ax - 4, y: 0, width: 1, height: size.height)), with: .color(Palette.hairline))
+      }
+      // Activity
+      for (k, b) in layout.blocks.enumerated() {
+        let y0 = y(b.start, day), y1 = y(b.end, day)
+        guard visible(y0, y1) else { continue }
+        let r = CGRect(x: s.ax, y: y0 - top, width: s.aw, height: max(1, y1 - y0))
+        block(gc, r, tint: layout.tints[k], title: s.aw >= 80 ? (b.title.isEmpty ? b.app : b.title) : nil, icon: b.bundle,
+              dur: TimelineScreen.dur(b.end.timeIntervalSince(b.start)))
+      }
+      if s.aw >= 120 {
+        for ss in layout.sessions {
+          let y0 = y(ss.start, day), y1 = y(ss.end, day)
+          guard y1 - y0 >= 18, visible(y0, y1) else { continue }
+          // Sticky: the label stays on screen while any of its session is.
+          let ly = min(max(y0, top) + 3, y1 - 20) - top
+          sessionLabel(gc, ss, at: CGPoint(x: s.ax + 8, y: ly), maxWidth: s.aw - 16)
+        }
+      }
+      // Doing
+      for (k, st) in layout.stints.enumerated() {
+        let y0 = y(st.start, day), y1 = y(st.end, day)
+        guard visible(y0, y1) else { continue }
+        let w = (s.dw + 2) / Double(layout.lanes[k])
+        let r = CGRect(x: s.dx + Double(layout.lane[k]) * w, y: y0 - top, width: max(1, w - 2), height: max(2, y1 - y0 - 1))
+        block(gc, r, tint: Palette.indigo, title: r.width >= 60 ? st.title : nil, icon: nil,
+              dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: 0.28)
+      }
+      // Now
+      if Calendar.current.isDateInToday(day) {
+        let ny = y(now, day) - top
+        if ny >= -4 && ny <= size.height + 4 {
+          let x0 = single ? Self.gutter : s.ax - 4
+          let x1 = single ? size.width : s.dx + s.dw
+          gc.fill(Path(ellipseIn: CGRect(x: x0 - 4, y: ny - 3.5, width: 7, height: 7)), with: .color(Palette.danger))
+          gc.fill(Path(CGRect(x: x0, y: ny - 0.75, width: x1 - x0, height: 1.5)), with: .color(Palette.danger))
+        }
       }
     }
   }
@@ -457,7 +576,7 @@ struct CalendarDay: View {
   private func block(_ gc: GraphicsContext, _ r: CGRect, tint: Color, title: String?, icon: String?, dur: String, fill: Double = 0.22) {
     let shape = Path(roundedRect: r, cornerRadius: min(4, r.height / 2), style: .continuous)
     gc.fill(shape, with: .color(tint.opacity(fill)))
-    gc.fill(Path(CGRect(x: r.minX, y: r.minY, width: 3, height: r.height)), with: .color(tint))
+    gc.fill(Path(CGRect(x: r.minX, y: r.minY, width: min(3, r.width), height: r.height)), with: .color(tint))
     guard let title, r.height >= 18 else { return }
     var inner = gc
     inner.clip(to: shape)
@@ -497,22 +616,24 @@ struct CalendarDay: View {
   // MARK: Hover hit test (content coordinates)
 
   private func hit(_ p: CGPoint) -> String? {
-    let col = column(viewport.width)
-    let ax = Self.gutter + 12, aw = col - 8, dx = ax + col
-    let t = day.addingTimeInterval(p.y / hourHeight * 3600)
+    let sl = slots(width: viewport.width)
+    guard let i = sl.indices.first(where: { p.x >= sl[$0].ax && p.x <= sl[$0].dx + sl[$0].dw }) else { return nil }
+    let s = sl[i], layout = layouts[i]
+    let t = days[i].addingTimeInterval(p.y / hourHeight * 3600)
     // At low zoom a 5 s block is under a pixel; accept the nearest block within 2 pt.
     let slack = 2 / hourHeight * 3600
-    if p.x >= ax, p.x <= ax + aw,
+    let when = single ? "" : days[i].formatted(.dateTime.weekday(.abbreviated).day()) + " "
+    if p.x <= s.ax + s.aw,
        let b = layout.blocks.first(where: { $0.start.addingTimeInterval(-slack) <= t && $0.end.addingTimeInterval(slack) >= t }) {
-      return "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
+      return "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(when)\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
     }
-    if p.x >= dx, p.x <= dx + aw {
-      for (i, st) in layout.stints.enumerated() where st.start <= t && st.end >= t {
-        let w = (aw + 2) / Double(layout.lanes[i])
-        let x0 = dx + Double(layout.lane[i]) * w
+    if p.x >= s.dx {
+      for (k, st) in layout.stints.enumerated() where st.start <= t && st.end >= t {
+        let w = (s.dw + 2) / Double(layout.lanes[k])
+        let x0 = s.dx + Double(layout.lane[k]) * w
         guard p.x >= x0, p.x <= x0 + w else { continue }
-        let others = layout.lanes[i] - 1
-        return "\(st.title)\n\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
+        let others = layout.lanes[k] - 1
+        return "\(st.title)\n\(when)\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
           + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
       }
     }
