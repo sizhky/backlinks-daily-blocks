@@ -357,7 +357,14 @@ struct TimelineRowView: View {
     return [s.app, s.title, s.url].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
   }
 
-  static func clock(_ d: Date) -> String { d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits)) }
+  /// 24-hour `HH:mm:ss`; a 12-hour clock with AM/PM omitted showed midnight as 12:00:00.
+  static func clock(_ d: Date) -> String { clockFormat.string(from: d) }
+  private static let clockFormat: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "HH:mm:ss"
+    return f
+  }()
 }
 
 /// Precomputed calendar content for one day, rebuilt only when the data changes (never per frame).
