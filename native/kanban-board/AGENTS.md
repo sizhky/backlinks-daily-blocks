@@ -224,6 +224,8 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Never give an `NSHostingView`/`NSHostingController` in a borderless panel `.preferredContentSize` (or the
   default sizing options): it resized the panel inside its own `windowDidLayout` and crashed the app
   with infinite recursion when Mission Control opened. Panels get fixed frames and `sizingOptions = []`.
+- Dragging a borderless non-activating panel: `isMovableByWindowBackground` plus `mouseDownCanMoveWindow`
+  did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS, so the
   Keyboard Maestro path to "Desktop N" buttons is dead, and the open Mission Control is one full-screen
   Dock window. The group's presence is only the "open" signal; label frames come from ScreenCaptureKit

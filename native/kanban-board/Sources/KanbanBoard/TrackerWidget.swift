@@ -26,7 +26,6 @@ final class TrackerWidget {
     panel.isOpaque = false
     panel.backgroundColor = .clear
     panel.hasShadow = false
-    panel.isMovableByWindowBackground = true
     panel.hidesOnDeactivate = false
     // Fixed frame, no SwiftUI window sizing: `.preferredContentSize` made NSHostingView resize the
     // panel inside its own windowDidLayout, an infinite recursion when Mission Control opened.
@@ -177,8 +176,12 @@ struct ToastCover: View {
   }
 }
 
-/// Hosting view that lets a mouse-down anywhere on the content drag the panel
-/// (`isMovableByWindowBackground` only acts on views that allow it).
+/// Hosting view that drags the panel from a mouse-down anywhere on the content.
+/// `isMovableByWindowBackground` with `mouseDownCanMoveWindow` did not move a non-activating
+/// panel; `performDrag(with:)` starts the window-server move directly. The widget has no
+/// controls, so taking every hit is safe.
 final class DragHostingView<Content: View>: NSHostingView<Content> {
-  override var mouseDownCanMoveWindow: Bool { true }
+  override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+  override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
 }
