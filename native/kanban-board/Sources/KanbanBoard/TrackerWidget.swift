@@ -30,7 +30,7 @@ final class TrackerWidget {
     panel.hidesOnDeactivate = false
     // Fixed frame, no SwiftUI window sizing: `.preferredContentSize` made NSHostingView resize the
     // panel inside its own windowDidLayout, an infinite recursion when Mission Control opened.
-    let host = NSHostingView(rootView: WidgetView().environmentObject(store).environmentObject(store.activity)
+    let host = DragHostingView(rootView: WidgetView().environmentObject(store).environmentObject(store.activity)
       .environmentObject(store.desktops))
     host.sizingOptions = []
     panel.contentView = host
@@ -80,6 +80,7 @@ struct WidgetView: View {
   @AppStorage(WidgetKey.size) private var size = 13.0
   @AppStorage(WidgetKey.width) private var width = 360.0
   @State private var toast: [DoingChange] = []
+  @State private var hover = false
 
   private var doing: [Card] {
     store.columns.filter { $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.flatMap(\.cards)
@@ -115,6 +116,10 @@ struct WidgetView: View {
     .foregroundStyle(.white)
     .shadow(color: .black.opacity(0.9), radius: 1.5, y: 0.5)
     .padding(.horizontal, 10).padding(.vertical, 6)
+    // Near-zero alpha keeps the widget invisible but makes the whole text block grabbable;
+    // fully clear pixels would pass the mouse through to the window below.
+    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(hover ? 0.08 : 0.001)))
+    .onHover { hover = $0 }
     .frame(width: width, alignment: .leading)
     .overlay { if !toast.isEmpty { ToastCover(changes: toast, size: size) } }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -170,4 +175,10 @@ struct ToastCover: View {
     default: .gray
     }
   }
+}
+
+/// Hosting view that lets a mouse-down anywhere on the content drag the panel
+/// (`isMovableByWindowBackground` only acts on views that allow it).
+final class DragHostingView<Content: View>: NSHostingView<Content> {
+  override var mouseDownCanMoveWindow: Bool { true }
 }
