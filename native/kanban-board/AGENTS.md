@@ -271,7 +271,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   height via `onHeight`; `TrackerWidget` resizes the panel on the next run loop (never during layout) and
   keeps the bottom edge fixed (content bottom-aligned; the widget grows upward). Armed area, highlight, toast, and window frame stay one rectangle.
   Each element (`WidgetPart`) has its own visibility, justification (`widget.<part>.align`), and font size
-  (`widget.<part>.size`); colour, font family, and square size are global. Settings > Widget renders the real
+  (`widget.<part>.size`); font family and square size are global. Colour: the whole widget takes the active card's
+  project colour (light end of its `Monogram` gradient), paused rows their own, the Text color setting only without a project.
+  Position: `widget.origin` (bottom-left, saved on every move, used only when still on a screen); no frame autosave. Settings > Widget renders the real
   `WidgetView` (live data, own `WidgetGrip`) on a sample wallpaper; the Settings scene gets the store's
   environment objects in `KanbanApp`.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard

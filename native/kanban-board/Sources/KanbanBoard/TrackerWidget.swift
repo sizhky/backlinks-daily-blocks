@@ -6,6 +6,8 @@ import KanbanCore
 enum WidgetKey {
   static let visible = "widget.visible"
   static let task = "widget.task", timer = "widget.timer", app = "widget.app"
+  /// Bottom-left corner of the widget, `NSStringFromPoint`.
+  static let origin = "widget.origin"
   static let title = "widget.title", desktop = "widget.desktop", url = "widget.url"
   static let width = "widget.width"
   static let color = "widget.color", font = "widget.font"
@@ -41,6 +43,7 @@ final class TrackerWidget {
   let grip = WidgetGrip()
   /// Height the content needs (reported by `WidgetView`); the panel grows past the square to fit it.
   private var contentHeight: CGFloat = 0
+  private var moveObserver: Any?
 
   init(store: BoardStore) {
     panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 60),
@@ -58,10 +61,21 @@ final class TrackerWidget {
       .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops))
     host.sizingOptions = []
     panel.contentView = host
-    if !panel.setFrameUsingName("TrackerWidget"), let screen = NSScreen.main {
+    // Position: the bottom-left corner (the edge that stays put when the widget grows), saved after
+    // every move; used again only if it is still on a screen, else top centre of the main screen.
+    let saved = UserDefaults.standard.string(forKey: WidgetKey.origin).map(NSPointFromString)
+      ?? UserDefaults.standard.string(forKey: "NSWindow Frame TrackerWidget").map { NSRectFromString($0).origin }
+    if let saved, NSScreen.screens.contains(where: { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(saved) }) {
+      panel.setFrameOrigin(saved)
+    } else if let screen = NSScreen.main {
       panel.setFrameTopLeftPoint(NSPoint(x: screen.visibleFrame.midX - 180, y: screen.visibleFrame.maxY - 8))
     }
-    panel.setFrameAutosaveName("TrackerWidget")
+    moveObserver = NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        UserDefaults.standard.set(NSStringFromPoint(self.panel.frame.origin), forKey: WidgetKey.origin)
+      }
+    }
     defer { applySize() }
     // Resize after SwiftUI's layout pass, never inside it (resizing from layout recursed and crashed).
     reportHeight = { [weak self] h in
@@ -150,7 +164,7 @@ struct WidgetView: View {
       hero
       footer
     }
-    .foregroundStyle(WidgetStyle.color(color))
+    .foregroundStyle(active.map(tint) ?? WidgetStyle.color(color))
     .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
     .padding(margin)
     .frame(width: width)
@@ -235,6 +249,12 @@ struct WidgetView: View {
     }
   }
 
+  /// The card's project colour (the light end of its `Monogram` gradient); the Text color setting without a
+  /// project. The whole widget takes the active card's colour; paused rows keep their own.
+  private func tint(_ card: Card) -> Color {
+    card.projects.first.map { Color(ProjectColor.pair($0).light) } ?? WidgetStyle.color(color)
+  }
+
   @ViewBuilder private var pausedRows: some View {
     if !paused.isEmpty {
       VStack(spacing: 6) {
@@ -259,6 +279,7 @@ struct WidgetView: View {
           .fixedSize()
       }
     }
+    .foregroundStyle(tint(card))
     .accessibilityLabel("\(card.title), paused")
   }
 
