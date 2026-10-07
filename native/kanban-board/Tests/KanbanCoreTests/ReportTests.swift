@@ -15,10 +15,33 @@ final class ReportTests: XCTestCase {
     out.filter { $0.target == target && (project == nil || $0.project == project) }.reduce(0) { $0 + $1.seconds } / 60
   }
 
-  func testParallelCardsSplitActiveTimeOnly() {
-    let out = Report.attribute(spans: [span(0, 30)], cards: [card("a", 0, 60), card("b", 0, 60)], rules: [], calendar: cal)
-    XCTAssertEqual(minutes(out, .card("a")), 15)
-    XCTAssertEqual(minutes(out, .card("b")), 15)
+  func testOneActiveCardTakesActiveTimeOnly() {
+    let out = Report.attribute(spans: [span(0, 30)], cards: [card("a", 0, 60), card("b", 10, 60)], rules: [], calendar: cal)
+    XCTAssertEqual(minutes(out, .card("a")), 10, "a alone until b enters Doing")
+    XCTAssertEqual(minutes(out, .card("b")), 20, "the card that entered Doing last is active")
+  }
+
+  func testFocusPrefersOwnersThenNoAffinityThenLatest() {
+    XCTAssertEqual(Focus.pick([(0, at(0), true), (1, at(30), true)]), 1)
+    XCTAssertEqual(Focus.pick([(0, at(0), true), (1, at(30), nil)]), 0)
+    XCTAssertEqual(Focus.pick([(0, at(0), false), (1, at(30), nil)]), 1)
+    XCTAssertNil(Focus.pick([(0, at(0), false)]))
+  }
+
+  func testActiveClockCreditsTicksCapsGapsAndRetractsIdle() {
+    var c = ActiveClock()
+    c.tick(now: at(0), active: "a")
+    c.tick(now: at(0.1), active: "a")
+    c.tick(now: at(0.2), active: "b")
+    XCTAssertEqual(c.pending["a"] ?? 0, 12, accuracy: 0.01)
+    c.tick(now: at(60), active: "b")
+    XCTAssertEqual(c.pending["b"] ?? 0, 15, accuracy: 0.01, "a gap is capped at maxStep")
+    var idle = ActiveClock()
+    for s in stride(from: 0.0, through: 300, by: 6) { idle.tick(now: t0.addingTimeInterval(s), active: "a") }
+    idle.tick(now: t0.addingTimeInterval(306), active: nil, awaySince: t0.addingTimeInterval(6))
+    XCTAssertEqual(idle.pending["a"] ?? 0, 6, accuracy: 0.01, "time after the idle start is taken back")
+    XCTAssertEqual(idle.take(), ["a": 6])
+    XCTAssertEqual(idle.unwritten("a", now: t0.addingTimeInterval(400)), 0, accuracy: 0.01)
   }
 
   func testOwnerTakesTheSpanAndForeignContextIsUnattributed() {

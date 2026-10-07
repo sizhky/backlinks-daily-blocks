@@ -85,6 +85,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - The last two board-script fields are the task's 1-based ordinal among the note's checkbox list items
   (`metadataCache` `listItems`) and their count; every task gets `.NN` (zero-padded) when the count is above 1. `Card.identifier` uses it, never the line: every move inserts a
   `%% kb %%` line and shifted ids of tasks below (OW-1215.15 became .16).
+- Field 15 (after `since`) is `%% kbactive N %%` seconds from `kb.activeTimes()`, parsed into `Card.activeSeconds`.
 - After est and took (always two fields, empty without a guess) every row ends with `since`: the ISO time a
   live card entered its column (`kb.active({timestamps:true})`), parsed into `Card.since` for the widget timer.
 - Done (`=x`) rows end with the ISO done time (`kb.board({timestamps:true})`), parsed into `Card.doneAt`.
@@ -285,3 +286,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   context (`SwitchEngine.owns`) split it, else cards with no affinity, else a matching rule's scope gets
   "No card" time, else Unattributed. A card's share splits equally across its org x project pairs.
   Ad hoc uses `reports.mull` minutes (Settings > Tracking). Attribution runs off the main actor.
+- One active task (`Focus.pick`): among Doing cards, owners of the current context win, else cards with no
+  affinity, ties to the latest into Doing; away = none. The widget shows that card as the hero with its active
+  time running and the other Doing cards as dimmed paused rows. Reports use the same pick per moment.
+  `ActiveClock` (persisted in `kanban.activeClock`) credits ticks (refresh and every context change, capped at
+  15 s), takes back time after the idle start when going away, and `BoardStore.flushActive` writes whole seconds
+  with `kb.addActive` on a switch and every 300 s. The board adds flushed seconds locally so the timer never dips.

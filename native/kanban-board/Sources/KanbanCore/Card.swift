@@ -20,6 +20,8 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var took: Int?
   /// When a live card entered its current column (its latest `%% kb %%` stamp); nil for done rows.
   public var since: Date?
+  /// Seconds the card was the one active task (`%% kbactive N %%`, written by `ActiveClock` flushes).
+  public var activeSeconds: Int?
   /// View identity that survives line shifts (`file|title`, set by `Board.parse`); `ref` changes
   /// whenever a line is inserted above the task, which would make SwiftUI re-insert the card.
   public var id: String
@@ -88,6 +90,7 @@ public struct Card: Identifiable, Equatable, Sendable {
     est = f.count > 11 ? Int(f[11]) : nil
     took = f.count > 12 ? Int(f[12]) : nil
     since = f.count > 13 ? Self.iso.date(from: f[13]) : nil
+    activeSeconds = f.count > 14 ? Int(f[14]) : nil
   }
 
   init(ref: String, file: String, line: Int, col: String, title: String, age: String,

@@ -130,11 +130,14 @@ struct WidgetView: View {
   @AppStorage(WidgetKey.font) private var family = ""
   @State private var toast: [DoingChange] = []
 
-  /// Doing cards, most recently started first: the hero is the task you switched to last.
+  /// Doing cards, most recently started first.
   private var doing: [Card] {
     store.columns.filter { $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.flatMap(\.cards)
       .sorted { ($0.since ?? .distantPast) > ($1.since ?? .distantPast) }
   }
+  /// 6.1 The one active card (desktop context); its timer runs, the others are paused.
+  private var active: Card? { doing.first { $0.id == store.activeID } }
+  private var paused: [Card] { doing.filter { $0.id != store.activeID } }
 
   private var margin: Double { width * 0.07 }
   private var corner: Double { width * 0.12 }
@@ -203,23 +206,25 @@ struct WidgetView: View {
     }
   }
 
-  /// What is being tracked. One card: the timer as the one glanceable number, the task under it.
-  /// Parallel cards: one row each, title and its own timer, newest first; nothing is hidden.
+  /// What is being tracked. The active card: its active time as the one glanceable number, the task
+  /// under it. Other Doing cards follow as quiet rows with their paused totals.
   @ViewBuilder private var hero: some View {
-    if doing.count > 1 {
-      VStack(spacing: 6) {
-        ForEach(doing) { card in parallelRow(card) }
-      }
-    } else if let card = doing.first {
+    if let card = active {
       VStack(spacing: 3) {
-        if let since = card.since, prefs.shown(.timer) {
+        if prefs.shown(.timer) {
           TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            part(.timer) { Text(Self.clock(ctx.date.timeIntervalSince(since))).monospacedDigit() }
+            part(.timer) { Text(Self.clock(store.activeTime(card, at: ctx.date))).monospacedDigit() }
               .minimumScaleFactor(0.6)
               .contentTransition(.numericText())
           }
         }
         part(.title, lines: 2) { Text(card.title) }
+        pausedRows.padding(.top, 4)
+      }
+    } else if !doing.isEmpty {
+      VStack(spacing: 3) {
+        part(.timer) { Text(Image(systemName: "pause.fill")) }.fontWeight(.light).opacity(0.7)
+        pausedRows
       }
     } else {
       VStack(spacing: 3) {
@@ -230,8 +235,17 @@ struct WidgetView: View {
     }
   }
 
-  /// One of several parallel Doing cards: title left, its own timer right.
-  private func parallelRow(_ card: Card) -> some View {
+  @ViewBuilder private var pausedRows: some View {
+    if !paused.isEmpty {
+      VStack(spacing: 6) {
+        ForEach(paused) { card in pausedRow(card) }
+      }
+      .opacity(0.5)
+    }
+  }
+
+  /// A Doing card that is not active: title left, its active total right, not running.
+  private func pausedRow(_ card: Card) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       if prefs.shown(.title) {
         Text(card.title)
@@ -239,15 +253,13 @@ struct WidgetView: View {
           .lineLimit(2)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
-      if prefs.shown(.timer), let since = card.since {
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-          Text(Self.clock(ctx.date.timeIntervalSince(since)))
-            .font(WidgetStyle.font(family, prefs.size(.title) * 1.15, .semibold, design: .rounded).monospacedDigit())
-            .contentTransition(.numericText())
-        }
-        .fixedSize()
+      if prefs.shown(.timer) {
+        Text(Self.clock(store.activeTime(card, at: Date())))
+          .font(WidgetStyle.font(family, prefs.size(.title) * 1.15, .semibold, design: .rounded).monospacedDigit())
+          .fixedSize()
       }
     }
+    .accessibilityLabel("\(card.title), paused")
   }
 
   /// Context, quieter: app, then window title or address.

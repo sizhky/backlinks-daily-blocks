@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import KanbanCore
 import SwiftUI
@@ -80,6 +81,15 @@ final class BoardStore: ObservableObject {
   /// 4.2 Rule moves; persisted so a relaunch can still resume what it parked.
   private var switches: SwitchEngine = UserDefaults.standard.data(forKey: "kanban.switches")
     .flatMap { try? JSONDecoder().decode(SwitchEngine.self, from: $0) } ?? SwitchEngine()
+
+  /// 6.1 The one active Doing card (`Focus.active`, by desktop context); nil while away or when no card fits.
+  @Published private(set) var activeID: String?
+  /// Unwritten active seconds; persisted so a relaunch loses nothing, flushed to `%% kbactive %%`.
+  private var clock: ActiveClock = UserDefaults.standard.data(forKey: "kanban.activeClock")
+    .flatMap { try? JSONDecoder().decode(ActiveClock.self, from: $0) } ?? ActiveClock()
+  private var lastFlush = Date()
+  private var contextSink: Any?
+  static let flushEvery: TimeInterval = 300
 
   init() {
     query = UserDefaults.standard.string(forKey: "kanban.query") ?? ""
@@ -230,6 +240,10 @@ final class BoardStore: ObservableObject {
     desktopMenu = DesktopMenu(store: self)
     widget = TrackerWidget(store: self)
     desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
+    // @Published fires before the value changes; the hop to the main queue reads the new context.
+    contextSink = activity.$context.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+      MainActor.assumeIsolated { self?.trackActive() }
+    }
     Task {
       do {
         let vault = URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)
@@ -264,6 +278,7 @@ final class BoardStore: ObservableObject {
       picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
       error = nil
       switchTasks()
+      trackActive()
     } catch {
       self.error = error.localizedDescription
     }
@@ -288,6 +303,45 @@ final class BoardStore: ObservableObject {
       show(moves.count == 1 ? "\(verb) \(moves[0].title)" : "\(verb) \(moves.count) cards")
       await refresh()
     }
+  }
+
+  /// 6.1 Credits the time since the last tick to the active card and flushes on a switch, on going
+  /// away, and every `flushEvery` seconds.
+  private func trackActive() {
+    let cards = columns.flatMap(\.cards)
+    let active = Focus.active(cards, context: activity.context, rules: activity.rules)
+    let before = clock.current
+    clock.tick(now: Date(), active: active?.id, awaySince: activity.context == nil ? activity.contextSince : nil)
+    if !cards.isEmpty { clock.keep(Set(cards.map(\.id))) }
+    if activeID != active?.id { activeID = active?.id }
+    if before != active?.id || Date().timeIntervalSince(lastFlush) >= Self.flushEvery { flushActive() }
+    UserDefaults.standard.set(try? JSONEncoder().encode(clock), forKey: "kanban.activeClock")
+  }
+
+  /// Writes whole unwritten seconds with one `kb.addActive`; the board shows them at once, and a
+  /// failed write puts them back.
+  private func flushActive() {
+    lastFlush = Date()
+    var refs: [String: String] = [:]
+    for c in columns.flatMap(\.cards) where refs[c.id] == nil { refs[c.id] = c.ref }
+    let taken = clock.take()
+    let items = taken.compactMap { id, n in refs[id].map { (ref: $0, seconds: n) } }
+    guard !items.isEmpty else { return }
+    for i in columns.indices { for j in columns[i].cards.indices {
+      if let n = taken[columns[i].cards[j].id] { columns[i].cards[j].activeSeconds = (columns[i].cards[j].activeSeconds ?? 0) + n }
+    } }
+    writeGen += 1
+    Task {
+      do { try await client.addActive(items) } catch {
+        clock.restore(taken)
+        self.error = error.localizedDescription
+      }
+    }
+  }
+
+  /// Active seconds of a card at `now`: written total plus unwritten time.
+  func activeTime(_ card: Card, at now: Date) -> TimeInterval {
+    Double(card.activeSeconds ?? 0) + clock.unwritten(card.id, now: now)
   }
 
   func move(ref: String, to column: String) { move(refs: [ref], to: column) }

@@ -57,12 +57,12 @@ public struct Allocation: Hashable, Sendable {
 }
 
 public enum Report {
-  /// 6.1 Attributed time. Only active spans count. For each moment of a span, among the cards in Doing:
-  /// cards that own the span's context split it; else cards with no affinity split it; else a rule that
-  /// matches the span credits its project or org with no card; else it is unattributed.
-  /// A card's share splits equally across its org x project pairs.
+  /// 6.1 Attributed time. Only active spans count. For each moment of a span, the one active card
+  /// (`Focus.pick` over the cards in Doing, by stint start) gets it; else a rule that matches the span
+  /// credits its project or org with no card; else it is unattributed.
+  /// A card's time splits equally across its org x project pairs.
   /// ```
-  /// span 10:00-11:00, cards A and B in Doing, no rules        -> A 30 min, B 30 min
+  /// span 10:00-11:00, A in Doing from 9:00, B from 9:30, no rules -> B 60 min
   /// same, A pinned to desktop 2, span on desktop 2             -> A 60 min
   /// same, both pinned to desktop 3, span on desktop 2          -> unattributed 60 min
   /// ```
@@ -85,15 +85,12 @@ public enum Report {
         let marks = [piece.start] + cuts.sorted() + [piece.end]
         for (a, b) in zip(marks, marks.dropFirst()) {
           let sec = b.timeIntervalSince(a)
-          let doing = Set(active.filter { $0.s < b && $0.e > a }.map(\.card)).sorted()
-          let owned = doing.map { i in (i, SwitchEngine.owns(desktop: cards[i].desktop, orgs: cards[i].orgs, projects: cards[i].projects, ctx, rules)) }
-          var owners = owned.filter { $0.1 == true }.map(\.0)
-          if owners.isEmpty { owners = owned.filter { $0.1 == nil }.map(\.0) }
-          if !owners.isEmpty {
-            for i in owners {
-              let pairs = pairs(cards[i])
-              for (o, p) in pairs { credit(piece.hour, o, p, .card(cards[i].ref), sec / Double(owners.count * pairs.count)) }
-            }
+          let doing = active.filter { $0.s < b && $0.e > a }
+          if let i = Focus.pick(doing.map { d in
+            (d.card, d.s, SwitchEngine.owns(desktop: cards[d.card].desktop, orgs: cards[d.card].orgs, projects: cards[d.card].projects, ctx, rules))
+          }) {
+            let pairs = pairs(cards[i])
+            for (o, p) in pairs { credit(piece.hour, o, p, .card(cards[i].ref), sec / Double(pairs.count)) }
           } else if let r = rules.first(where: { ($0.org != nil || $0.project != nil) && $0.matches(ctx) }) {
             let org = r.org ?? r.project.flatMap { orgOf[$0.lowercased()] } ?? ""
             credit(piece.hour, org, r.project ?? "", .noCard, sec)
