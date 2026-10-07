@@ -280,12 +280,17 @@ final class BoardStore: ObservableObject {
     contextSink = activity.$context.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
       MainActor.assumeIsolated { self?.trackActive() }
     }
+    // Retries until Obsidian answers: one failed read at launch left tracking off until the next launch.
     Task {
-      do {
-        let vault = URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)
-        desktops.start(dir: vault.appendingPathComponent(".activity", isDirectory: true))
-        activity.start(vault: vault)
-      } catch { self.error = error.localizedDescription }
+      while !Task.isCancelled {
+        do {
+          let vault = URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)
+          desktops.start(dir: vault.appendingPathComponent(".activity", isDirectory: true))
+          activity.start(vault: vault)
+          return
+        } catch { self.error = error.localizedDescription }
+        try? await Task.sleep(for: .seconds(6))
+      }
     }
     loop = Task { [weak self] in
       while !Task.isCancelled {
