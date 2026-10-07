@@ -127,13 +127,13 @@ struct WidgetView: View {
   private var corner: Double { width * 0.12 }
 
   var body: some View {
-    VStack(spacing: 0) {
+    // Header and footer hug the hero; the group sits centred in the square.
+    VStack(spacing: width * 0.04) {
       header
-      Spacer(minLength: 4)
       hero
-      Spacer(minLength: 4)
       footer
     }
+    .frame(maxHeight: .infinity)
     .foregroundStyle(WidgetStyle.color(color))
     .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
     .padding(margin)
