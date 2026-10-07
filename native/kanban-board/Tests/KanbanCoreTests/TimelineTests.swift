@@ -28,6 +28,8 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(out.map(\.title), ["Fix API", "Review"])
     XCTAssertEqual(out[0].end.timeIntervalSince(out[0].start), 45 * 60)
     XCTAssertTrue(out[1].open)
+    XCTAssertNil(out[0].ref)
+    XCTAssertEqual(ActivityLog.stints("0930:1015\t45m\tFix API\t20261007-1045.md:7", day: day).first?.ref, "20261007-1045.md:7")
   }
 
   func testUnionSecondsMergesOverlaps() {

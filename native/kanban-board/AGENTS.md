@@ -229,6 +229,8 @@ Before building or wording any UI, ask what Apple would do and do that.
   `CalendarDay` draws N days (`days`/`layouts`): Day = one day split Activity | Doing; Week = the 7 days of
   `Calendar.dateInterval(of: .weekOfYear)` (locale first weekday), each split 55/45, Doing from one
   `kb.chronicle(from, to)` parsed by `ActivityLog.stintsByDay`. Arrows step a day or a week.
+  Double-click a Doing block opens its card: `kb.chronicle(..., {refs:true})` appends `file:line`
+  (`DoingStint.ref`), opened with `ObsidianClient.open(ref:)`. Activity blocks have no note to open.
   `TimelineModel.load` runs `ActivityLog.impute` once: gaps under 60 s (dropped sub-5 s visits, capture
   restarts) carry the previous span forward; 60 s or more stays empty and shows as Away in the list. The log
   file is never rewritten.

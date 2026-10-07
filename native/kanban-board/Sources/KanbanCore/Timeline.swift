@@ -3,6 +3,8 @@ import Foundation
 /// A Doing stint from `kb.chronicle(date)`; `open` = still running.
 public struct DoingStint: Equatable, Sendable, Identifiable {
   public let start: Date, end: Date, title: String, open: Bool
+  /// `file:line` of the card (`kb.chronicle(..., {refs:true})`); nil from older output.
+  public var ref: String? = nil
   public var id: String { "\(start.timeIntervalSince1970)|\(title)" }
 }
 
@@ -110,7 +112,7 @@ public enum ActivityLog {
       guard f.count >= 3, let m = f[0].wholeMatch(of: #/(\d{2})(\d{2}):(\d{2})(\d{2})(~?)/#),
             let a = calendar.date(bySettingHour: Int(m.1)!, minute: Int(m.2)!, second: 0, of: day),
             let b = calendar.date(bySettingHour: Int(m.3)!, minute: Int(m.4)!, second: 0, of: day) else { return nil }
-      return DoingStint(start: a, end: b, title: String(f[2]), open: !m.5.isEmpty)
+      return DoingStint(start: a, end: b, title: String(f[2]), open: !m.5.isEmpty, ref: f.count > 3 && !f[3].isEmpty ? String(f[3]) : nil)
     }
   }
 }

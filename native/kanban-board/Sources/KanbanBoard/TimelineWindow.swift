@@ -83,6 +83,10 @@ final class TimelineModel: ObservableObject {
   var layouts: [CalendarLayout] { week ? weekLayouts : [layout] }
   var showsToday: Bool { days.contains { Calendar.current.isDateInToday($0) } }
 
+  func open(ref: String) {
+    Task { do { try await client.open(ref: ref) } catch { self.error = error.localizedDescription } }
+  }
+
   func setWeek(_ on: Bool) {
     guard on != week else { return }
     week = on
@@ -191,7 +195,7 @@ struct TimelineScreen: View {
       if mode == "list" {
         list
       } else {
-        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom)
+        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:))
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
     }
@@ -381,6 +385,8 @@ struct CalendarDay: View {
   let days: [Date]
   let layouts: [CalendarLayout]
   let zoom: PassthroughSubject<ZoomRequest, Never>
+  /// Opens a Doing card (`file:line`) in Obsidian; double-click on its block.
+  let open: (String) -> Void
   static let gutter = 64.0
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
   static let zoomRange = 24.0...3600.0
@@ -424,6 +430,9 @@ struct CalendarDay: View {
             case .ended: pointer = nil
             }
           }
+          .onTapGesture(count: 2) { p in
+            if case .doing(let st, _, _)? = item(at: p), let ref = st.ref { open(ref) }
+          }
       }
       .scrollPosition($position)
       .onScrollGeometryChange(for: Double.self) { $0.contentOffset.y } action: { _, v in offsetY = v }
@@ -434,7 +443,7 @@ struct CalendarDay: View {
         }
       }
       .overlay(alignment: .topLeading) {
-        if let p = pointer, let text = hit(p) {
+        if let p = pointer, let text = item(at: p).map(tip) {
           HoverCard(text: text, at: CGPoint(x: p.x, y: p.y - offsetY), bounds: viewport.size).allowsHitTesting(false)
         }
       }
@@ -615,29 +624,43 @@ struct CalendarDay: View {
 
   // MARK: Hover hit test (content coordinates)
 
-  private func hit(_ p: CGPoint) -> String? {
+  private enum Item {
+    case activity(ActivityBlock, day: Date)
+    case doing(DoingStint, others: Int, day: Date)
+  }
+
+  private func item(at p: CGPoint) -> Item? {
     let sl = slots(width: viewport.width)
     guard let i = sl.indices.first(where: { p.x >= sl[$0].ax && p.x <= sl[$0].dx + sl[$0].dw }) else { return nil }
     let s = sl[i], layout = layouts[i]
     let t = days[i].addingTimeInterval(p.y / hourHeight * 3600)
     // At low zoom a 5 s block is under a pixel; accept the nearest block within 2 pt.
     let slack = 2 / hourHeight * 3600
-    let when = single ? "" : days[i].formatted(.dateTime.weekday(.abbreviated).day()) + " "
     if p.x <= s.ax + s.aw,
        let b = layout.blocks.first(where: { $0.start.addingTimeInterval(-slack) <= t && $0.end.addingTimeInterval(slack) >= t }) {
-      return "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(when)\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
+      return .activity(b, day: days[i])
     }
     if p.x >= s.dx {
       for (k, st) in layout.stints.enumerated() where st.start <= t && st.end >= t {
         let w = (s.dw + 2) / Double(layout.lanes[k])
         let x0 = s.dx + Double(layout.lane[k]) * w
-        guard p.x >= x0, p.x <= x0 + w else { continue }
-        let others = layout.lanes[k] - 1
-        return "\(st.title)\n\(when)\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
-          + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
+        if p.x >= x0, p.x <= x0 + w { return .doing(st, others: layout.lanes[k] - 1, day: days[i]) }
       }
     }
     return nil
+  }
+
+  private func tip(_ item: Item) -> String {
+    switch item {
+    case .activity(let b, let day):
+      let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
+      return "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(when)\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
+    case .doing(let st, let others, let day):
+      let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
+      return "\(st.title)\n\(when)\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
+        + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
+        + (st.ref != nil ? "\nDouble-click to open" : "")
+    }
   }
 
   static func hourLabel(_ h: Int) -> String {

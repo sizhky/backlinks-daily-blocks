@@ -64,7 +64,7 @@ struct ObsidianClient {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyyMMdd"
-    return try await eval("kb.chronicle(\(f.string(from: day)))")
+    return try await eval("kb.chronicle(\(f.string(from: day)),{refs:true})")
   }
 
   /// Doing stints for a date range (`kb.chronicle(from, to)`), sections headed `== yyyyMMdd ==`.
@@ -72,7 +72,7 @@ struct ObsidianClient {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyyMMdd"
-    return try await eval("kb.chronicle(\"\(f.string(from: from))\",\"\(f.string(from: to))\")")
+    return try await eval("kb.chronicle(\"\(f.string(from: from))\",\"\(f.string(from: to))\",{refs:true})")
   }
 
   /// Absolute path of the vault folder (desktop adapter `basePath`).
@@ -108,6 +108,14 @@ struct ObsidianClient {
   func note(_ card: Card) async throws -> String {
     let out = try await eval("kb.note(\(try js(card.ref)))").trimmingCharacters(in: .whitespacesAndNewlines)
     return (out.hasPrefix("=>") ? String(out.dropFirst(2)) : out).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// Opens a task by `file:line` and brings Obsidian forward.
+  func open(ref: String) async throws {
+    guard let colon = ref.lastIndex(of: ":"), let line = Int(ref[ref.index(after: colon)...]) else { return }
+    _ = try await eval("kb.openTask(\(try js(String(ref[..<colon]))),\(line))")
+    NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").first?
+      .activate(options: [.activateAllWindows])
   }
 
   func open(_ card: Card) async throws {
