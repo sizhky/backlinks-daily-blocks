@@ -1,17 +1,28 @@
 import AppKit
 import ApplicationServices
+import ScreenCaptureKit
 import SwiftUI
+import Vision
 import KanbanCore
 
-/// Draws desktop names over the "Desktop N" buttons in Mission Control's Spaces bar.
-/// macOS cannot rename those labels without injecting into the Dock (SIP off), so this reads
-/// the Dock's Accessibility tree for the button frames and floats a name panel over each one.
+/// Draws desktop names over the "Desktop N" labels in Mission Control.
+/// macOS cannot rename those labels without injecting into the Dock (SIP off), and on this macOS
+/// the Dock's Mission Control AX group (`id=mc`) exposes no children. So the `mc` group only
+/// signals "open"; label positions come from reading the top of the screen (ScreenCaptureKit,
+/// own windows excluded) with Vision text recognition. Main display only. Needs Screen Recording.
 @MainActor
 final class MissionControlOverlay {
   static let interval: TimeInterval = 0.25
+  static let rescan: TimeInterval = 0.4
+  /// Top share of the screen that holds the Spaces bar.
+  static let strip: CGFloat = 0.35
+
   private var timer: Timer?
   private var panels: [NSPanel] = []
   private let desktops = DesktopStore.shared
+  private var scanning = false
+  private var lastScan = Date.distantPast
+  private var open = false
 
   func start() {
     guard timer == nil else { return }
@@ -21,29 +32,68 @@ final class MissionControlOverlay {
   }
 
   private func update() {
-    guard desktops.spaces.contains(where: { $0.label != nil }),
-          let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first,
-          let mc = AX.children(AXUIElementCreateApplication(dock.processIdentifier)).first(where: AX.isMissionControl)
-    else { return hide() }
-    var marks: [(String, CGRect)] = []
-    for (display, group) in AX.children(mc).enumerated() {
-      for (local, frame) in AX.desktopButtons(in: group, depth: 0) {
-        guard let space = desktops.spaces.first(where: { $0.display == display && $0.local == local }), let label = space.label else { continue }
-        marks.append((label, frame))
-      }
+    let isOpen = desktops.spaces.contains(where: { $0.label != nil }) && Self.missionControlOpen()
+    guard isOpen else {
+      if open { open = false; hide() }
+      return
     }
-    show(marks)
+    open = true
+    guard !scanning, Date().timeIntervalSince(lastScan) >= Self.rescan else { return }
+    scanning = true
+    Task {
+      let found = await Self.scan()
+      scanning = false
+      lastScan = Date()
+      guard open, !found.isEmpty else { return }
+      // Main display only: Mission Control numbers each display's desktops from 1.
+      show(found.compactMap { n, frame in
+        desktops.spaces.first(where: { $0.display == 0 && $0.local == n })?.label.map { ($0, frame) }
+      })
+    }
+  }
+
+  static func missionControlOpen() -> Bool {
+    guard let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return false }
+    return AX.children(AXUIElementCreateApplication(dock.processIdentifier)).contains {
+      AX.string($0, kAXIdentifierAttribute) == "mc"
+    }
+  }
+
+  /// "Desktop N" text boxes on the main display, in AppKit screen coordinates.
+  static func scan() async -> [(Int, CGRect)] {
+    guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+          let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) else { return [] }
+    let me = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+    let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
+    let config = SCStreamConfiguration()
+    let w = CGFloat(display.width), h = CGFloat(display.height) * strip
+    config.sourceRect = CGRect(x: 0, y: 0, width: w, height: h)
+    config.width = Int(w * 2)
+    config.height = Int(h * 2)
+    config.showsCursor = false
+    guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else { return [] }
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .fast
+    request.usesLanguageCorrection = false
+    try? VNImageRequestHandler(cgImage: image).perform([request])
+    let screenH = CGFloat(display.height)
+    return (request.results ?? []).compactMap { obs in
+      guard let text = obs.topCandidates(1).first?.string,
+            let m = text.trimmingCharacters(in: .whitespaces).wholeMatch(of: #/Desktop\s*(\d+)/#), let n = Int(m.1) else { return nil }
+      let bb = obs.boundingBox  // normalized, bottom-left origin within the strip
+      let top = (1 - bb.maxY) * h  // from the screen top, in points
+      return (n, CGRect(x: bb.minX * w, y: screenH - (top + bb.height * h), width: bb.width * w, height: bb.height * h))
+    }
   }
 
   private func show(_ marks: [(String, CGRect)]) {
     while panels.count < marks.count { panels.append(Self.panel()) }
-    let top = NSScreen.screens.first?.frame.maxY ?? 0
     for (i, panel) in panels.enumerated() {
       guard i < marks.count else { panel.orderOut(nil); continue }
-      let (label, ax) = marks[i]
-      let h = min(ax.height, 22)
-      // AX frames are top-left based on the primary screen; AppKit is bottom-left.
-      panel.setFrame(NSRect(x: ax.minX, y: top - ax.maxY, width: ax.width, height: h), display: false)
+      let (label, text) = marks[i]
+      // Cover the original text with a margin; widen for long names.
+      let width = max(text.width + 24, CGFloat(label.count) * 10 + 24)
+      panel.setFrame(NSRect(x: text.midX - width / 2, y: text.minY - 4, width: width, height: text.height + 8), display: false)
       (panel.contentView as? NSHostingView<NameTag>)?.rootView = NameTag(text: label)
       panel.orderFrontRegardless()
     }
@@ -59,7 +109,9 @@ final class MissionControlOverlay {
     p.isOpaque = false
     p.backgroundColor = .clear
     p.hasShadow = false
-    p.contentView = NSHostingView(rootView: NameTag(text: ""))
+    let host = NSHostingView(rootView: NameTag(text: ""))
+    host.sizingOptions = []  // the frame comes from the recognized text; SwiftUI must not resize the panel
+    p.contentView = host
     return p
   }
 }
@@ -68,12 +120,13 @@ struct NameTag: View {
   var text: String
   var body: some View {
     Text(text)
-      .font(.system(size: 12, weight: .semibold))
+      .font(.system(size: 17, weight: .medium))
       .lineLimit(1)
+      .minimumScaleFactor(0.6)
       .foregroundStyle(.white)
-      .padding(.horizontal, 8)
+      .padding(.horizontal, 10)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(Capsule().fill(Color.black.opacity(0.85)))
+      .background(Capsule().fill(Color.black.opacity(0.8)))
   }
 }
 
@@ -88,31 +141,4 @@ enum AX {
   }
 
   static func string(_ e: AXUIElement, _ name: String) -> String? { attr(e, name) as? String }
-
-  static func isMissionControl(_ e: AXUIElement) -> Bool {
-    string(e, kAXIdentifierAttribute) == "mc" || string(e, kAXTitleAttribute) == "Mission Control"
-  }
-
-  static func frame(_ e: AXUIElement) -> CGRect? {
-    guard let p = attr(e, kAXPositionAttribute), let s = attr(e, kAXSizeAttribute) else { return nil }
-    var point = CGPoint.zero, size = CGSize.zero
-    guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
-    return CGRect(origin: point, size: size)
-  }
-
-  /// `Desktop N` buttons under a display group, as (N, frame).
-  static func desktopButtons(in e: AXUIElement, depth: Int) -> [(Int, CGRect)] {
-    guard depth < 6 else { return [] }
-    var out: [(Int, CGRect)] = []
-    for child in children(e) {
-      let title = string(child, kAXTitleAttribute) ?? string(child, kAXDescriptionAttribute) ?? ""
-      if string(child, kAXRoleAttribute) == kAXButtonRole as String, let m = title.wholeMatch(of: #/Desktop (\d+)/#),
-         let n = Int(m.1), let f = frame(child) {
-        out.append((n, f))
-      } else {
-        out += desktopButtons(in: child, depth: depth + 1)
-      }
-    }
-    return out
-  }
 }

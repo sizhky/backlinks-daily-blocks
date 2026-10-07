@@ -28,21 +28,34 @@ final class TrackerWidget {
     panel.hasShadow = false
     panel.isMovableByWindowBackground = true
     panel.hidesOnDeactivate = false
-    let host = NSHostingController(rootView: WidgetView().environmentObject(store).environmentObject(store.activity)
+    // Fixed frame, no SwiftUI window sizing: `.preferredContentSize` made NSHostingView resize the
+    // panel inside its own windowDidLayout, an infinite recursion when Mission Control opened.
+    let host = NSHostingView(rootView: WidgetView().environmentObject(store).environmentObject(store.activity)
       .environmentObject(store.desktops))
-    host.sizingOptions = .preferredContentSize
-    panel.contentViewController = host
+    host.sizingOptions = []
+    panel.contentView = host
     if !panel.setFrameUsingName("TrackerWidget"), let screen = NSScreen.main {
       panel.setFrameTopLeftPoint(NSPoint(x: screen.visibleFrame.midX - 180, y: screen.visibleFrame.maxY - 8))
     }
     panel.setFrameAutosaveName("TrackerWidget")
+    defer { applySize() }
     UserDefaults.standard.register(defaults: [WidgetKey.visible: true, WidgetKey.task: true, WidgetKey.timer: true,
       WidgetKey.app: true, WidgetKey.title: true, WidgetKey.desktop: true, WidgetKey.url: false,
       WidgetKey.size: 13.0, WidgetKey.width: 360.0])
     observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-      MainActor.assumeIsolated { self?.applyVisibility() }
+      MainActor.assumeIsolated { self?.applySize(); self?.applyVisibility() }
     }
     applyVisibility()
+  }
+
+  /// Transparent area: width from settings, height for a few tasks plus the activity lines.
+  private func applySize() {
+    let width = UserDefaults.standard.double(forKey: WidgetKey.width)
+    let size = UserDefaults.standard.double(forKey: WidgetKey.size)
+    let target = NSSize(width: width, height: (size * 1.6 * 8).rounded())
+    guard panel.frame.size != target else { return }
+    let top = panel.frame.maxY
+    panel.setFrame(NSRect(x: panel.frame.minX, y: top - target.height, width: target.width, height: target.height), display: true)
   }
 
   var isVisible: Bool { UserDefaults.standard.bool(forKey: WidgetKey.visible) }
@@ -104,6 +117,7 @@ struct WidgetView: View {
     .padding(.horizontal, 10).padding(.vertical, 6)
     .frame(width: width, alignment: .leading)
     .overlay { if !toast.isEmpty { ToastCover(changes: toast, size: size) } }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .animation(.spring(duration: 0.25), value: toast)
     .onChange(of: store.widgetToast?.gen) {
       guard let t = store.widgetToast else { return }
