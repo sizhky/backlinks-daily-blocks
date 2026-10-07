@@ -14,6 +14,8 @@ final class FrameRegistry {
   var columns: [String: CGRect] = [:]
   var cards: [String: CGRect] = [:]
   var ghost: CGRect?
+  /// The view that last appeared for each key; only it may write or clear that key.
+  var owners: [AnyKeyPath: [String: UUID]] = [:]
 }
 
 /// Cursor-rate state; only the floating card observes it.
@@ -159,8 +161,37 @@ extension View {
   /// Records this view's frame in the board space under `key` (`Card.id` or a column name).
   func dragFrame(_ key: String, in table: ReferenceWritableKeyPath<FrameRegistry, [String: CGRect]>,
                  _ frames: FrameRegistry) -> some View {
-    onGeometryChange(for: CGRect.self) { $0.frame(in: .named(DragController.space)) } action: { frames[keyPath: table][key] = $0 }
-      .onDisappear { frames[keyPath: table][key] = nil }
+    modifier(DragFrame(key: key, table: table, frames: frames))
+  }
+}
+
+/// A card moved by an animated refresh has two views for one key: the old one fading out and the new
+/// one. The old view's late `onDisappear` used to clear the new view's frame, so the card could not be
+/// dragged. The newest view owns the key; writes and clears from any other view are ignored.
+private struct DragFrame: ViewModifier {
+  let key: String
+  let table: ReferenceWritableKeyPath<FrameRegistry, [String: CGRect]>
+  let frames: FrameRegistry
+  @State private var token = UUID()
+  @State private var last: CGRect?
+
+  private var owns: Bool { frames.owners[table]?[key] == token }
+
+  func body(content: Content) -> some View {
+    content
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(DragController.space)) } action: { rect in
+        last = rect
+        if owns || frames.owners[table]?[key] == nil { frames[keyPath: table][key] = rect }
+      }
+      .onAppear {
+        frames.owners[table, default: [:]][key] = token
+        if let last { frames[keyPath: table][key] = last }
+      }
+      .onDisappear {
+        guard owns else { return }
+        frames.owners[table]?[key] = nil
+        frames[keyPath: table][key] = nil
+      }
   }
 }
 

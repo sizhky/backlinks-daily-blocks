@@ -105,6 +105,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   each row a drop target; empty columns shrink in place to a 44 pt strip (`ColumnView.collapsed`, animated width) and widen under a drag; list mode skips hidden columns. Column options live in `ColumnMenu`.
 - Never pair `onTapGesture(count: 2)` with a single tap: SwiftUI holds the single tap for the
   double-click interval and selection feels laggy. Use `.simultaneousGesture(TapGesture(count: 2))`.
+- Drag frames go through `dragFrame` (`DragFrame`): the newest view for a key owns it. Refresh animates `columns`, so a
+  rule-moved card briefly has a fading old view whose late `onDisappear` once erased the new frame and made the card undraggable.
 - Multi-select is `store.picked` (refs). The card's top-right org icon is the toggle (check when picked).
   Dragging a picked card carries the whole pick. Several cards move in one `kb.moveTasks` or
   `kb.rankTasks` call, never parallel `moveTask` calls, because each move inserts a history line
