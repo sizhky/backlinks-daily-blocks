@@ -6,8 +6,9 @@ public struct Card: Identifiable, Equatable, Sendable {
   public let tags: [String], orgs: [String], projects: [String]
   /// Manual order in its column (`%% kbrank %%`); nil = unranked.
   public var rank: Double?
-  /// macOS desktop 1 to 9 the card's work lives on (`%% kbdesktop N %%`); nil = none.
-  public var desktop: Int?
+  /// macOS desktop the card's work lives on (`%% kbdesktop <ref> %%`): a number 1-9 or a
+  /// desktop name from the label store (`Desktops.resolve`); nil = none.
+  public var desktop: String?
   /// 1-based position among the note's checkbox tasks; nil when the row has none.
   public var ordinal: Int?
   /// Number of checkbox tasks in the note; nil when the row has none.
@@ -78,7 +79,7 @@ public struct Card: Identifiable, Equatable, Sendable {
       title: Self.strip(body), age: f[3], tags: Self.tags(in: body),
       orgs: f.count > 4 ? Self.list(f[4]) : [], projects: f.count > 5 ? Self.list(f[5]) : [])
     rank = f.count > 6 ? Double(f[6]) : nil
-    desktop = f.count > 7 ? Int(f[7]).flatMap { Spaces.range.contains($0) ? $0 : nil } : nil
+    desktop = f.count > 7 && !f[7].isEmpty ? f[7] : nil
     ordinal = f.count > 8 ? Int(f[8]) : nil
     siblings = f.count > 9 ? Int(f[9]) : nil
     doneAt = f.count > 10 ? Self.iso.date(from: f[10]) : nil

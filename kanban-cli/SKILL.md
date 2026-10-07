@@ -214,11 +214,9 @@ first; unranked cards sort after ranked ones in every column). With `toCol`, car
 column move there first. Same-file refs go bottom-up. Returns `ok <n>`.
 `kb.active({rank:true})` appends each row's rank (empty when unranked) after `age`.
 
-### `kb.setDesktop(ref, n)` — macOS desktop of a card
-`ref` = `file:line`. `n` 1-9 writes `%% kbdesktop N %%` under the task (like `kbrank`); `null` clears it.
-Without that line, the note's frontmatter `kbdesktop: N` applies to every task in the note.
-`kb.active({desktop:true})` appends each row's desktop (empty when unset) after the rank column.
-Returns `ok <ref> desktop <n|none>`.
+### `kb.setDesktop(ref, d)` — macOS desktop of a card
+
+`d` is a desktop number 1-9 or a desktop name; `null` clears. Writes `%% kbdesktop <d> %%` under the task; frontmatter `kbdesktop: <d>` is the note default. Names come from the Kanban Board app's label store (`<vault>/.activity/desktops.json`, keyed by Space UUID), so a named card follows its desktop when desktops are reordered. Renaming a desktop in the app rewrites cards that used the old name. `active({desktop:true})` lists the reference as written.
 
 ### `kb.setEstimate(ref, min)` and `kb.estimates(opts?)` — time guess vs time in Doing
 `ref` = `file:line`. `min` (minutes) writes `%% kbest N %%` under the task; `null` clears it. Returns `ok <ref> est <n|none>`.

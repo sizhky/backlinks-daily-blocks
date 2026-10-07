@@ -101,7 +101,7 @@ final class ActivityMonitor {
 }
 
 /// Reads the frontmost app, its focused window title (Accessibility), the browser tab URL
-/// (Automation), and the active desktop number (private CoreGraphics calls, looked up at runtime).
+/// (Automation), and the active desktop from `DesktopStore`.
 enum Probe {
   static let browsers: [String: String] = [
     "com.apple.Safari": #"tell application id "com.apple.Safari" to return URL of front document"#,
@@ -115,8 +115,10 @@ enum Probe {
   static func sample() -> Sample? {
     guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
     let bundle = app.bundleIdentifier ?? ""
+    let desktops = DesktopStore.shared
+    desktops.refresh()
     return Sample(app: app.localizedName ?? bundle, bundle: bundle, title: title(pid: app.processIdentifier),
-                  url: browsers[bundle].flatMap(url), space: desktop())
+                  url: browsers[bundle].flatMap(url), space: desktops.current?.number, desktop: desktops.current?.label)
   }
 
   static func title(pid: pid_t) -> String {
@@ -134,19 +136,5 @@ enum Probe {
     var error: NSDictionary?
     let out = NSAppleScript(source: source)?.executeAndReturnError(&error).stringValue
     return error == nil ? out : nil
-  }
-
-  private typealias ConnectionFn = @convention(c) () -> Int32
-  private typealias ActiveSpaceFn = @convention(c) (Int32) -> Int
-  private typealias DisplaySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
-  private nonisolated(unsafe) static let cg = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY)
-  private static func fn<T>(_ name: String, _: T.Type) -> T? { dlsym(cg, name).map { unsafeBitCast($0, to: T.self) } }
-
-  static func desktop() -> Int? {
-    guard let conn = fn("CGSMainConnectionID", ConnectionFn.self), let active = fn("CGSGetActiveSpace", ActiveSpaceFn.self),
-          let displays = fn("CGSCopyManagedDisplaySpaces", DisplaySpacesFn.self) else { return nil }
-    let cid = conn()
-    guard let list = displays(cid)?.takeRetainedValue() as? [[String: Any]] else { return nil }
-    return Spaces.desktopNumber(active: active(cid), displays: list)
   }
 }

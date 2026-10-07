@@ -65,6 +65,10 @@ final class BoardStore: ObservableObject {
   private let client = ObsidianClient()
   private var loop: Task<Void, Never>?
   private let activity = ActivityMonitor()
+  private let overlay = MissionControlOverlay()
+  private var desktopMenu: DesktopMenu?
+  private var desktopSink: Any?
+  let desktops = DesktopStore.shared
   /// 4.2 Rule moves; persisted so a relaunch can still resume what it parked.
   private var switches: SwitchEngine = UserDefaults.standard.data(forKey: "kanban.switches")
     .flatMap { try? JSONDecoder().decode(SwitchEngine.self, from: $0) } ?? SwitchEngine()
@@ -215,9 +219,15 @@ final class BoardStore: ObservableObject {
 
   func start() {
     guard loop == nil else { return }
+    desktopMenu = DesktopMenu(store: self)
+    desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
     Task {
-      do { activity.start(vault: URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)) }
-      catch { self.error = error.localizedDescription }
+      do {
+        let vault = URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)
+        desktops.start(dir: vault.appendingPathComponent(".activity", isDirectory: true))
+        activity.start(vault: vault)
+        overlay.start()
+      } catch { self.error = error.localizedDescription }
     }
     loop = Task { [weak self] in
       while !Task.isCancelled {
@@ -328,15 +338,44 @@ final class BoardStore: ObservableObject {
     }
   }
 
-  func setDesktop(_ n: Int?, for card: Card) {
+  /// `ref` is a desktop name or number (`DesktopSpace.ref`); nil clears.
+  func setDesktop(_ ref: String?, for card: Card) {
     for i in columns.indices {
-      if let j = columns[i].cards.firstIndex(where: { $0.ref == card.ref }) { columns[i].cards[j].desktop = n }
+      if let j = columns[i].cards.firstIndex(where: { $0.ref == card.ref }) { columns[i].cards[j].desktop = ref }
     }
     writeGen += 1
     Task {
-      do { try await client.setDesktop(card, n) } catch { self.error = error.localizedDescription }
+      do { try await client.setDesktop(card, ref) } catch { self.error = error.localizedDescription }
       await refresh()
     }
+  }
+
+  /// Names a desktop and rewrites cards that pointed at its old name or its number, so links survive.
+  func renameDesktop(_ space: DesktopSpace, to name: String?) {
+    let old = space.ref
+    guard desktops.rename(space, to: name) else {
+      error = "Desktop names need 1 to 40 characters, not only digits, and no %"
+      return
+    }
+    guard let fresh = desktops.spaces.first(where: { $0.uuid == space.uuid }), fresh.ref != old else { return }
+    let cards = columns.flatMap(\.cards).filter { $0.desktop?.caseInsensitiveCompare(old) == .orderedSame }
+    guard !cards.isEmpty else { return }
+    writeGen += 1
+    Task {
+      for card in cards.sorted(by: { $0.file == $1.file ? $0.line > $1.line : $0.file < $1.file }) {
+        do { try await client.setDesktop(card, fresh.ref) } catch { self.error = error.localizedDescription }
+      }
+      await refresh()
+    }
+  }
+
+  /// Switches to the desktop a card points at, by name or number.
+  func switchDesktop(ref: String) {
+    guard let space = desktops.resolve(ref) else {
+      error = "No desktop named \(ref)"
+      return
+    }
+    switchDesktop(space.number)
   }
 
   /// Presses the user's "Switch to Desktop N" shortcut. Needs Accessibility permission.

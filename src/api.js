@@ -2,7 +2,7 @@
 const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
-const { backdateOk, stints, planned } = require('./core/activity');
+const { backdateOk, stints, planned, desktopRef } = require('./core/activity');
 const { activitySummary } = require('./activity');
 const { saveTemplate } = require('./templates');
 const { openFileAtLine } = require('./core/render');
@@ -727,7 +727,7 @@ function buildApi(plugin) {
         'planned(date|from,to,opts) Doing time split planned (Todo first) vs unplanned, per card',
         'activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)',
         'moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped',
-        'setDesktop(ref,n)        set (1-9) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it',
+        'setDesktop(ref,d)        set (1-9 or a desktop name) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it',
         'sweep(from,to,refs?)     bulk-move a column (refs = file:line list)',
         'sweeps()                 sweep routes from settings: From<TAB>To',
         'habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths',
@@ -873,18 +873,19 @@ function buildApi(plugin) {
       return `ok ${n}`;
     },
 
-    // A card's macOS desktop: `%% kbdesktop N %%` under the task. n 1-9 sets, null clears.
-    async setDesktop(ref, n) {
+    // A card's macOS desktop: `%% kbdesktop <ref> %%` under the task. ref = 1-9 or a desktop
+    // name from the Kanban Board label store; null clears.
+    async setDesktop(ref, value) {
       const i = ref.lastIndexOf(':'), path = ref.slice(0, i), line = +ref.slice(i + 1);
-      const num = n == null ? null : Number(n);
-      if (num != null && !(Number.isInteger(num) && num >= 1 && num <= 9)) throw new Error('desktop must be 1-9 or null');
+      const desk = desktopRef(value);
+      if (value != null && desk == null) throw new Error('desktop must be 1-9, a name without % or newlines, or null');
       const file = plugin.app.vault.getAbstractFileByPath(path);
       if (!file) throw new Error('no file: ' + path);
       const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
       if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
-      setDesktopLine(lines, line, num);
+      setDesktopLine(lines, line, desk);
       await plugin.app.vault.modify(file, lines.join('\n'));
-      return `ok ${ref} desktop ${num ?? 'none'}`;
+      return `ok ${ref} desktop ${desk ?? 'none'}`;
     },
 
     // A card's time guess in minutes: `%% kbest N %%` under the task. null clears.

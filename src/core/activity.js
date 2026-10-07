@@ -97,4 +97,17 @@ function union(ivals) {
   return out;
 }
 
-module.exports = { GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
+/** A card's desktop reference: a number 1-9 or a desktop name from the Kanban Board label store.
+ * null when empty or unsafe inside a %% comment.
+ * >>> desktopRef(' PenguinAI ')  // -> 'PenguinAI'
+ * >>> desktopRef(12)             // -> null
+ */
+function desktopRef(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || s.length > 40 || /[%\r\n]/.test(s)) return null;
+  if (/^\d+$/.test(s)) return +s >= 1 && +s <= 9 ? String(+s) : null;
+  return s;
+}
+
+module.exports = { desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };

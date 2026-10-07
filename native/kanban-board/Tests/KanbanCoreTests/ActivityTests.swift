@@ -7,7 +7,7 @@ final class ActivityTests: XCTestCase {
   let term = Sample(app: "iTerm2", bundle: "com.googlecode.iterm2", title: "penguin:api", space: 2)
   let mail = Sample(app: "Mail", bundle: "com.apple.mail", title: "Inbox", space: 3)
 
-  func card(_ col: String, desktop: Int? = nil, project: String = "PenguinAI") -> Card {
+  func card(_ col: String, desktop: String? = nil, project: String = "PenguinAI") -> Card {
     var c = Card(ref: "a.md:3", file: "a.md", line: 3, col: col, title: "Fix API", age: "1h", tags: [], orgs: [], projects: [project])
     c.desktop = desktop
     c.id = "a.md|Fix API"
@@ -40,24 +40,24 @@ final class ActivityTests: XCTestCase {
 
   func testLeavingTheDesktopParksAfterTheDelayStampedAtDeparture() {
     var e = SwitchEngine()
-    XCTAssertEqual(e.step(now: at(0), context: term, contextSince: at(0), cards: [card("Doing", desktop: 2)], rules: []), [])
-    XCTAssertEqual(e.step(now: at(100), context: mail, contextSince: at(30), cards: [card("Doing", desktop: 2)], rules: []), [], "90 s away is below the 120 s delay")
-    let moves = e.step(now: at(160), context: mail, contextSince: at(30), cards: [card("Doing", desktop: 2)], rules: [])
+    XCTAssertEqual(e.step(now: at(0), context: term, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: []), [])
+    XCTAssertEqual(e.step(now: at(100), context: mail, contextSince: at(30), cards: [card("Doing", desktop: "2")], rules: []), [], "90 s away is below the 120 s delay")
+    let moves = e.step(now: at(160), context: mail, contextSince: at(30), cards: [card("Doing", desktop: "2")], rules: [])
     XCTAssertEqual(moves, [SwitchMove(ref: "a.md:3", title: "Fix API", column: "Parked", at: at(30))])
-    XCTAssertEqual(e.step(now: at(170), context: mail, contextSince: at(30), cards: [card("Doing", desktop: 2)], rules: []), [], "one move per flip")
+    XCTAssertEqual(e.step(now: at(170), context: mail, contextSince: at(30), cards: [card("Doing", desktop: "2")], rules: []), [], "one move per flip")
   }
 
   func testReturningResumesOnlyCardsTheEngineParked() {
     var e = SwitchEngine()
-    _ = e.step(now: at(0), context: mail, contextSince: at(0), cards: [card("Doing", desktop: 2)], rules: [])
-    _ = e.step(now: at(200), context: mail, contextSince: at(0), cards: [card("Doing", desktop: 2)], rules: [])
-    XCTAssertEqual(e.step(now: at(305), context: term, contextSince: at(300), cards: [card("Parked", desktop: 2)], rules: []), [])
-    XCTAssertEqual(e.step(now: at(311), context: term, contextSince: at(300), cards: [card("Parked", desktop: 2)], rules: []),
+    _ = e.step(now: at(0), context: mail, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: [])
+    _ = e.step(now: at(200), context: mail, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: [])
+    XCTAssertEqual(e.step(now: at(305), context: term, contextSince: at(300), cards: [card("Parked", desktop: "2")], rules: []), [])
+    XCTAssertEqual(e.step(now: at(311), context: term, contextSince: at(300), cards: [card("Parked", desktop: "2")], rules: []),
                    [SwitchMove(ref: "a.md:3", title: "Fix API", column: "Doing", at: at(300))])
 
     var fresh = SwitchEngine()
-    _ = fresh.step(now: at(0), context: mail, contextSince: at(0), cards: [card("Parked", desktop: 2)], rules: [])
-    XCTAssertEqual(fresh.step(now: at(30), context: term, contextSince: at(15), cards: [card("Parked", desktop: 2)], rules: []), [],
+    _ = fresh.step(now: at(0), context: mail, contextSince: at(0), cards: [card("Parked", desktop: "2")], rules: [])
+    XCTAssertEqual(fresh.step(now: at(30), context: term, contextSince: at(15), cards: [card("Parked", desktop: "2")], rules: []), [],
                    "a card parked by hand stays parked")
   }
 
@@ -71,13 +71,42 @@ final class ActivityTests: XCTestCase {
                    "no desktop and no rule: never touched")
   }
 
-  func testDesktopNumberCountsUserDesktopsAcrossDisplays() {
-    let displays: [[String: Any]] = [
-      ["Spaces": [["id64": 5, "type": 0], ["id64": 9, "type": 4], ["id64": 7, "type": 0]]],
-      ["Spaces": [["id64": 11, "type": 0]]],
-    ]
-    XCTAssertEqual(Spaces.desktopNumber(active: 7, displays: displays), 2)
-    XCTAssertEqual(Spaces.desktopNumber(active: 11, displays: displays), 3)
-    XCTAssertNil(Spaces.desktopNumber(active: 9, displays: displays))
+  let displays: [[String: Any]] = [
+    ["Spaces": [["id64": 5, "uuid": "A", "type": 0], ["id64": 9, "uuid": "F", "type": 4], ["id64": 7, "uuid": "B", "type": 0]]],
+    ["Spaces": [["id64": 11, "uuid": "C", "type": 0]]],
+  ]
+
+  func testParseNumbersUserDesktopsAcrossDisplaysAndAttachesLabels() {
+    let spaces = Desktops.parse(displays: displays, labels: ["B": "PenguinAI"])
+    XCTAssertEqual(spaces.map(\.number), [1, 2, 3])
+    XCTAssertEqual(spaces.map(\.local), [1, 2, 1])
+    XCTAssertEqual(spaces.map(\.name), ["Desktop 1", "PenguinAI", "Desktop 3"])
+    XCTAssertEqual(spaces.map(\.ref), ["1", "PenguinAI", "3"])
+  }
+
+  func testEmptyUUIDFallsBackToSpaceID() {
+    let spaces = Desktops.parse(displays: [["Spaces": [["id64": 1, "uuid": "", "type": 0]]]], labels: ["space-1": "Home"])
+    XCTAssertEqual(spaces.first?.name, "Home")
+  }
+
+  func testResolveByNumberOrName() {
+    let spaces = Desktops.parse(displays: displays, labels: ["B": "PenguinAI"])
+    XCTAssertEqual(Desktops.resolve("penguinai", in: spaces)?.uuid, "B")
+    XCTAssertEqual(Desktops.resolve("3", in: spaces)?.uuid, "C")
+    XCTAssertNil(Desktops.resolve("Missing", in: spaces))
+  }
+
+  func testNamedCardFollowsItsDesktop() {
+    var e = SwitchEngine()
+    let named = Sample(app: "iTerm2", bundle: "b", title: "t", space: 4, desktop: "PenguinAI")
+    _ = e.step(now: at(0), context: named, contextSince: at(0), cards: [card("Doing", desktop: "PenguinAI")], rules: [])
+    XCTAssertEqual(e.step(now: at(200), context: mail, contextSince: at(10), cards: [card("Doing", desktop: "PenguinAI")], rules: []).first?.at, at(10))
+  }
+
+  func testCleanLabel() {
+    XCTAssertEqual(Desktops.cleanLabel("  Penguin AI "), "Penguin AI")
+    XCTAssertNil(Desktops.cleanLabel("42"))
+    XCTAssertNil(Desktops.cleanLabel("a % b"))
+    XCTAssertNil(Desktops.cleanLabel(" "))
   }
 }

@@ -249,6 +249,85 @@ var require_render = __commonJS({
   }
 });
 
+// src/core/activity.js
+var require_activity = __commonJS({
+  "src/core/activity.js"(exports2, module2) {
+    var GAP_MS = 30 * 6e4;
+    function sleepGap(lastTick, now, gapMs = GAP_MS) {
+      if (!Number.isFinite(lastTick) || lastTick <= 0) return null;
+      return now - lastTick > gapMs ? lastTick : null;
+    }
+    function stampMs(s) {
+      s = String(s).replace(/\D/g, "");
+      return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)).getTime();
+    }
+    function backdateOk(atMs, history) {
+      const latest = Math.max(0, ...history.map((h) => stampMs(h.stamp)));
+      return atMs >= latest;
+    }
+    function stints(history, want, lo, hi, openEnd) {
+      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+      const out = [];
+      for (let i = 0; i < chrono.length; i++) {
+        if (chrono[i].to.toLowerCase() !== want) continue;
+        const s = stampMs(chrono[i].stamp);
+        const raw = chrono[i + 1] ? stampMs(chrono[i + 1].stamp) : openEnd(s);
+        const cs = Math.max(s, lo), ce = Math.min(raw, hi);
+        if (ce > cs) out.push({ s: cs, e: ce, open: !chrono[i + 1] });
+      }
+      return out;
+    }
+    function planned(history, plannedCol = "todo", doingCol = "doing") {
+      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+      for (const h of chrono) {
+        const to = h.to.toLowerCase();
+        if (to === doingCol) return false;
+        if (to === plannedCol) return true;
+      }
+      return false;
+    }
+    function parseActivity(text) {
+      const out = [];
+      for (const line of String(text || "").split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const o = JSON.parse(line);
+          const s = Date.parse(o.start), e = Date.parse(o.end);
+          if (Number.isFinite(s) && Number.isFinite(e) && e > s) out.push({ ...o, s, e });
+        } catch {
+        }
+      }
+      return out.sort((a, b) => a.s - b.s);
+    }
+    function overlapMs(spans, cover) {
+      let ms = 0;
+      for (const a of spans) for (const b of cover) {
+        const s = Math.max(a.s, b.s), e = Math.min(a.e, b.e);
+        if (e > s) ms += e - s;
+      }
+      return ms;
+    }
+    function union(ivals) {
+      const sorted = ivals.slice().sort((a, b) => a.s - b.s);
+      const out = [];
+      for (const x of sorted) {
+        const last = out[out.length - 1];
+        if (last && x.s <= last.e) last.e = Math.max(last.e, x.e);
+        else out.push({ s: x.s, e: x.e });
+      }
+      return out;
+    }
+    function desktopRef(v) {
+      if (v == null) return null;
+      const s = String(v).trim();
+      if (!s || s.length > 40 || /[%\r\n]/.test(s)) return null;
+      if (/^\d+$/.test(s)) return +s >= 1 && +s <= 9 ? String(+s) : null;
+      return s;
+    }
+    module2.exports = { desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
+  }
+});
+
 // src/habits.js
 var require_habits = __commonJS({
   "src/habits.js"(exports2, module2) {
@@ -651,6 +730,7 @@ var require_kanban = __commonJS({
   "src/kanban.js"(exports2, module2) {
     var { MarkdownRenderChild, Menu, Notice: Notice2, Platform, setIcon } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
+    var { desktopRef } = require_activity();
     var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
     var KB_TAG_RE = /#kb\/([\w-]+)/;
@@ -664,7 +744,7 @@ var require_kanban = __commonJS({
     var METRIC_RE = /^\s*%%\s?kbmetric (count|sum)\s?%%\s*$/i;
     var TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
     var RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
-    var DESKTOP_RE = /^\s*%%\s?kbdesktop ([1-9])\s?%%\s*$/i;
+    var DESKTOP_RE = /^\s*%%\s?kbdesktop ([^%]+?)\s?%%\s*$/i;
     var EST_RE = /^\s*%%\s?kbest (\d+)\s?%%\s*$/i;
     var TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
     var COL_PALETTE = {
@@ -809,7 +889,7 @@ var require_kanban = __commonJS({
         const cache = app2.metadataCache.getFileCache(file);
         const lane = config.lane ? fmValues(cache, config.lane)[0] || null : null;
         const laneGroup = config.groupby ? fmValues(cache, config.groupby)[0] || null : null;
-        const fileDesktop = Number(fmValues(cache, "kbdesktop")[0]);
+        const fileDesktop = desktopRef(fmValues(cache, "kbdesktop")[0]);
         const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
         const fileCards = [];
         const stack = [];
@@ -894,7 +974,7 @@ var require_kanban = __commonJS({
           const dm = text.match(DESKTOP_RE);
           if (dm) {
             const card = owner(text);
-            if (card) card.desktop = Number(dm[1]);
+            if (card) card.desktop = desktopRef(dm[1]);
             continue;
           }
           const estm = text.match(EST_RE);
@@ -923,7 +1003,7 @@ var require_kanban = __commonJS({
           if (!/^\s/.test(text)) stack.length = 0;
         }
         for (const card of fileCards) {
-          if (card.desktop == null && fileDesktop >= 1 && fileDesktop <= 9) card.desktop = fileDesktop;
+          if (card.desktop == null && fileDesktop) card.desktop = fileDesktop;
           let col;
           if (card.state === " " || card.state === "!") {
             const key = card.tags.find((t) => t.startsWith("#kb/"))?.match(KB_TAG_RE)?.[1] || card.body.match(KB_TAG_RE)?.[1];
@@ -2827,78 +2907,6 @@ var require_scopes = __commonJS({
   }
 });
 
-// src/core/activity.js
-var require_activity = __commonJS({
-  "src/core/activity.js"(exports2, module2) {
-    var GAP_MS = 30 * 6e4;
-    function sleepGap(lastTick, now, gapMs = GAP_MS) {
-      if (!Number.isFinite(lastTick) || lastTick <= 0) return null;
-      return now - lastTick > gapMs ? lastTick : null;
-    }
-    function stampMs(s) {
-      s = String(s).replace(/\D/g, "");
-      return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)).getTime();
-    }
-    function backdateOk(atMs, history) {
-      const latest = Math.max(0, ...history.map((h) => stampMs(h.stamp)));
-      return atMs >= latest;
-    }
-    function stints(history, want, lo, hi, openEnd) {
-      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
-      const out = [];
-      for (let i = 0; i < chrono.length; i++) {
-        if (chrono[i].to.toLowerCase() !== want) continue;
-        const s = stampMs(chrono[i].stamp);
-        const raw = chrono[i + 1] ? stampMs(chrono[i + 1].stamp) : openEnd(s);
-        const cs = Math.max(s, lo), ce = Math.min(raw, hi);
-        if (ce > cs) out.push({ s: cs, e: ce, open: !chrono[i + 1] });
-      }
-      return out;
-    }
-    function planned(history, plannedCol = "todo", doingCol = "doing") {
-      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
-      for (const h of chrono) {
-        const to = h.to.toLowerCase();
-        if (to === doingCol) return false;
-        if (to === plannedCol) return true;
-      }
-      return false;
-    }
-    function parseActivity(text) {
-      const out = [];
-      for (const line of String(text || "").split("\n")) {
-        if (!line.trim()) continue;
-        try {
-          const o = JSON.parse(line);
-          const s = Date.parse(o.start), e = Date.parse(o.end);
-          if (Number.isFinite(s) && Number.isFinite(e) && e > s) out.push({ ...o, s, e });
-        } catch {
-        }
-      }
-      return out.sort((a, b) => a.s - b.s);
-    }
-    function overlapMs(spans, cover) {
-      let ms = 0;
-      for (const a of spans) for (const b of cover) {
-        const s = Math.max(a.s, b.s), e = Math.min(a.e, b.e);
-        if (e > s) ms += e - s;
-      }
-      return ms;
-    }
-    function union(ivals) {
-      const sorted = ivals.slice().sort((a, b) => a.s - b.s);
-      const out = [];
-      for (const x of sorted) {
-        const last = out[out.length - 1];
-        if (last && x.s <= last.e) last.e = Math.max(last.e, x.e);
-        else out.push({ s: x.s, e: x.e });
-      }
-      return out;
-    }
-    module2.exports = { GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
-  }
-});
-
 // src/activity.js
 var require_activity2 = __commonJS({
   "src/activity.js"(exports2, module2) {
@@ -3208,7 +3216,7 @@ var require_api = __commonJS({
       EI_HIST_RE
     } = require_kanban();
     var { collectDayTasks } = require_report();
-    var { backdateOk, stints, planned } = require_activity();
+    var { backdateOk, stints, planned, desktopRef } = require_activity();
     var { activitySummary } = require_activity2();
     var { saveTemplate } = require_templates();
     var { openFileAtLine } = require_render();
@@ -3866,7 +3874,7 @@ projects:
             "planned(date|from,to,opts) Doing time split planned (Todo first) vs unplanned, per card",
             "activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)",
             "moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped",
-            "setDesktop(ref,n)        set (1-9) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",
+            "setDesktop(ref,d)        set (1-9 or a desktop name) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",
             "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
             "sweeps()                 sweep routes from settings: From<TAB>To",
             "habits(opts?)            habit stats: state, today, 7d avg, streak; opts: paths",
@@ -4007,18 +4015,19 @@ projects:
           }
           return `ok ${n}`;
         },
-        // A card's macOS desktop: `%% kbdesktop N %%` under the task. n 1-9 sets, null clears.
-        async setDesktop(ref, n) {
+        // A card's macOS desktop: `%% kbdesktop <ref> %%` under the task. ref = 1-9 or a desktop
+        // name from the Kanban Board label store; null clears.
+        async setDesktop(ref, value) {
           const i = ref.lastIndexOf(":"), path = ref.slice(0, i), line = +ref.slice(i + 1);
-          const num = n == null ? null : Number(n);
-          if (num != null && !(Number.isInteger(num) && num >= 1 && num <= 9)) throw new Error("desktop must be 1-9 or null");
+          const desk = desktopRef(value);
+          if (value != null && desk == null) throw new Error("desktop must be 1-9, a name without % or newlines, or null");
           const file = plugin.app.vault.getAbstractFileByPath(path);
           if (!file) throw new Error("no file: " + path);
           const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
           if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
-          setDesktopLine(lines, line, num);
+          setDesktopLine(lines, line, desk);
           await plugin.app.vault.modify(file, lines.join("\n"));
-          return `ok ${ref} desktop ${num ?? "none"}`;
+          return `ok ${ref} desktop ${desk ?? "none"}`;
         },
         // A card's time guess in minutes: `%% kbest N %%` under the task. null clears.
         async setEstimate(ref, minutes) {

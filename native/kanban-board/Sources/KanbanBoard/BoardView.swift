@@ -414,8 +414,11 @@ extension BoardStore {
   }
 
   func desktopItems(_ card: Card) -> [MenuItem] {
-    [.action("None", checked: card.desktop == nil) { self.setDesktop(nil, for: card) }, .separator]
-      + Spaces.range.map { n in .action("Desktop \(n)", checked: card.desktop == n) { self.setDesktop(n, for: card) } }
+    let mine = desktops.resolve(card.desktop)
+    let spaces = desktops.spaces.isEmpty
+      ? Spaces.range.map { n in MenuItem.action("Desktop \(n)", checked: card.desktop == String(n)) { self.setDesktop(String(n), for: card) } }
+      : desktops.spaces.map { d in MenuItem.action(d.name, checked: mine?.uuid == d.uuid) { self.setDesktop(d.ref, for: card) } }
+    return [.action("None", checked: card.desktop == nil) { self.setDesktop(nil, for: card) }, .separator] + spaces
   }
 }
 
@@ -546,9 +549,9 @@ struct IssueCard: View {
       }
       FlowLayout(spacing: 6) {
         Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
-        if let n = card.desktop {
-        Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
-          .buttonStyle(.pointing).pointerStyle(.link).help("Switch to Desktop \(n)")
+        if let d = card.desktop {
+        Button { store.switchDesktop(ref: d) } label: { Pill(text: store.desktops.name(d)) { Image(systemName: "rectangle.3.group").imageScale(.small) } }
+          .buttonStyle(.pointing).pointerStyle(.link).help("Switch to \(store.desktops.name(d))")
       }
         if let project = card.projects.first {
         Button { store.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
@@ -701,9 +704,9 @@ struct IssueRow: View {
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link).lineLimit(1)
       Spacer(minLength: 12)
-      if let n = card.desktop {
-        Button { store.switchDesktop(n) } label: { Pill(text: "Desktop \(n)") { Image(systemName: "rectangle.3.group").imageScale(.small) } }
-          .buttonStyle(.pointing).pointerStyle(.link).help("Switch to Desktop \(n)")
+      if let d = card.desktop {
+        Button { store.switchDesktop(ref: d) } label: { Pill(text: store.desktops.name(d)) { Image(systemName: "rectangle.3.group").imageScale(.small) } }
+          .buttonStyle(.pointing).pointerStyle(.link).help("Switch to \(store.desktops.name(d))")
       }
       ForEach(card.tags.prefix(2), id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
       if let project = card.projects.first {

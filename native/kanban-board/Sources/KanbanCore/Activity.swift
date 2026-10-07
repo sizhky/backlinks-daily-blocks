@@ -5,8 +5,10 @@ public struct Sample: Equatable, Sendable {
   public var app: String, bundle: String, title: String
   public var url: String?
   public var space: Int?
-  public init(app: String, bundle: String, title: String, url: String? = nil, space: Int? = nil) {
-    self.app = app; self.bundle = bundle; self.title = title; self.url = url; self.space = space
+  /// Desktop name from the label store, when the desktop has one.
+  public var desktop: String?
+  public init(app: String, bundle: String, title: String, url: String? = nil, space: Int? = nil, desktop: String? = nil) {
+    self.app = app; self.bundle = bundle; self.title = title; self.url = url; self.space = space; self.desktop = desktop
   }
 }
 
@@ -16,6 +18,7 @@ public struct Span: Codable, Equatable, Sendable {
   public var app: String, bundle: String, title: String
   public var url: String?
   public var space: Int?
+  public var desktop: String?
 
   /// ```
   /// {"app":"iTerm2","bundle":"com.googlecode.iterm2","end":"2026-10-07T05:10:00Z","space":2,"start":"2026-10-07T05:00:00Z","title":"penguin:api"}
@@ -48,13 +51,13 @@ public struct SpanBuilder: Sendable {
   /// Records `sample` seen at `at`; returns the span that a different sample closes.
   public mutating func add(_ sample: Sample, at: Date) -> Span? {
     if var o = open, o.app == sample.app, o.bundle == sample.bundle, o.title == sample.title,
-       o.url == sample.url, o.space == sample.space {
+       o.url == sample.url, o.space == sample.space, o.desktop == sample.desktop {
       o.end = at
       open = o
       return nil
     }
     let closed = close(at: at)
-    open = Span(start: at, end: at, app: sample.app, bundle: sample.bundle, title: sample.title, url: sample.url, space: sample.space)
+    open = Span(start: at, end: at, app: sample.app, bundle: sample.bundle, title: sample.title, url: sample.url, space: sample.space, desktop: sample.desktop)
     return closed
   }
 
@@ -127,8 +130,8 @@ public struct SwitchEngine: Codable, Sendable {
     guard let context else { return false }
     if ruled.contains(where: { $0.matches(context) }) { return true }
     if let d = card.desktop {
-      guard let space = context.space else { return ruled.isEmpty ? nil : false }
-      return space == d
+      guard let hit = Desktops.matches(d, number: context.space, label: context.desktop) else { return ruled.isEmpty ? nil : false }
+      return hit
     }
     return false
   }
@@ -160,25 +163,5 @@ public struct SwitchEngine: Codable, Sendable {
     }
     flips = flips.filter { seen.contains($0.key) }
     return moves
-  }
-}
-
-extension Spaces {
-  /// Desktop number (1-based, user desktops only, counted across displays in order) of the
-  /// active Space, from `CGSCopyManagedDisplaySpaces` output; nil when not found.
-  /// ```
-  /// displays [{Spaces: [{id64 5, type 0}, {id64 9, type 4}, {id64 7, type 0}]}], active 7 -> 2
-  /// ```
-  public static func desktopNumber(active: Int, displays: [[String: Any]]) -> Int? {
-    var n = 0
-    for display in displays {
-      for space in display["Spaces"] as? [[String: Any]] ?? [] {
-        guard (space["type"] as? NSNumber)?.intValue == 0 else { continue }
-        n += 1
-        let id = (space["id64"] as? NSNumber)?.intValue ?? (space["ManagedSpaceID"] as? NSNumber)?.intValue
-        if id == active { return n }
-      }
-    }
-    return nil
   }
 }

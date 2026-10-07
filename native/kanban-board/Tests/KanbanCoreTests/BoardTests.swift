@@ -16,10 +16,10 @@ final class BoardTests: XCTestCase {
     XCTAssertEqual(cols[1].cards[0].projects, [])
   }
 
-  func testDesktopFieldParsesAndRejectsOutOfRange() {
-    let cols = Board.parse("@column\tDoing\tlive\nDoing\ta.md:1\tX\t1h\t\t\t\t3\nDoing\ta.md:2\tY\t1h\t\t\t\t12\nDoing\ta.md:3\tZ\t1h\t\t\t\t")
-    XCTAssertEqual(cols[0].cards.map(\.desktop), [3, nil, nil])
-    XCTAssertEqual(cols[0].cards[0].moved(to: "Done").desktop, 3)
+  func testDesktopFieldKeepsNumberOrName() {
+    let cols = Board.parse("@column\tDoing\tlive\nDoing\ta.md:1\tX\t1h\t\t\t\t3\nDoing\ta.md:2\tY\t1h\t\t\t\tPenguinAI\nDoing\ta.md:3\tZ\t1h\t\t\t\t")
+    XCTAssertEqual(cols[0].cards.map(\.desktop), ["3", "PenguinAI", nil])
+    XCTAssertEqual(cols[0].cards[0].moved(to: "Done").desktop, "3")
   }
 
   func testFirstColumnSurvivesCliPrefix() {

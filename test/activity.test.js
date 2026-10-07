@@ -56,3 +56,12 @@ test('overlapMs and union', () => {
   assert.equal(A.overlapMs([{ s: 0, e: 10 }], [{ s: 5, e: 20 }]), 5);
   assert.deepEqual(A.union([{ s: 5, e: 8 }, { s: 0, e: 6 }, { s: 10, e: 12 }]), [{ s: 0, e: 8 }, { s: 10, e: 12 }]);
 });
+
+test('desktopRef accepts 1-9 and names, rejects unsafe values', () => {
+  assert.equal(A.desktopRef(' PenguinAI '), 'PenguinAI');
+  assert.equal(A.desktopRef(2), '2');
+  assert.equal(A.desktopRef('02'), '2');
+  assert.equal(A.desktopRef(12), null);
+  assert.equal(A.desktopRef('a %% b'), null);
+  assert.equal(A.desktopRef(''), null);
+});

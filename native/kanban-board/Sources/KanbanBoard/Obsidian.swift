@@ -71,9 +71,9 @@ struct ObsidianClient {
     _ = try await eval("kb.setEstimate(\(try js(card.ref)),\(minutes))")
   }
 
-  /// Sets (1 to 9) or clears (nil) the card's desktop line (kb.setDesktop).
-  func setDesktop(_ card: Card, _ n: Int?) async throws {
-    _ = try await eval("kb.setDesktop(\(try js(card.ref)),\(n.map(String.init) ?? "null"))")
+  /// Sets (a desktop name or 1 to 9) or clears (nil) the card's desktop line (kb.setDesktop).
+  func setDesktop(_ card: Card, _ ref: String?) async throws {
+    _ = try await eval("kb.setDesktop(\(try js(card.ref)),\(try ref.map { try js($0) } ?? "null"))")
   }
 
   /// Writes manual ranks (kb.rankTasks); cards not in `column` move there first.

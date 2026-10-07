@@ -37,7 +37,7 @@ struct Inspector: View {
               }
             }
             prop("Desktop") {
-              MenuTrigger(items: { store.desktopItems(card) }) { Text(card.desktop.map { "Desktop \($0)" } ?? "None") }
+              MenuTrigger(items: { store.desktopItems(card) }) { Text(card.desktop.map(store.desktops.name) ?? "None") }
             }
             prop("In status") { Text(card.age).monospacedDigit() }
             prop("Note") { Text(card.ref).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle) }

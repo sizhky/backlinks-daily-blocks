@@ -4,6 +4,7 @@
 
 const { MarkdownRenderChild, Menu, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
+const { desktopRef } = require('./core/activity');
 
 // Persisted marker for "no lanes selected". Kept distinct from a cleared
 // `lanes:` line (= all) and from the "(none)" no-frontmatter pool lane.
@@ -35,8 +36,9 @@ const TAP_RE = /^\s*%%\s?kbtap\s?%%\s*$/i;
 // task line are still read (legacy); all writes target the tag line.
 // Manual card order within a column; lower first, unranked cards after ranked ones.
 const RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
-// macOS desktop (Space) 1-9 a card's work lives on: %% kbdesktop 2 %%.
-const DESKTOP_RE = /^\s*%%\s?kbdesktop ([1-9])\s?%%\s*$/i;
+// macOS desktop (Space) a card's work lives on, by number 1-9 or by name from the
+// Kanban Board label store: %% kbdesktop 2 %% or %% kbdesktop PenguinAI %%.
+const DESKTOP_RE = /^\s*%%\s?kbdesktop ([^%]+?)\s?%%\s*$/i;
 // Time guess in minutes, set on entering Doing: %% kbest 90 %%.
 const EST_RE = /^\s*%%\s?kbest (\d+)\s?%%\s*$/i;
 const TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
@@ -219,7 +221,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
     const lane = config.lane ? (fmValues(cache, config.lane)[0] || null) : null;
     const laneGroup = config.groupby ? (fmValues(cache, config.groupby)[0] || null) : null;
     // File-level default desktop (frontmatter `kbdesktop: 2`); a task's own %% kbdesktop N %% beats it.
-    const fileDesktop = Number(fmValues(cache, 'kbdesktop')[0]);
+    const fileDesktop = desktopRef(fmValues(cache, 'kbdesktop')[0]);
     const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
     // Ancestor chain by indent: tasks at any depth become cards; history,
     // ei stamps and tag lines attach to the deepest task above them with
@@ -305,7 +307,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
       const dm = text.match(DESKTOP_RE);
       if (dm) {
         const card = owner(text);
-        if (card) card.desktop = Number(dm[1]);
+        if (card) card.desktop = desktopRef(dm[1]);
         continue;
       }
 
@@ -340,7 +342,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
     }
 
     for (const card of fileCards) {
-      if (card.desktop == null && fileDesktop >= 1 && fileDesktop <= 9) card.desktop = fileDesktop;
+      if (card.desktop == null && fileDesktop) card.desktop = fileDesktop;
       let col;
       if (card.state === ' ' || card.state === '!') { // `!` = group header, lives like an open card
         const key = card.tags.find(t => t.startsWith('#kb/'))?.match(KB_TAG_RE)?.[1]
