@@ -264,6 +264,10 @@ var require_activity = __commonJS({
       s = String(s).replace(/\D/g, "");
       return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)).getTime();
     }
+    function birthMs(name) {
+      const m = String(name).match(/^(\d{8})-(\d{4})/);
+      return m ? stampMs(m[1] + m[2]) : null;
+    }
     function backdateOk(atMs, history2) {
       const latest = Math.max(0, ...history2.map((h) => stampMs(h.stamp)));
       return atMs >= latest;
@@ -281,14 +285,25 @@ var require_activity = __commonJS({
       }
       return out;
     }
-    function planned(history2, plannedCol = "todo", doingCol = "doing") {
+    var MULL_MS = 60 * 6e4;
+    var QUEUE = ["backlog", "todo"];
+    function adhoc(history2, createdMs = null, mullMs = MULL_MS) {
       const ordered = chrono(history2);
+      if (!ordered.length) return null;
+      let t = Number.isFinite(createdMs) ? createdMs : stampMs(ordered[0].stamp);
+      let queued = 0;
+      let inQueue = QUEUE.includes(String(ordered[0].from || "backlog").toLowerCase());
       for (const h of ordered) {
-        const to = h.to.toLowerCase();
-        if (to === doingCol) return false;
-        if (to === plannedCol) return true;
+        const at = stampMs(h.stamp);
+        if (inQueue) queued += Math.max(0, at - t);
+        if (h.to.toLowerCase() === "doing") return queued < mullMs;
+        inQueue = QUEUE.includes(h.to.toLowerCase());
+        t = at;
       }
-      return false;
+      return null;
+    }
+    function planned(history2, createdMs = null, mullMs = MULL_MS) {
+      return adhoc(history2, createdMs, mullMs) === false;
     }
     function parseActivity(text) {
       const out = [];
@@ -328,7 +343,7 @@ var require_activity = __commonJS({
       if (/^\d+$/.test(s)) return +s >= 1 && +s <= 9 ? String(+s) : null;
       return s;
     }
-    module2.exports = { chrono, desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
+    module2.exports = { birthMs, chrono, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };
   }
 });
 
@@ -3225,7 +3240,7 @@ var require_api = __commonJS({
       EI_HIST_RE
     } = require_kanban();
     var { collectDayTasks } = require_report();
-    var { backdateOk, stints, planned, desktopRef, chrono } = require_activity();
+    var { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require_activity();
     var { activitySummary } = require_activity2();
     var { saveTemplate } = require_templates();
     var { openFileAtLine } = require_render();
@@ -3774,6 +3789,45 @@ projects:
           }
           return "\n" + out.join("\n");
         },
+        // 6 Reports input: every card with a Doing stint in the range or a terminal move in the range.
+        // opts.mull = mulling threshold in minutes (default 60). Times are epoch seconds.
+        // Lines: ref<TAB>title<TAB>orgs<TAB>projects<TAB>desktop<TAB>adhoc 1|0|-<TAB>done|-<TAB>lifetime Doing s<TAB>s-e,s-e
+        async reportCards(a, b, c) {
+          const { dates, opts } = resolveDates(a, b, c);
+          const mk = (s) => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8)).getTime();
+          const lo = mk(dates[0]), hi = endOfDayMs(mk(dates[dates.length - 1]));
+          const mull = (opts.mull ?? MULL_MS / 6e4) * 6e4;
+          const now = Date.now();
+          const openEnd = (s) => Math.min(now, endOfDayMs(s));
+          const config = makeConfig2(opts, plugin);
+          const done = config.columns.filter((c2) => c2.state);
+          const terminal = new Set(done.map((c2) => c2.name.toLowerCase())), terminalKeys = new Set(done.map((c2) => c2.key));
+          const byCol = await scanKanbanTasks(plugin.app, config);
+          const sec = (ms) => Math.round(ms / 1e3);
+          const rows = [];
+          for (const [key, list] of byCol) for (const card of list) {
+            const inRange = stints(card.history, "doing", lo, hi, openEnd, key === "doing");
+            const last = chrono(card.history).pop();
+            const doneMs = last && terminal.has(last.to.toLowerCase()) && terminalKeys.has(key) ? stampMs(last.stamp) : null;
+            const doneIn = doneMs != null && doneMs >= lo && doneMs <= hi;
+            if (!inRange.length && !doneIn) continue;
+            const life = stints(card.history, "doing", 0, now, openEnd, key === "doing").reduce((t, x) => t + x.e - x.s, 0);
+            const fm = plugin.app.metadataCache.getCache(card.file.path)?.frontmatter;
+            const ah = adhoc(card.history, birthMs(card.file.name), mull);
+            rows.push([
+              `${card.file.path}:${card.line}`,
+              cleanText(card.body),
+              (fmVals(fm, "org") || []).join("|"),
+              (fmVals(fm, "projects") || []).join("|"),
+              card.desktop ?? "",
+              ah == null ? "-" : ah ? "1" : "0",
+              doneIn ? String(sec(doneMs)) : "-",
+              String(sec(life)),
+              inRange.map((x) => `${sec(x.s)}-${sec(x.e)}`).join(",")
+            ].join("	"));
+          }
+          return "\n" + rows.join("\n");
+        },
         // 5.1 Planned vs unplanned time in a column (default Doing) over a date range.
         // Planned = the card sat in Todo before its first Doing entry. Arg forms mirror getReport.
         // Lines: header with both totals, then planned|unplanned<TAB>dur<TAB>file:line<TAB>body
@@ -3789,7 +3843,7 @@ projects:
           for (const [key, list] of byCol) for (const card of list) {
             const ms = stints(card.history, want, lo, hi, openEnd, key === want).reduce((t, x) => t + x.e - x.s, 0);
             if (!ms) continue;
-            const kind = planned(card.history) ? "planned" : "unplanned";
+            const kind = planned(card.history, birthMs(card.file.name), (opts.mull ?? 60) * 6e4) ? "planned" : "unplanned";
             sum[kind] += ms;
             rows.push([kind, ms, `${card.file.path}:${card.line}`, cleanText(card.body)]);
           }
@@ -3881,7 +3935,8 @@ projects:
             "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
             "setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card",
             "estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)",
-            "planned(date|from,to,opts) Doing time split planned (Todo first) vs unplanned, per card",
+            "planned(date|from,to,opts) Doing time split planned (>= opts.mull min, default 60, in Backlog/Todo first) vs ad hoc",
+            "reportCards(from,to,opts) Reports input: cards with Doing stints or done in range; opts.mull minutes",
             "activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)",
             "moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped",
             "setDesktop(ref,d)        set (1-9 or a desktop name) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",

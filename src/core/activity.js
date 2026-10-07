@@ -27,6 +27,14 @@ function stampMs(s) {
   return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)).getTime();
 }
 
+/** A note's birth from its name `YYYYMMDD-HHmm`, as local ms; null for other names.
+ * >>> birthMs('20261007-1227.md') === stampMs('202610071227')  // -> true
+ */
+function birthMs(name) {
+  const m = String(name).match(/^(\d{8})-(\d{4})/);
+  return m ? stampMs(m[1] + m[2]) : null;
+}
+
 /** 1.2 A backdated move never sorts before the card's latest move.
  * False when the card moved after `at` (another device acted during the gap).
  * >>> backdateOk(stampMs('202610070030'), [{stamp:'202610070100'}])  // -> false
@@ -55,18 +63,34 @@ function stints(history, want, lo, hi, openEnd, stillIn = true) {
   return out;
 }
 
-/** 5.1 Planned = the card sat in Todo before its first Doing entry.
- * >>> planned([{stamp:'1',to:'Todo'},{stamp:'2',to:'Doing'}])  // -> true
- * >>> planned([{stamp:'1',to:'Doing'}])                         // -> false
+const MULL_MS = 60 * 60000;
+const QUEUE = ['backlog', 'todo'];
+
+/** 5.1 Ad hoc = before its first Doing entry the card spent less than `mullMs` in Backlog and Todo.
+ * Queue time starts at `createdMs` (note name stamp), else at the first move. null = never reached Doing.
+ * >>> adhoc([{stamp:'202610071000',from:'Backlog',to:'Doing'}], stampMs('202610071000'))          // -> true
+ * >>> adhoc([{stamp:'202610071300',from:'Backlog',to:'Doing'}], stampMs('202610071000'))          // -> false
+ * >>> adhoc([{stamp:'202610071000',from:'Backlog',to:'Done'}])                                     // -> null
  */
-function planned(history, plannedCol = 'todo', doingCol = 'doing') {
+function adhoc(history, createdMs = null, mullMs = MULL_MS) {
   const ordered = chrono(history);
+  if (!ordered.length) return null;
+  let t = Number.isFinite(createdMs) ? createdMs : stampMs(ordered[0].stamp);
+  let queued = 0;
+  let inQueue = QUEUE.includes(String(ordered[0].from || 'backlog').toLowerCase());
   for (const h of ordered) {
-    const to = h.to.toLowerCase();
-    if (to === doingCol) return false;
-    if (to === plannedCol) return true;
+    const at = stampMs(h.stamp);
+    if (inQueue) queued += Math.max(0, at - t);
+    if (h.to.toLowerCase() === 'doing') return queued < mullMs;
+    inQueue = QUEUE.includes(h.to.toLowerCase());
+    t = at;
   }
-  return false;
+  return null;
+}
+
+/** 5.1 Planned = reached Doing after at least `mullMs` in Backlog and Todo. */
+function planned(history, createdMs = null, mullMs = MULL_MS) {
+  return adhoc(history, createdMs, mullMs) === false;
 }
 
 /** 2.4 Parse one day log (JSON lines). Bad lines are skipped.
@@ -122,4 +146,4 @@ function desktopRef(v) {
   return s;
 }
 
-module.exports = { chrono, desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
+module.exports = { birthMs, chrono, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };

@@ -2,7 +2,7 @@
 name: kanban-cli
 description: Query and mutate the backlinks-daily-blocks kanban board from the shell via `obsidian eval`. Use when an LLM needs to read the user's task plate, see what was done on a date, get a day's move timeline, create a task, or move a task between columns without opening Obsidian.
 metadata:
-  version: "0.2.1"
+  version: "0.3.0"
 ---
 
 # Kanban CLI
@@ -200,8 +200,15 @@ No open-children guard (same as `moveTask`). Returns `ok <moved>`.
 
 ### `kb.planned(...)` — planned vs unplanned time in Doing
 
-Arg forms mirror `getReport` (`20261007`, `from,to`, `{days:7}`). Planned = the card sat in Todo before its first Doing entry.
+Arg forms mirror `getReport` (`20261007`, `from,to`, `{days:7}`). Planned = before its first Doing entry the card spent at
+least `opts.mull` minutes (default 60) in Backlog and Todo, counted from the note's `YYYYMMDD-HHmm` name. Otherwise it is ad hoc.
 First line: both totals with percentages. Then `planned|unplanned<TAB>dur<TAB>file:line<TAB>body`, longest first.
+
+### `kb.reportCards(from, to, opts?)` — Reports input for the Kanban Board app
+
+Every card with a Doing stint in the range or a terminal move in the range. `opts.mull` = mulling minutes (default 60).
+Rows: `file:line<TAB>title<TAB>orgs a|b<TAB>projects a|b<TAB>desktop<TAB>adhoc 1|0|-<TAB>done epoch s|-<TAB>lifetime Doing s<TAB>start-end,...`
+(stints clipped to the range, epoch seconds). Untracked = done in range with lifetime 0. The app splits stint time by activity.
 
 ### `kb.activity(date?)` — captured Mac activity vs Doing for one day
 

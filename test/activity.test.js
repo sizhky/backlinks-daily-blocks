@@ -37,10 +37,17 @@ test('a night that ends with a backdated park leaves only the worked stint', () 
   assert.equal((s.e - s.s) / min, 132);
 });
 
-test('planned needs Todo before the first Doing entry', () => {
-  assert.equal(A.planned([{ stamp: '1', to: 'Backlog' }, { stamp: '2', to: 'Todo' }, { stamp: '3', to: 'Doing' }]), true);
-  assert.equal(A.planned([{ stamp: '1', to: 'Doing' }, { stamp: '2', to: 'Todo' }]), false);
-  assert.equal(A.planned([{ stamp: '1', to: 'Backlog' }, { stamp: '2', to: 'Doing' }]), false);
+test('adhoc: under the mulling threshold in Backlog and Todo before the first Doing entry', () => {
+  const at = A.stampMs('202610071000');
+  const mv = (stamp, from, to) => ({ stamp, from, to });
+  assert.equal(A.adhoc([mv('202610071000', 'Backlog', 'Doing')], at), true);
+  assert.equal(A.adhoc([mv('202610071010', 'Backlog', 'Todo'), mv('202610071020', 'Todo', 'Doing')], at), true);
+  assert.equal(A.adhoc([mv('202610071300', 'Backlog', 'Doing')], at), false);
+  assert.equal(A.adhoc([mv('202610071300', 'Backlog', 'Doing')], at, 4 * 60 * min), true);
+  assert.equal(A.adhoc([mv('202610071000', 'Backlog', 'Done')], at), null);
+  assert.equal(A.planned([mv('202610071300', 'Backlog', 'Todo'), mv('202610071400', 'Todo', 'Doing')], at), true);
+  assert.equal(A.birthMs('20261007-1000.md'), at);
+  assert.equal(A.birthMs('Notes.md'), null);
 });
 
 test('parseActivity skips partial lines and sorts by start', () => {
