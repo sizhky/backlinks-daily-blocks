@@ -61,4 +61,12 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(r.lane, [0, 1, 0, 0])
     XCTAssertEqual(r.of, [2, 2, 1, 2])
   }
+
+  func testImputeFillsShortGapsOnly() {
+    let t = Date(timeIntervalSince1970: 0)
+    func s(_ a: Double, _ b: Double) -> Span { Span(start: t + a, end: t + b, app: "A", bundle: "a", title: "") }
+    let out = ActivityLog.impute([s(0, 300), s(320, 400), s(600, 700)])
+    XCTAssertEqual(out[0].end, t + 320, "20 s gap carried forward")
+    XCTAssertEqual(out[1].end, t + 400, "200 s gap is real absence")
+  }
 }

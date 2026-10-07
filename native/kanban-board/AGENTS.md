@@ -226,6 +226,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   stint its own equal-width column with a 2 pt gap, so cards never overlap in x (a one-card-at-a-time
   "focus" line was tried and rejected: it hid real parallel work). Hover details use `hoverTip`/`HoverCard`
   (instant, follows the pointer), not `.help`, whose ~1 s delay felt unresponsive.
+  `TimelineModel.load` runs `ActivityLog.impute` once: gaps under 60 s (dropped sub-5 s visits, capture
+  restarts) carry the previous span forward; 60 s or more stays empty and shows as Away in the list. The log
+  file is never rewritten.
   The calendar is one viewport-sized `Canvas` culled to visible hours (`CalendarLayout` precomputed per data
   load); per-block SwiftUI views and a defaults write per scroll tick made zoom chug.
   Zoom (`timeline.hour`, `CalendarDay.zoomRange` 24 to 3600 pt per hour) goes through `TimelineModel.zoom`:

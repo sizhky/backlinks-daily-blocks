@@ -109,6 +109,7 @@ final class TimelineModel: ObservableObject {
     var fresh = (try? Data(contentsOf: url)).map(ActivityLog.parse) ?? []
     // The open span is not in the file yet; show it live for today.
     if isToday, let open = activity.openSpan { fresh.append(open) }
+    fresh = ActivityLog.impute(fresh)
     if fresh != spans { spans = fresh; layout = CalendarLayout(spans: spans, stints: stints) }
     error = nil
     guard chronicle else { return }

@@ -31,6 +31,21 @@ public enum ActivityLog {
       .sorted { $0.start < $1.start }
   }
 
+  /// Fills gaps shorter than `maxGap` by carrying the previous span forward to the next start
+  /// (dropped sub-5 s visits and capture restarts). Longer gaps are real absence and stay empty.
+  /// The log on disk is not changed; this is for display and totals.
+  /// ```
+  /// [A 10:00-10:05, B 10:05:20-10:06] maxGap 60 -> [A 10:00-10:05:20, B ...]
+  /// ```
+  public static func impute(_ spans: [Span], maxGap: TimeInterval = 60) -> [Span] {
+    var out = spans
+    for i in out.indices.dropLast() {
+      let gap = out[i + 1].start.timeIntervalSince(out[i].end)
+      if gap > 0, gap < maxGap { out[i].end = out[i + 1].start }
+    }
+    return out
+  }
+
   /// Spans with gaps of at least `gap` seconds made explicit as away rows.
   /// ```
   /// [10:00-10:05, 10:07-10:08] gap 60 -> [span, away 10:05-10:07, span]
