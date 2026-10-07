@@ -12,6 +12,15 @@ function sleepGap(lastTick, now, gapMs = GAP_MS) {
   return now - lastTick > gapMs ? lastTick : null;
 }
 
+/** Moves oldest first. Stamps are minute-precision, so a card moved twice in one minute has equal
+ * stamps; the note lists moves newest first, so on a tie the entry lower in the file (higher `seq`)
+ * is older. A plain stamp sort kept file order and made Backlog>Doing look like the last move.
+ * >>> chrono([{stamp:'1',to:'Done',seq:0},{stamp:'1',to:'Doing',seq:1}]).map(h=>h.to)  // -> ['Doing','Done']
+ */
+function chrono(history) {
+  return history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp) || (y.seq ?? 0) - (x.seq ?? 0));
+}
+
 /** Bare yyyymmddhhmm digits -> local ms. */
 function stampMs(s) {
   s = String(s).replace(/\D/g, '');
@@ -29,16 +38,19 @@ function backdateOk(atMs, history) {
 
 /** Stints in column `want` clipped to [lo, hi]; an open stint ends at `openEnd`.
  * history: [{stamp, to}] in any order. Returns [{s, e, open}].
+ * `stillIn` = the card is in `want` now. A card ticked done off-board, or with out-of-order stamps,
+ * can end its history on an entry into `want`; that stint is not running and counts as zero.
  */
-function stints(history, want, lo, hi, openEnd) {
-  const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+function stints(history, want, lo, hi, openEnd, stillIn = true) {
+  const ordered = chrono(history);
   const out = [];
-  for (let i = 0; i < chrono.length; i++) {
-    if (chrono[i].to.toLowerCase() !== want) continue;
-    const s = stampMs(chrono[i].stamp);
-    const raw = chrono[i + 1] ? stampMs(chrono[i + 1].stamp) : openEnd(s);
+  for (let i = 0; i < ordered.length; i++) {
+    if (ordered[i].to.toLowerCase() !== want) continue;
+    if (!ordered[i + 1] && !stillIn) continue;
+    const s = stampMs(ordered[i].stamp);
+    const raw = ordered[i + 1] ? stampMs(ordered[i + 1].stamp) : openEnd(s);
     const cs = Math.max(s, lo), ce = Math.min(raw, hi);
-    if (ce > cs) out.push({ s: cs, e: ce, open: !chrono[i + 1] });
+    if (ce > cs) out.push({ s: cs, e: ce, open: !ordered[i + 1] });
   }
   return out;
 }
@@ -48,8 +60,8 @@ function stints(history, want, lo, hi, openEnd) {
  * >>> planned([{stamp:'1',to:'Doing'}])                         // -> false
  */
 function planned(history, plannedCol = 'todo', doingCol = 'doing') {
-  const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
-  for (const h of chrono) {
+  const ordered = chrono(history);
+  for (const h of ordered) {
     const to = h.to.toLowerCase();
     if (to === doingCol) return false;
     if (to === plannedCol) return true;
@@ -110,4 +122,4 @@ function desktopRef(v) {
   return s;
 }
 
-module.exports = { desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
+module.exports = { chrono, desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };

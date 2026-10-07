@@ -40,8 +40,8 @@ async function loadDay(plugin, dateStr, config) {
   const openEnd = s => (today ? Date.now() : Math.min(hi, s + 86400000));
   const doing = [];
   const byCol = await scanKanbanTasks(plugin.app, config);
-  for (const [, list] of byCol) for (const card of list) {
-    for (const x of stints(card.history, 'doing', lo, hi, openEnd)) doing.push({ ...x, body: cleanText(card.body) });
+  for (const [key, list] of byCol) for (const card of list) {
+    for (const x of stints(card.history, 'doing', lo, hi, openEnd, key === 'doing')) doing.push({ ...x, body: cleanText(card.body) });
   }
   doing.sort((a, b) => a.s - b.s);
   return { lo, hi, spans, doing, logged: !!text };

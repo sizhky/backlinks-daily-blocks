@@ -65,3 +65,17 @@ test('desktopRef accepts 1-9 and names, rejects unsafe values', () => {
   assert.equal(A.desktopRef('a %% b'), null);
   assert.equal(A.desktopRef(''), null);
 });
+
+test('chrono orders same-minute moves by file position (newest first in the note)', () => {
+  const h = [{ stamp: '202610011657', to: 'Done', seq: 0 }, { stamp: '202610011657', to: 'Doing', seq: 1 }];
+  assert.deepEqual(A.chrono(h).map(x => x.to), ['Doing', 'Done']);
+  const day = A.stampMs('202610010000'), end = A.stampMs('202610012359');
+  assert.equal(A.stints(h, 'doing', day, end, () => end).length, 0, 'zero-length stint, not open until midnight');
+});
+
+test('a card no longer in the column has no open stint', () => {
+  const h = [{ stamp: '202607171628', to: 'Done', seq: 1 }, { stamp: '202607171735', to: 'Doing', seq: 0 }];
+  const lo = A.stampMs('202610070000'), hi = A.stampMs('202610072359');
+  assert.equal(A.stints(h, 'doing', lo, hi, () => hi, false).length, 0);
+  assert.equal(A.stints(h, 'doing', lo, hi, () => hi, true).length, 1);
+});

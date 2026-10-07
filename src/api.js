@@ -2,7 +2,7 @@
 const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
-const { backdateOk, stints, planned, desktopRef } = require('./core/activity');
+const { backdateOk, stints, planned, desktopRef, chrono } = require('./core/activity');
 const { activitySummary } = require('./activity');
 const { saveTemplate } = require('./templates');
 const { openFileAtLine } = require('./core/render');
@@ -338,12 +338,12 @@ function hhmmBare(ms) {
 // segments a task sat in column `want` on dateStr, as "HH:MM->HH:MM :: dur" joined.
 // open segment (still in col) closes at end of day, end marked with "~".
 function colSegments(history, want, dateStr) {
-  const chrono = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+  const ordered = chrono(history);
   const y = +dateStr.slice(0, 4), mo = +dateStr.slice(4, 6) - 1, d = +dateStr.slice(6, 8);
   const dayEnd = new Date(y, mo, d, 23, 59, 59).getTime();
   const segs = [];
   let start = null;
-  for (const h of chrono) {
+  for (const h of ordered) {
     if (h.to.toLowerCase() === want) start = stampToDate(h.stamp).getTime();
     else if (start != null) { segs.push([start, stampToDate(h.stamp).getTime(), false]); start = null; }
   }
@@ -542,15 +542,16 @@ function buildApi(plugin) {
       const hi = hiD.getTime();
       const groups = new Map(); // g -> { ivals:[[s,e]], cards:Set, bodies:[] }
       const allIvals = [];      // every interval, for the wall-clock grand total
-      for (const [, list] of byCol) {
+      for (const [key, list] of byCol) {
         for (const card of list) {
-          const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+          const ordered = chrono(card.history);
           const ivals = [];
-          for (let i = 0; i < chrono.length; i++) {
-            if (chrono[i].to.toLowerCase() !== want) continue;
-            const s = stampToDate(chrono[i].stamp).getTime();
+          for (let i = 0; i < ordered.length; i++) {
+            if (ordered[i].to.toLowerCase() !== want) continue;
+            if (!ordered[i + 1] && key !== want) continue; // ends on entering `want` but is not there now
+            const s = stampToDate(ordered[i].stamp).getTime();
             // close at the NEXT move; if none (off-board [x] tick left it open) clamp to end of that day
-            const e = chrono[i + 1] ? stampToDate(chrono[i + 1].stamp).getTime() : endOfDayMs(s);
+            const e = ordered[i + 1] ? stampToDate(ordered[i + 1].stamp).getTime() : endOfDayMs(s);
             const cs = Math.max(s, lo), ce = Math.min(e, hi);
             if (ce > cs) ivals.push([cs, ce]);
           }
@@ -590,8 +591,8 @@ function buildApi(plugin) {
         const elapsed = Math.max(0, (today ? Date.now() : hi) - lo);
         const segs = [];
         const openEnd = s => (today ? Date.now() : endOfDayMs(s));
-        for (const [, list] of byCol) for (const card of list) {
-          for (const x of stints(card.history, want, lo, hi, openEnd)) {
+        for (const [key, list] of byCol) for (const card of list) {
+          for (const x of stints(card.history, want, lo, hi, openEnd, key === want)) {
             segs.push({ ...x, open: x.open && today, body: cleanText(card.body), ref: `${card.file.path}:${card.line}` });
           }
         }
@@ -622,8 +623,8 @@ function buildApi(plugin) {
       const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
       const rows = [];
       const sum = { planned: 0, unplanned: 0 };
-      for (const [, list] of byCol) for (const card of list) {
-        const ms = stints(card.history, want, lo, hi, openEnd).reduce((t, x) => t + x.e - x.s, 0);
+      for (const [key, list] of byCol) for (const card of list) {
+        const ms = stints(card.history, want, lo, hi, openEnd, key === want).reduce((t, x) => t + x.e - x.s, 0);
         if (!ms) continue;
         const kind = planned(card.history) ? 'planned' : 'unplanned';
         sum[kind] += ms;
@@ -907,12 +908,13 @@ function buildApi(plugin) {
       const want = String(opts.col || 'Doing').toLowerCase();
       const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
       const out = [];
-      for (const [, list] of byCol) for (const card of list) {
+      for (const [key, list] of byCol) for (const card of list) {
         if (card.est == null) continue;
-        const ev = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+        const ev = chrono(card.history);
         let ms = 0;
         ev.forEach((e, i) => {
           if (e.to.toLowerCase() !== want) return;
+          if (!ev[i + 1] && key !== want) return; // not in `want` now: no open stint
           ms += (ev[i + 1] ? stampToDate(ev[i + 1].stamp).getTime() : Date.now()) - stampToDate(e.stamp).getTime();
         });
         out.push(`${card.file.path}:${card.line}\t${card.est}\t${Math.round(ms / 60000)}`);

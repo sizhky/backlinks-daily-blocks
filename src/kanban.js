@@ -4,7 +4,7 @@
 
 const { MarkdownRenderChild, Menu, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
-const { desktopRef } = require('./core/activity');
+const { desktopRef, chrono } = require('./core/activity');
 
 // Persisted marker for "no lanes selected". Kept distinct from a cleared
 // `lanes:` line (= all) and from the "(none)" no-frontmatter pool lane.
@@ -266,7 +266,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
 
       const hm = text.match(HIST_RE);
       if (hm) {
-        owner(text)?.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3] });
+        { const o = owner(text); o?.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], seq: o.history.length }); }
         continue;
       }
 
@@ -1182,7 +1182,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
             foot.createSpan({ cls: 'bdb-kanban-habit-stat', text: `${st.streak}d streak` });
           }
         } else if (card.history.length) {
-          const es = card.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+          const es = chrono(card.history);
           const colorOf = new Map(config.columns.map((c, i) => [c.name, columnColor(config, c, i)]));
           const idle = new Set(config.columns.filter(c => c.paused).map(c => c.name));
           const terminal = !!col.state; // terminal clocks freeze: done is done, not "still doing done"

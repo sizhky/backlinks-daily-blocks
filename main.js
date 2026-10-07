@@ -257,29 +257,33 @@ var require_activity = __commonJS({
       if (!Number.isFinite(lastTick) || lastTick <= 0) return null;
       return now - lastTick > gapMs ? lastTick : null;
     }
+    function chrono(history2) {
+      return history2.slice().sort((x, y) => x.stamp.localeCompare(y.stamp) || (y.seq ?? 0) - (x.seq ?? 0));
+    }
     function stampMs(s) {
       s = String(s).replace(/\D/g, "");
       return new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)).getTime();
     }
-    function backdateOk(atMs, history) {
-      const latest = Math.max(0, ...history.map((h) => stampMs(h.stamp)));
+    function backdateOk(atMs, history2) {
+      const latest = Math.max(0, ...history2.map((h) => stampMs(h.stamp)));
       return atMs >= latest;
     }
-    function stints(history, want, lo, hi, openEnd) {
-      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+    function stints(history2, want, lo, hi, openEnd, stillIn = true) {
+      const ordered = chrono(history2);
       const out = [];
-      for (let i = 0; i < chrono.length; i++) {
-        if (chrono[i].to.toLowerCase() !== want) continue;
-        const s = stampMs(chrono[i].stamp);
-        const raw = chrono[i + 1] ? stampMs(chrono[i + 1].stamp) : openEnd(s);
+      for (let i = 0; i < ordered.length; i++) {
+        if (ordered[i].to.toLowerCase() !== want) continue;
+        if (!ordered[i + 1] && !stillIn) continue;
+        const s = stampMs(ordered[i].stamp);
+        const raw = ordered[i + 1] ? stampMs(ordered[i + 1].stamp) : openEnd(s);
         const cs = Math.max(s, lo), ce = Math.min(raw, hi);
-        if (ce > cs) out.push({ s: cs, e: ce, open: !chrono[i + 1] });
+        if (ce > cs) out.push({ s: cs, e: ce, open: !ordered[i + 1] });
       }
       return out;
     }
-    function planned(history, plannedCol = "todo", doingCol = "doing") {
-      const chrono = history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
-      for (const h of chrono) {
+    function planned(history2, plannedCol = "todo", doingCol = "doing") {
+      const ordered = chrono(history2);
+      for (const h of ordered) {
         const to = h.to.toLowerCase();
         if (to === doingCol) return false;
         if (to === plannedCol) return true;
@@ -324,7 +328,7 @@ var require_activity = __commonJS({
       if (/^\d+$/.test(s)) return +s >= 1 && +s <= 9 ? String(+s) : null;
       return s;
     }
-    module2.exports = { desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
+    module2.exports = { chrono, desktopRef, GAP_MS, sleepGap, stampMs, backdateOk, stints, planned, parseActivity, overlapMs, union };
   }
 });
 
@@ -334,9 +338,10 @@ var require_habits = __commonJS({
     var { parseKanbanConfig: parseKanbanConfig2, scanKanbanTasks, stampToDate, cleanText, moveCard: moveCard2, logTapSpan, addTitleCopy } = require_kanban();
     var { MarkdownRenderChild, setIcon } = require("obsidian");
     var { openFileAtLine } = require_render();
+    var { chrono } = require_activity();
     var HABIT_COLS = "columns: Idle~, Doing!";
-    function spans(history) {
-      const h = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+    function spans(history2) {
+      const h = chrono(history2);
       const out = [];
       let start = null;
       for (const m of h) {
@@ -350,9 +355,9 @@ var require_habits = __commonJS({
       if (start) out.push({ start, end: null, ms: null });
       return out;
     }
-    function bucketByDay(history, metric, year) {
+    function bucketByDay(history2, metric, year) {
       const days = /* @__PURE__ */ new Map();
-      for (const s of spans(history)) {
+      for (const s of spans(history2)) {
         const d = s.end || s.start;
         if (d.getFullYear() !== year) continue;
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -517,11 +522,11 @@ paths: ${paths2.join(", ")}`);
         renderHabitRow(wrap, h, year, now);
       }
     }
-    function habitStats(history, metric, now) {
+    function habitStats(history2, metric, now) {
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       const byDay = /* @__PURE__ */ new Map();
       let open = false;
-      for (const s of spans(history)) {
+      for (const s of spans(history2)) {
         const d = s.end || s.start;
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
         if (s.end === null) {
@@ -730,7 +735,7 @@ var require_kanban = __commonJS({
   "src/kanban.js"(exports2, module2) {
     var { MarkdownRenderChild, Menu, Notice: Notice2, Platform, setIcon } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
-    var { desktopRef } = require_activity();
+    var { desktopRef, chrono } = require_activity();
     var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
     var KB_TAG_RE = /#kb\/([\w-]+)/;
@@ -939,7 +944,10 @@ var require_kanban = __commonJS({
           }
           const hm = text.match(HIST_RE2);
           if (hm) {
-            owner(text)?.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3] });
+            {
+              const o = owner(text);
+              o?.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], seq: o.history.length });
+            }
             continue;
           }
           const em = text.match(EI_HIST_RE);
@@ -1683,7 +1691,7 @@ var require_kanban = __commonJS({
                   foot.createSpan({ cls: "bdb-kanban-habit-stat", text: `${st.streak}d streak` });
                 }
               } else if (card.history.length) {
-                const es = card.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+                const es = chrono(card.history);
                 const colorOf = new Map(config.columns.map((c, i) => [c.name, columnColor(config, c, i)]));
                 const idle = new Set(config.columns.filter((c) => c.paused).map((c) => c.name));
                 const terminal = !!col.state;
@@ -2049,6 +2057,7 @@ var require_report = __commonJS({
   "src/report.js"(exports2, module2) {
     var { TASK_RE: TASK_RE2, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig: parseKanbanConfig2, fmtDur, addTitleCopy } = require_kanban();
     var { openFileAtLine } = require_render();
+    var { chrono } = require_activity();
     var { MarkdownRenderChild, Modal, Notice: Notice2, getFrontMatterInfo, parseYaml } = require("obsidian");
     var HIST_RE2 = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
@@ -2166,7 +2175,7 @@ var require_report = __commonJS({
             const hi = indentWidth(text);
             for (let i = stack.length - 1; i >= 0; i--) {
               if (stack[i].indent < hi) {
-                stack[i].card.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], line: li });
+                stack[i].card.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], line: li, seq: li });
                 break;
               }
             }
@@ -2194,14 +2203,14 @@ var require_report = __commonJS({
           }
           const upto = card.history.filter((h) => h.stamp.slice(0, 8) <= endStr);
           if (!upto.length) continue;
-          const last = upto.reduce((a, b) => b.stamp > a.stamp ? b : a);
+          const last = chrono(upto).at(-1);
           if (isActive(last.to)) standing.push({ ...card, col: last.to });
         }
       }
       return { tasks, standing };
     }
-    function buildSegments(history, rangeStart, rangeEnd) {
-      const events = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+    function buildSegments(history2, rangeStart, rangeEnd) {
+      const events = chrono(history2);
       const segs = [];
       segs.push({ col: events[0].from, start: rangeStart, end: stampToDate(events[0].stamp), startIdx: null, endIdx: 0 });
       for (let i = 0; i < events.length; i++) {
@@ -2237,7 +2246,7 @@ var require_report = __commonJS({
       const endStamp = seg.endIdx == null ? null : stampForDateTime(dateStr, endVal);
       if (seg.startIdx != null && !startStamp || seg.endIdx != null && !endStamp) throw new Error("time must be HH:MM");
       if (seg.startIdx != null && seg.endIdx != null && startStamp >= endStamp) throw new Error("start must be before end");
-      const events = task.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+      const events = task.chrono(history);
       const prev = seg.startIdx > 0 ? events[seg.startIdx - 1].stamp : `${dateStr}0000`;
       const next = seg.endIdx == null ? null : seg.endIdx + 1 < events.length ? events[seg.endIdx + 1].stamp : `${dateStr}2359`;
       if (startStamp && startStamp <= prev) throw new Error("start would overlap previous segment");
@@ -2259,7 +2268,7 @@ var require_report = __commonJS({
       await app2.vault.modify(task.file, lines.join("\n"));
     }
     function dragBounds(task, seg, dateStr, maxT) {
-      const events = task.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+      const events = task.chrono(history);
       return {
         prev: seg.startIdx > 0 ? stampToMs(events[seg.startIdx - 1].stamp) : new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8), 0, 0, 0).getTime(),
         next: seg.endIdx == null ? maxT : seg.endIdx + 1 < events.length ? stampToMs(events[seg.endIdx + 1].stamp) : new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8), 23, 59, 0).getTime()
@@ -2944,8 +2953,8 @@ var require_activity2 = __commonJS({
       const openEnd = (s) => today ? Date.now() : Math.min(hi, s + 864e5);
       const doing = [];
       const byCol = await scanKanbanTasks(plugin.app, config);
-      for (const [, list] of byCol) for (const card of list) {
-        for (const x of stints(card.history, "doing", lo, hi, openEnd)) doing.push({ ...x, body: cleanText(card.body) });
+      for (const [key, list] of byCol) for (const card of list) {
+        for (const x of stints(card.history, "doing", lo, hi, openEnd, key === "doing")) doing.push({ ...x, body: cleanText(card.body) });
       }
       doing.sort((a, b) => a.s - b.s);
       return { lo, hi, spans, doing, logged: !!text };
@@ -3216,7 +3225,7 @@ var require_api = __commonJS({
       EI_HIST_RE
     } = require_kanban();
     var { collectDayTasks } = require_report();
-    var { backdateOk, stints, planned, desktopRef } = require_activity();
+    var { backdateOk, stints, planned, desktopRef, chrono } = require_activity();
     var { activitySummary } = require_activity2();
     var { saveTemplate } = require_templates();
     var { openFileAtLine } = require_render();
@@ -3503,13 +3512,13 @@ projects:
       const d = new Date(ms);
       return String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
     }
-    function colSegments(history, want, dateStr) {
-      const chrono = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+    function colSegments(history2, want, dateStr) {
+      const ordered = chrono(history2);
       const y = +dateStr.slice(0, 4), mo = +dateStr.slice(4, 6) - 1, d = +dateStr.slice(6, 8);
       const dayEnd = new Date(y, mo, d, 23, 59, 59).getTime();
       const segs = [];
       let start = null;
-      for (const h of chrono) {
+      for (const h of ordered) {
         if (h.to.toLowerCase() === want) start = stampToDate(h.stamp).getTime();
         else if (start != null) {
           segs.push([start, stampToDate(h.stamp).getTime(), false]);
@@ -3700,14 +3709,15 @@ projects:
           const hi = hiD.getTime();
           const groups = /* @__PURE__ */ new Map();
           const allIvals = [];
-          for (const [, list] of byCol) {
+          for (const [key, list] of byCol) {
             for (const card of list) {
-              const chrono = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+              const ordered = chrono(card.history);
               const ivals = [];
-              for (let i = 0; i < chrono.length; i++) {
-                if (chrono[i].to.toLowerCase() !== want) continue;
-                const s = stampToDate(chrono[i].stamp).getTime();
-                const e = chrono[i + 1] ? stampToDate(chrono[i + 1].stamp).getTime() : endOfDayMs(s);
+              for (let i = 0; i < ordered.length; i++) {
+                if (ordered[i].to.toLowerCase() !== want) continue;
+                if (!ordered[i + 1] && key !== want) continue;
+                const s = stampToDate(ordered[i].stamp).getTime();
+                const e = ordered[i + 1] ? stampToDate(ordered[i + 1].stamp).getTime() : endOfDayMs(s);
                 const cs = Math.max(s, lo), ce = Math.min(e, hi);
                 if (ce > cs) ivals.push([cs, ce]);
               }
@@ -3746,8 +3756,8 @@ projects:
             const elapsed = Math.max(0, (today ? Date.now() : hi) - lo);
             const segs = [];
             const openEnd = (s) => today ? Date.now() : endOfDayMs(s);
-            for (const [, list] of byCol) for (const card of list) {
-              for (const x of stints(card.history, want, lo, hi, openEnd)) {
+            for (const [key, list] of byCol) for (const card of list) {
+              for (const x of stints(card.history, want, lo, hi, openEnd, key === want)) {
                 segs.push({ ...x, open: x.open && today, body: cleanText(card.body), ref: `${card.file.path}:${card.line}` });
               }
             }
@@ -3776,8 +3786,8 @@ projects:
           const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts, plugin));
           const rows = [];
           const sum = { planned: 0, unplanned: 0 };
-          for (const [, list] of byCol) for (const card of list) {
-            const ms = stints(card.history, want, lo, hi, openEnd).reduce((t, x) => t + x.e - x.s, 0);
+          for (const [key, list] of byCol) for (const card of list) {
+            const ms = stints(card.history, want, lo, hi, openEnd, key === want).reduce((t, x) => t + x.e - x.s, 0);
             if (!ms) continue;
             const kind = planned(card.history) ? "planned" : "unplanned";
             sum[kind] += ms;
@@ -4047,12 +4057,13 @@ projects:
           const want = String(opts.col || "Doing").toLowerCase();
           const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts, plugin));
           const out = [];
-          for (const [, list] of byCol) for (const card of list) {
+          for (const [key, list] of byCol) for (const card of list) {
             if (card.est == null) continue;
-            const ev = card.history.slice().sort((x, y) => x.stamp.localeCompare(y.stamp));
+            const ev = chrono(card.history);
             let ms = 0;
             ev.forEach((e, i) => {
               if (e.to.toLowerCase() !== want) return;
+              if (!ev[i + 1] && key !== want) return;
               ms += (ev[i + 1] ? stampToDate(ev[i + 1].stamp).getTime() : Date.now()) - stampToDate(e.stamp).getTime();
             });
             out.push(`${card.file.path}:${card.line}	${card.est}	${Math.round(ms / 6e4)}`);
@@ -5409,8 +5420,8 @@ function taskMeta(lines, line) {
   const histories = /* @__PURE__ */ new Set();
   let tag = (lines[line].match(/#kb\/([\w-]+)/) || [])[1];
   for (let i = line + 1; i < lines.length && !TASK_END_RE.test(lines[i]); i++) {
-    const history = lines[i].match(HIST_RE)?.[0];
-    if (history) histories.add(history);
+    const history2 = lines[i].match(HIST_RE)?.[0];
+    if (history2) histories.add(history2);
     tag ||= (lines[i].match(/#kb\/([\w-]+)/) || [])[1];
   }
   return { histories, tag };
@@ -5635,7 +5646,7 @@ ${this.settings.kanban.columns.split(/\r?\n/).map((x) => `  ${x}`).join("\n")}`)
       if (!oldTask || oldTask[2] !== " " || !target) continue;
       const oldMeta = taskMeta(before, line);
       const newMeta = taskMeta(after, line);
-      if ([...newMeta.histories].some((history) => !oldMeta.histories.has(history))) continue;
+      if ([...newMeta.histories].some((history2) => !oldMeta.histories.has(history2))) continue;
       const fromCol = config.columns.find((col) => col.key === oldMeta.tag) || config.columns.find((col) => !col.state);
       moves.push({ line, target, fromCol });
     }
@@ -5666,7 +5677,7 @@ ${this.settings.kanban.columns.split(/\r?\n/).map((x) => `  ${x}`).join("\n")}`)
       if (!oldTask || oldTask[2] !== " " || !target) continue;
       const oldMeta = taskMeta(before, line);
       const newMeta = taskMeta(after, line);
-      if ([...newMeta.histories].some((history) => !oldMeta.histories.has(history))) continue;
+      if ([...newMeta.histories].some((history2) => !oldMeta.histories.has(history2))) continue;
       const fromCol = config.columns.find((col) => col.key === oldMeta.tag) || config.columns.find((col) => !col.state);
       moves.push({ line, target, fromCol });
     }

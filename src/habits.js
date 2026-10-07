@@ -4,6 +4,7 @@
 const { parseKanbanConfig, scanKanbanTasks, stampToDate, cleanText, moveCard, logTapSpan, addTitleCopy } = require('./kanban');
 const { MarkdownRenderChild, setIcon } = require('obsidian');
 const { openFileAtLine } = require('./core/render');
+const { chrono } = require('./core/activity');
 
 const HABIT_COLS = 'columns: Idle~, Doing!';
 
@@ -11,7 +12,7 @@ const HABIT_COLS = 'columns: Idle~, Doing!';
 // Returns [{start, end, ms}] in chronological order. An unclosed final Doing
 // (you're mid-habit now) is returned with end=null.
 function spans(history) {
-  const h = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+  const h = chrono(history);
   const out = [];
   let start = null;
   for (const m of h) {

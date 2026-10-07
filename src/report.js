@@ -1,6 +1,7 @@
 // report fence — daily task Gantt chart
 const { TASK_RE, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig, fmtDur, addTitleCopy } = require('./kanban');
 const { openFileAtLine } = require('./core/render');
+const { chrono } = require('./core/activity');
 const { MarkdownRenderChild, Modal, Notice, getFrontMatterInfo, parseYaml } = require('obsidian');
 
 const HIST_RE = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
@@ -125,7 +126,7 @@ async function collectReportData(app, startStr, endStr, paths, isActive) {
       if (hm) {
         const hi = indentWidth(text);
         for (let i = stack.length - 1; i >= 0; i--) {
-          if (stack[i].indent < hi) { stack[i].card.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], line: li }); break; }
+          if (stack[i].indent < hi) { stack[i].card.history.push({ stamp: stampDigits(hm[1]), from: hm[2], to: hm[3], line: li, seq: li }); break; }
         }
         continue;
       }
@@ -145,7 +146,7 @@ async function collectReportData(app, startStr, endStr, paths, isActive) {
       if (rangeMoves.length) { tasks.push({ ...card, history: rangeMoves }); continue; }
       const upto = card.history.filter(h => h.stamp.slice(0, 8) <= endStr);
       if (!upto.length) continue;
-      const last = upto.reduce((a, b) => (b.stamp > a.stamp ? b : a));
+      const last = chrono(upto).at(-1);
       if (isActive(last.to)) standing.push({ ...card, col: last.to });
     }
   }
@@ -153,7 +154,7 @@ async function collectReportData(app, startStr, endStr, paths, isActive) {
 }
 
 function buildSegments(history, rangeStart, rangeEnd) {
-  const events = history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+  const events = chrono(history);
   const segs = [];
   segs.push({ col: events[0].from, start: rangeStart, end: stampToDate(events[0].stamp), startIdx: null, endIdx: 0 });
   for (let i = 0; i < events.length; i++) {
@@ -195,7 +196,7 @@ async function rewriteReportSegmentTimes(app, task, seg, dateStr, startVal, endV
   const endStamp = seg.endIdx == null ? null : stampForDateTime(dateStr, endVal);
   if ((seg.startIdx != null && !startStamp) || (seg.endIdx != null && !endStamp)) throw new Error('time must be HH:MM');
   if (seg.startIdx != null && seg.endIdx != null && startStamp >= endStamp) throw new Error('start must be before end');
-  const events = task.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+  const events = task.chrono(history);
   const prev = seg.startIdx > 0 ? events[seg.startIdx - 1].stamp : `${dateStr}0000`;
   const next = seg.endIdx == null
     ? null
@@ -221,7 +222,7 @@ async function rewriteReportSegmentTimes(app, task, seg, dateStr, startVal, endV
 }
 
 function dragBounds(task, seg, dateStr, maxT) {
-  const events = task.history.slice().sort((a, b) => a.stamp.localeCompare(b.stamp));
+  const events = task.chrono(history);
   return {
     prev: seg.startIdx > 0 ? stampToMs(events[seg.startIdx - 1].stamp) : new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8), 0, 0, 0).getTime(),
     next: seg.endIdx == null
