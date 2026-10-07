@@ -83,6 +83,9 @@ struct KanbanBoardApp: App {
       }
     }
 
-    Settings { SettingsView().preferredColorScheme(.dark) }
+    Settings {
+      SettingsView().preferredColorScheme(.dark)
+        .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops)
+    }
   }
 }

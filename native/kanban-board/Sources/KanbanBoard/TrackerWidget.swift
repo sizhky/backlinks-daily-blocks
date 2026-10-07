@@ -7,7 +7,7 @@ enum WidgetKey {
   static let visible = "widget.visible"
   static let task = "widget.task", timer = "widget.timer", app = "widget.app"
   static let title = "widget.title", desktop = "widget.desktop", url = "widget.url"
-  static let size = "widget.size", width = "widget.width"
+  static let width = "widget.width"
   static let color = "widget.color", font = "widget.font"
 }
 
@@ -51,8 +51,8 @@ final class TrackerWidget {
     panel.hidesOnDeactivate = false
     // Fixed frame, no SwiftUI window sizing: `.preferredContentSize` made NSHostingView resize the
     // panel inside its own windowDidLayout, an infinite recursion when Mission Control opened.
-    let host = DragHostingView(rootView: WidgetView().environmentObject(store).environmentObject(store.activity)
-      .environmentObject(store.desktops).environmentObject(grip))
+    let host = DragHostingView(rootView: WidgetView(grip: grip).environmentObject(store).environmentObject(store.activity)
+      .environmentObject(store.desktops))
     host.sizingOptions = []
     panel.contentView = host
     if !panel.setFrameUsingName("TrackerWidget"), let screen = NSScreen.main {
@@ -60,9 +60,8 @@ final class TrackerWidget {
     }
     panel.setFrameAutosaveName("TrackerWidget")
     defer { applySize() }
-    UserDefaults.standard.register(defaults: [WidgetKey.visible: true, WidgetKey.task: true, WidgetKey.timer: true,
-      WidgetKey.app: true, WidgetKey.title: true, WidgetKey.desktop: true, WidgetKey.url: false,
-      WidgetKey.size: 13.0, WidgetKey.width: 240.0, WidgetKey.color: "#FFFFFF", WidgetKey.font: ""])
+    UserDefaults.standard.register(defaults: [WidgetKey.visible: true, WidgetKey.width: 240.0, WidgetKey.color: "#FFFFFF", WidgetKey.font: ""])
+    WidgetPart.registerDefaults()
     observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.applySize(); self?.applyVisibility() }
     }
@@ -111,18 +110,12 @@ struct WidgetView: View {
   @EnvironmentObject var store: BoardStore
   @EnvironmentObject var activity: ActivityMonitor
   @EnvironmentObject var desktops: DesktopStore
-  @AppStorage(WidgetKey.task) private var showTask = true
-  @AppStorage(WidgetKey.timer) private var showTimer = true
-  @AppStorage(WidgetKey.app) private var showApp = true
-  @AppStorage(WidgetKey.title) private var showTitle = true
-  @AppStorage(WidgetKey.desktop) private var showDesktop = true
-  @AppStorage(WidgetKey.url) private var showURL = false
-  @AppStorage(WidgetKey.size) private var size = 13.0
+  @ObservedObject var grip: WidgetGrip
+  @ObservedObject private var prefs = WidgetPrefs.shared
   @AppStorage(WidgetKey.width) private var width = 240.0
   @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
   @AppStorage(WidgetKey.font) private var family = ""
   @State private var toast: [DoingChange] = []
-  @EnvironmentObject var grip: WidgetGrip
 
   /// Doing cards, most recently started first: the hero is the task you switched to last.
   private var doing: [Card] {
@@ -130,22 +123,18 @@ struct WidgetView: View {
       .sorted { ($0.since ?? .distantPast) > ($1.since ?? .distantPast) }
   }
 
-  /// One scale for the whole widget, from the Text size setting (13 = Apple's small-widget body).
-  private var unit: Double { size }
   private var margin: Double { width * 0.07 }
   private var corner: Double { width * 0.12 }
-  private var tint: Color { WidgetStyle.color(color) }
 
   var body: some View {
     VStack(spacing: 0) {
       header
-      Spacer(minLength: unit * 0.4)
+      Spacer(minLength: 4)
       hero
-      Spacer(minLength: unit * 0.4)
+      Spacer(minLength: 4)
       footer
     }
-    .multilineTextAlignment(.center)
-    .foregroundStyle(tint)
+    .foregroundStyle(WidgetStyle.color(color))
     .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
     .padding(margin)
     .frame(width: width, height: width)
@@ -156,7 +145,7 @@ struct WidgetView: View {
       .fill(Color.white.opacity(grip.armed ? 0.1 : 0.001)))
     .overlay {
       if !toast.isEmpty {
-        ToastCover(changes: toast, unit: unit, family: family, corner: corner)
+        ToastCover(changes: toast, unit: prefs.size(.title), family: family, corner: corner, align: prefs.align(.title))
           .transition(.opacity.combined(with: .scale(scale: 0.96)))
       }
     }
@@ -172,44 +161,49 @@ struct WidgetView: View {
     }
   }
 
+  /// One element: its own font size and justification; hidden elements take no space.
+  @ViewBuilder
+  private func part(_ p: WidgetPart, lines: Int = 1, _ content: () -> Text) -> some View {
+    if prefs.shown(p) {
+      let a = prefs.align(p)
+      content()
+        .font(WidgetStyle.font(family, prefs.size(p), p.weight, design: p == .timer ? .rounded : .default))
+        .lineLimit(lines)
+        .truncationMode(p == .window || p == .url ? .middle : .tail)
+        .multilineTextAlignment(a.text)
+        .frame(maxWidth: .infinity, alignment: a.frame)
+    }
+  }
+
   /// Where you are: desktop name, or Away.
   @ViewBuilder private var header: some View {
     if let c = activity.context {
-      if showDesktop, let name = c.desktop ?? c.space.map({ "Desktop \($0)" }) {
-        Label(name, systemImage: "rectangle.3.group")
-          .font(WidgetStyle.font(family, unit * 0.78, .semibold))
-          .labelStyle(.titleAndIcon).lineLimit(1).opacity(0.75)
+      if let name = c.desktop ?? c.space.map({ "Desktop \($0)" }) {
+        part(.desktop) { Text(Image(systemName: "rectangle.3.group")) + Text(" " + name) }.opacity(0.75)
       }
     } else {
-      Label("Away", systemImage: "moon.fill")
-        .font(WidgetStyle.font(family, unit * 0.78, .semibold)).opacity(0.75)
+      part(.desktop) { Text(Image(systemName: "moon.fill")) + Text(" Away") }.opacity(0.75)
     }
   }
 
   /// What is being tracked: the timer as the one glanceable number, the task under it.
   @ViewBuilder private var hero: some View {
-    if showTask, let card = doing.first {
-      VStack(spacing: unit * 0.25) {
-        if showTimer, let since = card.since {
+    if let card = doing.first {
+      VStack(spacing: 3) {
+        if let since = card.since, prefs.shown(.timer) {
           TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            Text(Self.clock(ctx.date.timeIntervalSince(since)))
-              .font(WidgetStyle.font(family, unit * 2.6, .semibold, design: .rounded).monospacedDigit())
-              .lineLimit(1).minimumScaleFactor(0.6)
+            part(.timer) { Text(Self.clock(ctx.date.timeIntervalSince(since))).monospacedDigit() }
+              .minimumScaleFactor(0.6)
               .contentTransition(.numericText())
           }
         }
-        Text(card.title)
-          .font(WidgetStyle.font(family, unit, .semibold))
-          .lineLimit(2)
-        if doing.count > 1 {
-          Text("+\(doing.count - 1) more")
-            .font(WidgetStyle.font(family, unit * 0.72, .medium)).opacity(0.6)
-        }
+        part(.title, lines: 2) { Text(card.title) }
+        if doing.count > 1 { part(.more) { Text("+\(doing.count - 1) more") }.opacity(0.6) }
       }
-    } else if showTask {
-      VStack(spacing: unit * 0.35) {
-        Image(systemName: "circle.dashed").font(.system(size: unit * 2, weight: .light))
-        Text("Not tracking").font(WidgetStyle.font(family, unit, .semibold))
+    } else {
+      VStack(spacing: 3) {
+        part(.timer) { Text(Image(systemName: "circle.dashed")) }.fontWeight(.light)
+        part(.title) { Text("Not tracking") }
       }
       .opacity(0.7)
     }
@@ -219,13 +213,9 @@ struct WidgetView: View {
   @ViewBuilder private var footer: some View {
     if let c = activity.context {
       VStack(spacing: 1) {
-        if showApp { Text(c.app).font(WidgetStyle.font(family, unit * 0.8, .semibold)).lineLimit(1) }
-        if showTitle, !c.title.isEmpty, c.title != c.app {
-          Text(c.title).font(WidgetStyle.font(family, unit * 0.75, .regular)).lineLimit(1).truncationMode(.middle)
-        }
-        if showURL, let url = c.url {
-          Text(url).font(WidgetStyle.font(family, unit * 0.7, .regular)).lineLimit(1).truncationMode(.middle)
-        }
+        part(.app) { Text(c.app) }
+        if !c.title.isEmpty, c.title != c.app { part(.window) { Text(c.title) } }
+        if let url = c.url { part(.url) { Text(url) } }
       }
       .opacity(0.65)
     }
@@ -244,12 +234,13 @@ struct ToastCover: View {
   let unit: Double
   let family: String
   let corner: Double
+  let align: WidgetAlign
 
   /// A start leads; otherwise the first change.
   private var lead: DoingChange { changes.first { $0.verb == "Started" } ?? changes[0] }
 
   var body: some View {
-    VStack(spacing: unit * 0.35) {
+    VStack(alignment: align == .leading ? .leading : align == .trailing ? .trailing : .center, spacing: unit * 0.35) {
       Image(systemName: symbol(lead.verb))
         .font(.system(size: unit * 2.2, weight: .semibold))
         .foregroundStyle(color(lead.verb))
@@ -260,10 +251,10 @@ struct ToastCover: View {
         Text("+\(changes.count - 1) more").font(WidgetStyle.font(family, unit * 0.72, .medium)).opacity(0.6)
       }
     }
-    .multilineTextAlignment(.center)
+    .multilineTextAlignment(align.text)
     .foregroundStyle(.white)
     .padding(unit)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: align.frame)
     .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
     .environment(\.colorScheme, .dark)
   }

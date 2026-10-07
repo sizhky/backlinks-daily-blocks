@@ -27,7 +27,7 @@ struct SettingsView: View {
       AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintbrush") }
       WidgetSettings().tabItem { Label("Widget", systemImage: "rectangle.topthird.inset.filled") }
     }
-    .frame(width: 440, height: 470)
+    .frame(width: 560, height: 760)
   }
 }
 
@@ -47,46 +47,80 @@ struct AppearanceSettings: View {
   }
 }
 
-/// Tracker widget: visibility, which lines it shows, text size and width.
+/// Tracker widget: global style, a live preview, and per-element visibility, justification, and size.
 struct WidgetSettings: View {
+  @EnvironmentObject var store: BoardStore
+  @ObservedObject private var prefs = WidgetPrefs.shared
   @AppStorage(WidgetKey.visible) private var visible = true
-  @AppStorage(WidgetKey.task) private var task = true
-  @AppStorage(WidgetKey.timer) private var timer = true
-  @AppStorage(WidgetKey.app) private var app = true
-  @AppStorage(WidgetKey.title) private var title = true
-  @AppStorage(WidgetKey.desktop) private var desktop = true
-  @AppStorage(WidgetKey.url) private var url = false
-  @AppStorage(WidgetKey.size) private var size = 13.0
   @AppStorage(WidgetKey.width) private var width = 240.0
   @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
   @AppStorage(WidgetKey.font) private var family = ""
+  @StateObject private var previewGrip = WidgetGrip()
   private let families = NSFontManager.shared.availableFontFamilies
+  private let previewSide = 260.0
 
   var body: some View {
     Form {
-      Toggle("Show widget", isOn: $visible)
-      Section("Style") {
+      Section {
+        preview
+          .frame(maxWidth: .infinity)
+          .listRowInsets(EdgeInsets())
+      }
+      Section("Widget") {
+        Toggle("Show widget", isOn: $visible)
+        LabeledContent("Size") {
+          HStack {
+            Slider(value: $width, in: 160...480, step: 20)
+            Text("\(Int(width)) pt").monospacedDigit().foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
+          }
+        }
         ColorPicker("Text color", selection: Binding(get: { WidgetStyle.color(color) }, set: { color = WidgetStyle.hex($0) }))
         Picker("Font", selection: $family) {
           Text("System").tag("")
           Divider()
           ForEach(families, id: \.self) { Text($0).font(.custom($0, size: 13)).tag($0) }
         }
-        Text("Doing  12:34").font(WidgetStyle.font(family, size, .semibold)).foregroundStyle(WidgetStyle.color(color))
-          .padding(.vertical, 6).padding(.horizontal, 10)
-          .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.35)))
       }
-      Section("Lines") {
-        Toggle("Doing tasks", isOn: $task)
-        Toggle("Time in Doing", isOn: $timer).disabled(!task)
-        Toggle("Desktop", isOn: $desktop)
-        Toggle("App", isOn: $app)
-        Toggle("Window title", isOn: $title)
-        Toggle("Browser address", isOn: $url)
+      Section("Elements") {
+        ForEach(WidgetPart.allCases) { p in elementRow(p) }
       }
-      Slider(value: $size, in: 10...20, step: 1) { Text("Text size") }
-      Slider(value: $width, in: 160...480, step: 20) { Text("Size") }
     }
-    .padding(20)
+    .formStyle(.grouped)
+  }
+
+  /// The real widget on a sample wallpaper, scaled to fit; it uses live data.
+  private var preview: some View {
+    ZStack {
+      LinearGradient(colors: [Color(red: 0.36, green: 0.16, blue: 0.62), Color(red: 0.12, green: 0.24, blue: 0.62), Color(red: 0.78, green: 0.25, blue: 0.48)],
+                     startPoint: .topLeading, endPoint: .bottomTrailing)
+      WidgetView(grip: previewGrip)
+        .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops)
+        .frame(width: width, height: width)
+        .overlay(RoundedRectangle(cornerRadius: width * 0.12, style: .continuous)
+          .strokeBorder(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+        .scaleEffect(min(1, (previewSide - 24) / width))
+    }
+    .frame(height: previewSide)
+    .clipped()
+  }
+
+  private func elementRow(_ p: WidgetPart) -> some View {
+    LabeledContent {
+      HStack(spacing: 12) {
+        Picker(p.label, selection: prefs.alignBinding(p)) {
+          ForEach(WidgetAlign.allCases) { Image(systemName: $0.symbol).help($0.label).tag($0) }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .fixedSize()
+        Text(String(format: prefs.size(p).truncatingRemainder(dividingBy: 1) == 0 ? "%.0f pt" : "%.1f pt", prefs.size(p)))
+          .monospacedDigit().foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
+        Stepper(p.label, value: prefs.sizeBinding(p), in: p.sizeRange, step: p == .timer ? 2 : 0.5)
+          .labelsHidden()
+      }
+      .disabled(!prefs.shown(p))
+    } label: {
+      Toggle(p.label, isOn: prefs.showBinding(p)).toggleStyle(.checkbox)
+    }
   }
 }

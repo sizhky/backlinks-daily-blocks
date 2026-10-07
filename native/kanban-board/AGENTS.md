@@ -26,6 +26,7 @@ Sources/KanbanBoard/   SwiftUI app
   DesktopStore.swift   current Spaces (private CGS via dlsym) + names in <vault>/.activity/desktops.json
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
+  WidgetParts.swift    WidgetPart (per-element show/justification/size keys), WidgetAlign, WidgetPrefs
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
@@ -231,5 +232,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   global plus local `NSEvent` monitors (flagsChanged, mouseMoved, leftMouseUp) set `WidgetGrip.armed`.
   The panel is always a square of the Size setting (`widget.width`); content is clipped to it, and the
   armed area, highlight, toast, and window frame are that one square.
+  Each element (`WidgetPart`) has its own visibility, justification (`widget.<part>.align`), and font size
+  (`widget.<part>.size`); colour, font family, and square size are global. Settings > Widget renders the real
+  `WidgetView` (live data, own `WidgetGrip`) on a sample wallpaper; the Settings scene gets the store's
+  environment objects in `KanbanApp`.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
