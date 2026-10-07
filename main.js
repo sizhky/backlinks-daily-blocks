@@ -766,6 +766,7 @@ var require_kanban = __commonJS({
     var RANK_RE = /^\s*%%\s?kbrank (-?\d+(?:\.\d+)?(?:e-?\d+)?)\s?%%\s*$/i;
     var DESKTOP_RE = /^\s*%%\s?kbdesktop ([^%]+?)\s?%%\s*$/i;
     var EST_RE = /^\s*%%\s?kbest (\d+)\s?%%\s*$/i;
+    var ACTIVE_RE = /^\s*%%\s?kbactive (\d+)\s?%%\s*$/i;
     var TAGLINE_RE = /^\s*((?:#[\w/-]+|\[\[[^\]]+\]\])(?:[ \t]+(?:#[\w/-]+|\[\[[^\]]+\]\]))*)[ \t]*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -1006,6 +1007,12 @@ var require_kanban = __commonJS({
             if (card) card.est = Number(estm[1]);
             continue;
           }
+          const acm = text.match(ACTIVE_RE);
+          if (acm) {
+            const card = owner(text);
+            if (card) card.activeSec = Number(acm[1]);
+            continue;
+          }
           const tpm = text.match(TAP_RE);
           if (tpm) {
             const card = owner(text);
@@ -1077,6 +1084,19 @@ var require_kanban = __commonJS({
     }
     var setRankLine = (lines, line, rank) => setMetaLine(lines, line, RANK_RE, `%% kbrank ${rank} %%`);
     var setEstLine = (lines, line, min) => setMetaLine(lines, line, EST_RE, min == null ? null : `%% kbest ${min} %%`);
+    function addActiveLine(lines, line, sec) {
+      const base = indentWidth(lines[line]);
+      for (let i = line + 1; i < lines.length && lines[i].trim() && indentWidth(lines[i]) > base; i++) {
+        const m = lines[i].match(ACTIVE_RE);
+        if (m) {
+          const n = Number(m[1]) + sec;
+          lines[i] = lines[i].replace(/\d+/, String(n));
+          return n;
+        }
+      }
+      setMetaLine(lines, line, ACTIVE_RE, `%% kbactive ${sec} %%`);
+      return sec;
+    }
     var setDesktopLine = (lines, line, n) => setMetaLine(lines, line, DESKTOP_RE, n == null ? null : `%% kbdesktop ${n} %%`);
     function tagLineAt(lines, line) {
       const next = lines[line + 1];
@@ -1113,7 +1133,7 @@ var require_kanban = __commonJS({
       let restAt = end;
       for (i = line + 1; i < end; i++) {
         const t = lines[i];
-        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t) || EST_RE.test(t)) prefix.push(t);
+        if (TAGLINE_RE.test(t) || COLOR_RE.test(t) || ICON_RE.test(t) || METRIC_RE.test(t) || TAP_RE.test(t) || RANK_RE.test(t) || DESKTOP_RE.test(t) || EST_RE.test(t) || ACTIVE_RE.test(t)) prefix.push(t);
         else if (HIST_RE2.test(t) || EI_HIST_RE.test(t)) logs.push(t);
         else if (TASK_RE2.test(t)) {
           restAt = i;
@@ -1845,9 +1865,11 @@ var require_kanban = __commonJS({
       setRankLine,
       setDesktopLine,
       setEstLine,
+      addActiveLine,
       RANK_RE,
       DESKTOP_RE,
       EST_RE,
+      ACTIVE_RE,
       logTapSpan,
       renderKanbanBlock: renderKanbanBlock2,
       drawBoard,
@@ -3226,6 +3248,7 @@ var require_api = __commonJS({
       setRankLine,
       setDesktopLine,
       setEstLine,
+      addActiveLine,
       taskColumn,
       parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
@@ -3936,6 +3959,8 @@ projects:
             "setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card",
             "estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)",
             "planned(date|from,to,opts) Doing time split planned (>= opts.mull min, default 60, in Backlog/Todo first) vs ad hoc",
+            "addActive([[ref,sec]])   add seconds to each card's %% kbactive N %% (active-task time); returns ref<TAB>total",
+            "activeTimes(opts?)       cards with active time: ref<TAB>seconds",
             "reportCards(from,to,opts) Reports input: cards with Doing stints or done in range; opts.mull minutes",
             "activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)",
             "moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped",
@@ -4106,6 +4131,41 @@ projects:
           setEstLine(lines, line, num);
           await plugin.app.vault.modify(file, lines.join("\n"));
           return `ok ${ref} est ${num ?? "none"}`;
+        },
+        // Active time: seconds a card was the one active task (Kanban Board app, by desktop).
+        // items = [[ref, seconds], ...]; one read and write per file, bottom-up so refs stay valid.
+        // Returns "ref<TAB>total" per written card.
+        async addActive(items) {
+          const byFile = /* @__PURE__ */ new Map();
+          for (const [ref, sec] of items || []) {
+            const n = Math.round(Number(sec));
+            if (!(n > 0)) continue;
+            const i = ref.lastIndexOf(":");
+            const list = byFile.get(ref.slice(0, i)) || [];
+            list.push([+ref.slice(i + 1), n, ref]);
+            byFile.set(ref.slice(0, i), list);
+          }
+          const out = [];
+          for (const [path, list] of byFile) {
+            const file = plugin.app.vault.getAbstractFileByPath(path);
+            if (!file) throw new Error("no file: " + path);
+            const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+            for (const [line, n, ref] of list.sort((a, b) => b[0] - a[0])) {
+              if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+              out.push(`${ref}	${addActiveLine(lines, line, n)}`);
+            }
+            await plugin.app.vault.modify(file, lines.join("\n"));
+          }
+          return "\n" + out.join("\n");
+        },
+        // Cards with active time: "file:line<TAB>seconds".
+        async activeTimes(opts = {}) {
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts, plugin));
+          const out = [];
+          for (const [, list] of byCol) for (const card of list) {
+            if (card.activeSec != null) out.push(`${card.file.path}:${card.line}	${card.activeSec}`);
+          }
+          return "\n" + out.join("\n");
         },
         // Cards with a guess: "file:line<TAB>estMinutes<TAB>tookMinutes", took = summed time in `col` (default Doing).
         async estimates(opts = {}) {

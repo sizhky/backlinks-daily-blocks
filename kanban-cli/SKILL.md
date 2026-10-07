@@ -204,6 +204,11 @@ Arg forms mirror `getReport` (`20261007`, `from,to`, `{days:7}`). Planned = befo
 least `opts.mull` minutes (default 60) in Backlog and Todo, counted from the note's `YYYYMMDD-HHmm` name. Otherwise it is ad hoc.
 First line: both totals with percentages. Then `planned|unplanned<TAB>dur<TAB>file:line<TAB>body`, longest first.
 
+### `kb.addActive([[ref, seconds], ...])` and `kb.activeTimes(opts?)` — active-task time
+
+`%% kbactive N %%` under a task = seconds it was the one active task, judged by desktop context in the Kanban Board app.
+`addActive` adds to the line (creates it), one write per file, bottom-up; returns `ref<TAB>total`. `activeTimes` lists `ref<TAB>seconds`.
+
 ### `kb.reportCards(from, to, opts?)` — Reports input for the Kanban Board app
 
 Every card with a Doing stint in the range or a terminal move in the range. `opts.mull` = mulling minutes (default 60).

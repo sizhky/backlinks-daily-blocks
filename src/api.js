@@ -1,5 +1,5 @@
 // plugin.api — callable via: obsidian eval "JSON.stringify(await app.plugins.plugins['backlinks-daily-blocks'].api.METHOD())"
-const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
+const { scanKanbanTasks, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
 const { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require('./core/activity');
@@ -758,6 +758,8 @@ function buildApi(plugin) {
         'setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card',
         'estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)',
         'planned(date|from,to,opts) Doing time split planned (>= opts.mull min, default 60, in Backlog/Todo first) vs ad hoc',
+        'addActive([[ref,sec]])   add seconds to each card\'s %% kbactive N %% (active-task time); returns ref<TAB>total',
+        'activeTimes(opts?)       cards with active time: ref<TAB>seconds',
         'reportCards(from,to,opts) Reports input: cards with Doing stints or done in range; opts.mull minutes',
         'activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)',
         'moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped',
@@ -934,6 +936,43 @@ function buildApi(plugin) {
       setEstLine(lines, line, num);
       await plugin.app.vault.modify(file, lines.join('\n'));
       return `ok ${ref} est ${num ?? 'none'}`;
+    },
+
+    // Active time: seconds a card was the one active task (Kanban Board app, by desktop).
+    // items = [[ref, seconds], ...]; one read and write per file, bottom-up so refs stay valid.
+    // Returns "ref<TAB>total" per written card.
+    async addActive(items) {
+      const byFile = new Map();
+      for (const [ref, sec] of items || []) {
+        const n = Math.round(Number(sec));
+        if (!(n > 0)) continue;
+        const i = ref.lastIndexOf(':');
+        const list = byFile.get(ref.slice(0, i)) || [];
+        list.push([+ref.slice(i + 1), n, ref]);
+        byFile.set(ref.slice(0, i), list);
+      }
+      const out = [];
+      for (const [path, list] of byFile) {
+        const file = plugin.app.vault.getAbstractFileByPath(path);
+        if (!file) throw new Error('no file: ' + path);
+        const lines = (await plugin.app.vault.read(file)).split(/\r?\n/);
+        for (const [line, n, ref] of list.sort((a, b) => b[0] - a[0])) {
+          if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
+          out.push(`${ref}\t${addActiveLine(lines, line, n)}`);
+        }
+        await plugin.app.vault.modify(file, lines.join('\n'));
+      }
+      return '\n' + out.join('\n');
+    },
+
+    // Cards with active time: "file:line<TAB>seconds".
+    async activeTimes(opts = {}) {
+      const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
+      const out = [];
+      for (const [, list] of byCol) for (const card of list) {
+        if (card.activeSec != null) out.push(`${card.file.path}:${card.line}\t${card.activeSec}`);
+      }
+      return '\n' + out.join('\n');
     },
 
     // Cards with a guess: "file:line<TAB>estMinutes<TAB>tookMinutes", took = summed time in `col` (default Doing).
