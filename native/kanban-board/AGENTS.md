@@ -20,6 +20,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Desktops.swift       DesktopSpace, Desktops.parse/resolve/cleanLabel (desktop names by Space UUID)
   DoingChange.swift    diff of live cards between two refreshes (widget toast)
   Hex.swift            #RRGGBB[AA] parse and format (widget colour setting)
+  Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints, TimelineRow, DoingStint
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
@@ -27,6 +28,7 @@ Sources/KanbanBoard/   SwiftUI app
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
   WidgetParts.swift    WidgetPart (per-element show/justification/size keys), WidgetAlign, WidgetPrefs
+  TimelineWindow.swift Timeline window (Shift-Cmd-T, menu bar): day strip + per-second activity list beside Doing stints
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
@@ -212,6 +214,10 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Tracker widget toast: `BoardStore.refresh` diffs live cards against `lastLive` (the previous refresh),
   never against `columns`, because optimistic moves change `columns` first. One diff covers drags,
   switch rules, and the plugin's sleep auto-park. Widget settings live under `widget.*` defaults.
+
+- Timeline window reads the app's own `<vault>/.activity/YYYYMMDD.jsonl` (plus `ActivityMonitor.openSpan`
+  for the live span) and Doing stints from `kb.chronicle(date)`. Doing totals use `ActivityLog.unionSeconds`:
+  parallel Doing cards overlap, and a plain sum read 536h for one day. Today reloads every 5 s.
 
 ## Gotchas
 

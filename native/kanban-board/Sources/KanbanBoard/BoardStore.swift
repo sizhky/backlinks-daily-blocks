@@ -72,6 +72,9 @@ final class BoardStore: ObservableObject {
   let activity = ActivityMonitor()
   private var desktopMenu: DesktopMenu?
   private(set) var widget: TrackerWidget?
+  private lazy var timeline = TimelineWindow(activity: activity)
+
+  func openTimeline() { timeline.show() }
   private var desktopSink: Any?
   let desktops = DesktopStore.shared
   /// 4.2 Rule moves; persisted so a relaunch can still resume what it parked.

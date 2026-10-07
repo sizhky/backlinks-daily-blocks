@@ -31,6 +31,9 @@ final class DesktopMenu: NSObject, NSMenuDelegate {
       menu.addItem(row)
     }
     menu.addItem(.separator())
+    let timeline = NSMenuItem(title: "Timeline...", action: #selector(openTimeline), keyEquivalent: "")
+    timeline.target = self
+    menu.addItem(timeline)
     let widget = NSMenuItem(title: "Show Widget", action: #selector(toggleWidget), keyEquivalent: "")
     widget.target = self
     widget.state = store?.widget?.isVisible == true ? .on : .off
@@ -48,6 +51,7 @@ final class DesktopMenu: NSObject, NSMenuDelegate {
   }
 
   @objc private func toggleWidget() { store?.widget?.toggle() }
+  @objc private func openTimeline() { store?.openTimeline() }
 
   @objc private func switchTo(_ sender: NSMenuItem) {
     guard let n = sender.representedObject as? Int else { return }

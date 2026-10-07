@@ -20,7 +20,8 @@ final class ActivityMonitor: ObservableObject {
 
   private var builder = SpanBuilder()
   private var timer: Timer?
-  private var dir: URL?
+  /// `<vault>/.activity`, set by `start`.
+  private(set) var dir: URL?
   private var asleepSince: Date?
   private var rulesStamp: Date?
 
@@ -49,6 +50,9 @@ final class ActivityMonitor: ObservableObject {
     }
     tick()
   }
+
+  /// The span still being recorded (not yet in the log file), for live views.
+  var openSpan: Span? { builder.open }
 
   private func away(_ since: Date) {
     if asleepSince == nil { asleepSince = since }

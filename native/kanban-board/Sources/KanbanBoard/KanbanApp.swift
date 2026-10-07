@@ -77,6 +77,8 @@ struct KanbanBoardApp: App {
           .disabled(store.picked.isEmpty)
       }
       CommandGroup(after: .toolbar) {
+        Button("Timeline") { store.openTimeline() }.keyboardShortcut("t", modifiers: [.command, .shift])
+        Divider()
         Button("Zoom In") { setZoom(zoom + 0.1) }.keyboardShortcut("+", modifiers: .command)
         Button("Zoom Out") { setZoom(zoom - 0.1) }.keyboardShortcut("-", modifiers: .command)
         Button("Actual Size") { zoom = 1 }.keyboardShortcut("0", modifiers: .command)
