@@ -8,6 +8,24 @@ enum WidgetKey {
   static let task = "widget.task", timer = "widget.timer", app = "widget.app"
   static let title = "widget.title", desktop = "widget.desktop", url = "widget.url"
   static let size = "widget.size", width = "widget.width"
+  static let color = "widget.color", font = "widget.font"
+}
+
+/// Widget font and colour from settings. An empty family means the system font.
+enum WidgetStyle {
+  static func font(_ family: String, _ size: Double, _ weight: Font.Weight) -> Font {
+    family.isEmpty ? .system(size: size, weight: weight) : .custom(family, size: size).weight(weight)
+  }
+
+  static func color(_ hex: String) -> Color {
+    guard let c = Hex.rgba(hex) else { return .white }
+    return Color(.sRGB, red: c.r, green: c.g, blue: c.b, opacity: c.a)
+  }
+
+  static func hex(_ color: Color) -> String {
+    let n = NSColor(color).usingColorSpace(.sRGB) ?? .white
+    return Hex.string(r: n.redComponent, g: n.greenComponent, b: n.blueComponent, a: n.alphaComponent)
+  }
 }
 
 /// Always-visible, transparent panel that shows what is being tracked right now: the Doing
@@ -43,7 +61,7 @@ final class TrackerWidget {
     defer { applySize() }
     UserDefaults.standard.register(defaults: [WidgetKey.visible: true, WidgetKey.task: true, WidgetKey.timer: true,
       WidgetKey.app: true, WidgetKey.title: true, WidgetKey.desktop: true, WidgetKey.url: false,
-      WidgetKey.size: 13.0, WidgetKey.width: 360.0])
+      WidgetKey.size: 13.0, WidgetKey.width: 240.0, WidgetKey.color: "#FFFFFF", WidgetKey.font: ""])
     observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.applySize(); self?.applyVisibility() }
     }
@@ -73,7 +91,8 @@ final class TrackerWidget {
   private func applySize() {
     let width = UserDefaults.standard.double(forKey: WidgetKey.width)
     let size = UserDefaults.standard.double(forKey: WidgetKey.size)
-    let target = NSSize(width: width, height: (size * 1.6 * 8).rounded())
+    // Room for two wrapped task titles plus the activity lines; never shorter than wide.
+    let target = NSSize(width: width, height: max(width, (size * 1.6 * 11).rounded()))
     guard panel.frame.size != target else { return }
     let top = panel.frame.maxY
     panel.setFrame(NSRect(x: panel.frame.minX, y: top - target.height, width: target.width, height: target.height), display: true)
@@ -99,7 +118,9 @@ struct WidgetView: View {
   @AppStorage(WidgetKey.desktop) private var showDesktop = true
   @AppStorage(WidgetKey.url) private var showURL = false
   @AppStorage(WidgetKey.size) private var size = 13.0
-  @AppStorage(WidgetKey.width) private var width = 360.0
+  @AppStorage(WidgetKey.width) private var width = 240.0
+  @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
+  @AppStorage(WidgetKey.font) private var family = ""
   @State private var toast: [DoingChange] = []
   @EnvironmentObject var grip: WidgetGrip
 
@@ -114,12 +135,12 @@ struct WidgetView: View {
           line("Nothing in Doing", weight: .semibold, dim: true)
         }
         ForEach(doing) { card in
-          HStack(spacing: 8) {
-            Text(card.title).font(.system(size: size, weight: .semibold)).lineLimit(1)
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(card.title).font(WidgetStyle.font(family, size, .semibold)).lineLimit(2)
             Spacer(minLength: 4)
             if showTimer, let since = card.since {
               TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                Text(Self.clock(ctx.date.timeIntervalSince(since))).font(.system(size: size, weight: .semibold).monospacedDigit())
+                Text(Self.clock(ctx.date.timeIntervalSince(since))).font(WidgetStyle.font(family, size, .semibold).monospacedDigit())
               }
             }
           }
@@ -128,20 +149,20 @@ struct WidgetView: View {
       if let c = activity.context {
         let parts = [showDesktop ? (c.desktop ?? c.space.map { "Desktop \($0)" }) : nil, showApp ? c.app : nil].compactMap { $0 }
         if !parts.isEmpty { line(parts.joined(separator: " · "), dim: true) }
-        if showTitle, !c.title.isEmpty { line(c.title, dim: true) }
+        if showTitle, !c.title.isEmpty { line(c.title, dim: true, lines: 2) }
         if showURL, let url = c.url { line(url, dim: true) }
       } else if showApp || showTitle {
         line("Away", dim: true)
       }
     }
-    .foregroundStyle(.white)
+    .foregroundStyle(WidgetStyle.color(color))
     .shadow(color: .black.opacity(0.9), radius: 1.5, y: 0.5)
     .padding(.horizontal, 10).padding(.vertical, 6)
     // Near-zero alpha keeps the widget invisible but makes the whole text block grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
-    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(grip.armed ? 0.08 : 0.001)))
+    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(grip.armed ? 0.08 : 0.001)))
     .frame(width: width, alignment: .leading)
-    .overlay { if !toast.isEmpty { ToastCover(changes: toast, size: size) } }
+    .overlay { if !toast.isEmpty { ToastCover(changes: toast, size: size, family: family) } }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .animation(.spring(duration: 0.25), value: toast)
     .onChange(of: store.widgetToast?.gen) {
@@ -155,8 +176,8 @@ struct WidgetView: View {
     }
   }
 
-  private func line(_ text: String, weight: Font.Weight = .regular, dim: Bool = false) -> some View {
-    Text(text).font(.system(size: size * 0.85, weight: weight)).lineLimit(1).truncationMode(.middle)
+  private func line(_ text: String, weight: Font.Weight = .regular, dim: Bool = false, lines: Int = 1) -> some View {
+    Text(text).font(WidgetStyle.font(family, size * 0.85, weight)).lineLimit(lines).truncationMode(.middle)
       .opacity(dim ? 0.8 : 1)
   }
 
@@ -171,19 +192,20 @@ struct WidgetView: View {
 struct ToastCover: View {
   let changes: [DoingChange]
   let size: Double
+  let family: String
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       ForEach(Array(changes.prefix(3).enumerated()), id: \.offset) { _, c in
         HStack(spacing: 6) {
-          Text(c.verb).font(.system(size: size, weight: .bold)).foregroundStyle(color(c.verb))
-          Text(c.title).font(.system(size: size, weight: .semibold)).lineLimit(1)
+          Text(c.verb).font(WidgetStyle.font(family, size, .bold)).foregroundStyle(color(c.verb))
+          Text(c.title).font(WidgetStyle.font(family, size, .semibold)).lineLimit(2)
         }
       }
     }
     .foregroundStyle(.white)
     .padding(.horizontal, 10)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
+    .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.88)))
     .transition(.opacity)
   }
 

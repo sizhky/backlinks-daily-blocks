@@ -19,6 +19,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Activity.swift       Sample, Span, SpanBuilder, ActivityRule, SwitchEngine
   Desktops.swift       DesktopSpace, Desktops.parse/resolve/cleanLabel (desktop names by Space UUID)
   DoingChange.swift    diff of live cards between two refreshes (widget toast)
+  Hex.swift            #RRGGBB[AA] parse and format (widget colour setting)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl

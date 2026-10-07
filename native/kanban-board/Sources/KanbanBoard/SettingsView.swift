@@ -27,7 +27,7 @@ struct SettingsView: View {
       AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintbrush") }
       WidgetSettings().tabItem { Label("Widget", systemImage: "rectangle.topthird.inset.filled") }
     }
-    .frame(width: 420, height: 330)
+    .frame(width: 440, height: 470)
   }
 }
 
@@ -57,11 +57,25 @@ struct WidgetSettings: View {
   @AppStorage(WidgetKey.desktop) private var desktop = true
   @AppStorage(WidgetKey.url) private var url = false
   @AppStorage(WidgetKey.size) private var size = 13.0
-  @AppStorage(WidgetKey.width) private var width = 360.0
+  @AppStorage(WidgetKey.width) private var width = 240.0
+  @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
+  @AppStorage(WidgetKey.font) private var family = ""
+  private let families = NSFontManager.shared.availableFontFamilies
 
   var body: some View {
     Form {
       Toggle("Show widget", isOn: $visible)
+      Section("Style") {
+        ColorPicker("Text color", selection: Binding(get: { WidgetStyle.color(color) }, set: { color = WidgetStyle.hex($0) }))
+        Picker("Font", selection: $family) {
+          Text("System").tag("")
+          Divider()
+          ForEach(families, id: \.self) { Text($0).font(.custom($0, size: 13)).tag($0) }
+        }
+        Text("Doing  12:34").font(WidgetStyle.font(family, size, .semibold)).foregroundStyle(WidgetStyle.color(color))
+          .padding(.vertical, 6).padding(.horizontal, 10)
+          .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.35)))
+      }
       Section("Lines") {
         Toggle("Doing tasks", isOn: $task)
         Toggle("Time in Doing", isOn: $timer).disabled(!task)
@@ -71,7 +85,7 @@ struct WidgetSettings: View {
         Toggle("Browser address", isOn: $url)
       }
       Slider(value: $size, in: 10...20, step: 1) { Text("Text size") }
-      Slider(value: $width, in: 240...640, step: 20) { Text("Width") }
+      Slider(value: $width, in: 160...640, step: 20) { Text("Width") }
     }
     .padding(20)
   }
