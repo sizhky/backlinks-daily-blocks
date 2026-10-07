@@ -234,6 +234,7 @@ Before building or wording any UI, ask what Apple would do and do that.
   `kb.chronicle(from, to)` parsed by `ActivityLog.stintsByDay`. Arrows step a day or a week.
   Double-click a Doing block opens its card: `kb.chronicle(..., {refs:true})` appends `file:line`
   (`DoingStint.ref`), opened with `ObsidianClient.open(ref:)`. Activity blocks have no note to open.
+  The 5th field is the note's first project (`DoingStint.project`); Doing blocks take its `ProjectColor` light tint, indigo without one.
   `TimelineModel.load` runs `ActivityLog.impute` once with `maxGap: ActivityMonitor.idleAfter` (300 s): a gap
   shorter than the idle threshold cannot be idle time (capture restarts, dropped sub-5 s visits), so the previous
   span carries forward; longer gaps stay empty and show as Away in the list (same threshold). 60 s left visible

@@ -5,6 +5,8 @@ public struct DoingStint: Equatable, Sendable, Identifiable {
   public let start: Date, end: Date, title: String, open: Bool
   /// `file:line` of the card (`kb.chronicle(..., {refs:true})`); nil from older output.
   public var ref: String? = nil
+  /// First project of the card's note (5th field with refs); nil when absent.
+  public var project: String? = nil
   public var id: String { "\(start.timeIntervalSince1970)|\(title)" }
 }
 
@@ -105,14 +107,15 @@ public enum ActivityLog {
     return acc.map { ($0.key, $0.value.0, $0.value.1) }.sorted { $0.2 > $1.2 }
   }
 
-  /// `kb.chronicle(date)` rows `HHMM:HHMM[~]<TAB>dur<TAB>title` on `day` (local midnight).
+  /// `kb.chronicle(date)` rows `HHMM:HHMM[~]<TAB>dur<TAB>title[<TAB>ref<TAB>project]` on `day` (local midnight).
   public static func stints(_ text: String, day: Date, calendar: Calendar = .current) -> [DoingStint] {
     text.split(separator: "\n").compactMap { line in
       let f = line.split(separator: "\t", omittingEmptySubsequences: false)
       guard f.count >= 3, let m = f[0].wholeMatch(of: #/(\d{2})(\d{2}):(\d{2})(\d{2})(~?)/#),
             let a = calendar.date(bySettingHour: Int(m.1)!, minute: Int(m.2)!, second: 0, of: day),
             let b = calendar.date(bySettingHour: Int(m.3)!, minute: Int(m.4)!, second: 0, of: day) else { return nil }
-      return DoingStint(start: a, end: b, title: String(f[2]), open: !m.5.isEmpty, ref: f.count > 3 && !f[3].isEmpty ? String(f[3]) : nil)
+      return DoingStint(start: a, end: b, title: String(f[2]), open: !m.5.isEmpty, ref: f.count > 3 && !f[3].isEmpty ? String(f[3]) : nil,
+                        project: f.count > 4 && !f[4].isEmpty ? String(f[4]) : nil)
     }
   }
 }

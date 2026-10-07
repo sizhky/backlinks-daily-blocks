@@ -30,6 +30,7 @@ final class TimelineTests: XCTestCase {
     XCTAssertTrue(out[1].open)
     XCTAssertNil(out[0].ref)
     XCTAssertEqual(ActivityLog.stints("0930:1015\t45m\tFix API\t20261007-1045.md:7", day: day).first?.ref, "20261007-1045.md:7")
+    XCTAssertEqual(ActivityLog.stints("0930:1015\t45m\tFix API\t20261007-1045.md:7\tKanban App", day: day).first?.project, "Kanban App")
   }
 
   func testUnionSecondsMergesOverlaps() {

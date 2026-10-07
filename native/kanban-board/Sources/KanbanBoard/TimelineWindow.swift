@@ -592,7 +592,7 @@ struct CalendarDay: View {
         guard visible(y0, y1) else { continue }
         let w = (s.dw + 2) / Double(layout.lanes[k])
         let r = CGRect(x: s.dx + Double(layout.lane[k]) * w, y: y0 - top, width: max(1, w - 2), height: max(2, y1 - y0 - 1))
-        block(gc, r, tint: Palette.indigo, title: r.width >= 60 ? st.title : nil, icon: nil,
+        block(gc, r, tint: st.project.map { Color(ProjectColor.pair($0).light) } ?? Palette.indigo, title: r.width >= 60 ? st.title : nil, icon: nil,
               dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: 0.28)
       }
       // Now
