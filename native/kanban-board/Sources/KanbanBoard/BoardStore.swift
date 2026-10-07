@@ -45,6 +45,11 @@ final class BoardStore: ObservableObject {
   /// Card just moved into Doing without a guess; the board asks for one.
   @Published var estimating: Card?
   @Published private(set) var toast: String?
+  /// Latest Doing change for the tracker widget's full-cover toast; `gen` restarts its timer.
+  @Published private(set) var widgetToast: (gen: Int, changes: [DoingChange])?
+  /// Live cards from the last refresh. Diffed against fresh data, not against `columns`,
+  /// because optimistic moves already changed `columns` before the refresh lands.
+  private var lastLive: [Card]?
   private var toastGen = 0
   /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
   @Published var picked: Set<String> = []
@@ -64,9 +69,10 @@ final class BoardStore: ObservableObject {
 
   private let client = ObsidianClient()
   private var loop: Task<Void, Never>?
-  private let activity = ActivityMonitor()
+  let activity = ActivityMonitor()
   private let overlay = MissionControlOverlay()
   private var desktopMenu: DesktopMenu?
+  private(set) var widget: TrackerWidget?
   private var desktopSink: Any?
   let desktops = DesktopStore.shared
   /// 4.2 Rule moves; persisted so a relaunch can still resume what it parked.
@@ -220,6 +226,7 @@ final class BoardStore: ObservableObject {
   func start() {
     guard loop == nil else { return }
     desktopMenu = DesktopMenu(store: self)
+    widget = TrackerWidget(store: self)
     desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
     Task {
       do {
@@ -246,6 +253,12 @@ final class BoardStore: ObservableObject {
     do {
       let fresh = try await client.board()
       guard gen == writeGen, !dragActive else { return }
+      let live = fresh.filter { !$0.done }.flatMap(\.cards)
+      if let before = lastLive {
+        let changes = DoingChange.diff(before: before, after: live)
+        if !changes.isEmpty { widgetToast = ((widgetToast?.gen ?? 0) + 1, changes) }
+      }
+      lastLive = live
       withAnimation(DragController.spring) { columns = fresh }
       picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
       error = nil

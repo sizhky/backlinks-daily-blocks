@@ -110,3 +110,19 @@ final class ActivityTests: XCTestCase {
     XCTAssertNil(Desktops.cleanLabel(" "))
   }
 }
+
+final class DoingChangeTests: XCTestCase {
+  func card(_ title: String, _ col: String) -> Card {
+    var c = Card(ref: "\(title).md:1", file: "\(title).md", line: 1, col: col, title: title, age: "1h", tags: [], orgs: [], projects: [])
+    c.id = title
+    return c
+  }
+
+  func testDiffReportsStartsAndWhereCardsWent() {
+    let before = [card("A", "Doing"), card("B", "Doing"), card("D", "Todo")]
+    let after = [card("A", "Parked"), card("C", "Doing"), card("D", "Todo")]
+    XCTAssertEqual(DoingChange.diff(before: before, after: after),
+                   [DoingChange(title: "C", verb: "Started"), DoingChange(title: "A", verb: "Parked"), DoingChange(title: "B", verb: "Removed")])
+    XCTAssertEqual(DoingChange.diff(before: after, after: after), [])
+  }
+}

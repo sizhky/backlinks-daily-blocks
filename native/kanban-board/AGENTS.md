@@ -18,12 +18,14 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Logbook.swift        done cards grouped by finish day (Logbook mode)
   Activity.swift       Sample, Span, SpanBuilder, ActivityRule, SwitchEngine
   Desktops.swift       DesktopSpace, Desktops.parse/resolve/cleanLabel (desktop names by Space UUID)
+  DoingChange.swift    diff of live cards between two refreshes (widget toast)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
   DesktopStore.swift   current Spaces (private CGS via dlsym) + names in <vault>/.activity/desktops.json
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
   MissionControlOverlay.swift  name panels over Mission Control's "Desktop N" buttons (Dock AX tree)
+  TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
@@ -74,6 +76,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - The last two board-script fields are the task's 1-based ordinal among the note's checkbox list items
   (`metadataCache` `listItems`) and their count; every task gets `.NN` (zero-padded) when the count is above 1. `Card.identifier` uses it, never the line: every move inserts a
   `%% kb %%` line and shifted ids of tasks below (OW-1215.15 became .16).
+- After est and took (always two fields, empty without a guess) every row ends with `since`: the ISO time a
+  live card entered its column (`kb.active({timestamps:true})`), parsed into `Card.since` for the widget timer.
 - Done (`=x`) rows end with the ISO done time (`kb.board({timestamps:true})`), parsed into `Card.doneAt`.
   Logbook mode lists cards with `doneAt` from `store.visible`, so filters apply and the span is the 14-day done window.
 - `ref` = `file:line` is the card id. Moves call `kb.moveTask(file, line, column)`.
@@ -202,6 +206,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   120 s after its context is left and resumes 10 s after return, only if the engine parked it. Moves
   are stamped at the moment the context changed (`kb.moveTasks(refs, col, {at})`). Engine state
   persists in `kanban.switches`. Desktop number uses private CGS calls looked up with `dlsym`; nil on failure.
+
+- Tracker widget toast: `BoardStore.refresh` diffs live cards against `lastLive` (the previous refresh),
+  never against `columns`, because optimistic moves change `columns` first. One diff covers drags,
+  switch rules, and the plugin's sleep auto-park. Widget settings live under `widget.*` defaults.
 
 ## Gotchas
 

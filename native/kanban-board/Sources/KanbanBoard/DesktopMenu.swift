@@ -31,6 +31,10 @@ final class DesktopMenu: NSObject, NSMenuDelegate {
       menu.addItem(row)
     }
     menu.addItem(.separator())
+    let widget = NSMenuItem(title: "Show Widget", action: #selector(toggleWidget), keyEquivalent: "")
+    widget.target = self
+    widget.state = store?.widget?.isVisible == true ? .on : .off
+    menu.addItem(widget)
     if let current = desktops.current {
       let rename = NSMenuItem(title: "Rename \u{201C}\(current.name)\u{201D}...", action: #selector(rename), keyEquivalent: "")
       rename.target = self
@@ -42,6 +46,8 @@ final class DesktopMenu: NSObject, NSMenuDelegate {
       }
     }
   }
+
+  @objc private func toggleWidget() { store?.widget?.toggle() }
 
   @objc private func switchTo(_ sender: NSMenuItem) {
     guard let n = sender.representedObject as? Int else { return }

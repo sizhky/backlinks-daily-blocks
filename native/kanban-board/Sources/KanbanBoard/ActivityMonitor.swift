@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 import Foundation
 import KanbanCore
 
@@ -7,12 +8,12 @@ import KanbanCore
 /// frontmost window every 5 s and appends closed spans to `<vault>/.activity/YYYYMMDD.jsonl`.
 /// It records observations only; `BoardStore` turns the current context into moves.
 @MainActor
-final class ActivityMonitor {
+final class ActivityMonitor: ObservableObject {
   static let interval: TimeInterval = 5
   static let idleAfter: TimeInterval = 300
 
   /// Current context; nil while away (idle, locked, asleep).
-  private(set) var context: Sample?
+  @Published private(set) var context: Sample?
   /// When the current context began (for away: the last input or the sleep moment).
   private(set) var contextSince = Date()
   private(set) var rules: [ActivityRule] = []
