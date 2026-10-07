@@ -164,7 +164,7 @@ struct WidgetView: View {
       hero
       footer
     }
-    .foregroundStyle(active.map(tint) ?? WidgetStyle.color(color))
+    .foregroundStyle(WidgetStyle.color(color))
     .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
     .padding(margin)
     .frame(width: width)
@@ -231,8 +231,9 @@ struct WidgetView: View {
               .minimumScaleFactor(0.6)
               .contentTransition(.numericText())
           }
+          .foregroundStyle(tint(card))
         }
-        part(.title, lines: 2) { Text(card.title) }
+        part(.title, lines: 2) { Text(card.title) }.foregroundStyle(tint(card))
         pausedRows.padding(.top, 4)
       }
     } else if !doing.isEmpty {
@@ -250,7 +251,7 @@ struct WidgetView: View {
   }
 
   /// The card's project colour (the light end of its `Monogram` gradient); the Text color setting without a
-  /// project. The whole widget takes the active card's colour; paused rows keep their own.
+  /// project. Only task titles and timers take it; desktop, app, window, and URL keep the Text color setting.
   private func tint(_ card: Card) -> Color {
     card.projects.first.map { Color(ProjectColor.pair($0).light) } ?? WidgetStyle.color(color)
   }
