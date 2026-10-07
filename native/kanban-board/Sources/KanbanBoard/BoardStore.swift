@@ -531,11 +531,12 @@ final class BoardStore: ObservableObject {
 
   var activeView: SavedFilter? {
     let q = query.trimmingCharacters(in: .whitespaces)
-    return saved.first { $0.query == q && Set($0.orgs) == Set(activeOrgs) }
+    return saved.first { $0.query == q && ($0.orgs.isEmpty || Set($0.orgs) == Set(activeOrgs)) }
   }
 
+  /// A view without orgs is a filter for any workspace: it keeps the current selection.
   func apply(_ view: SavedFilter) {
-    orgScope = view.orgs
+    if !view.orgs.isEmpty { orgScope = view.orgs }
     query = view.query
   }
 
