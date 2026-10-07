@@ -282,7 +282,7 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 - Project desktops (Settings > Tracking: one square per desktop plus No desktop, drag project pills between them;
   inside a square pills group under collapsible orgs (first org of the first card naming the project, `tracking.collapsed`);
-  instant `HoverCard` with the full name; or right-click a sidebar project > Desktop; orgs are not offered, by request)
+  no hover tooltip, pills show the full name; or right-click a sidebar project > Desktop; orgs are not offered, by request)
   go through `store.projectDesktop` / `store.setDesktop(_:project:)` and are `DesktopPin` rules `{project, desktop}` in
   `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.
   `renameDesktop` rewrites pins on the old name as it does cards. A pin gives every card of that scope desktop affinity, so `SwitchEngine` parks and resumes them.

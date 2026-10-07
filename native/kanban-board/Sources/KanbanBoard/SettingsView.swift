@@ -141,7 +141,6 @@ struct TrackingSettings: View {
   @EnvironmentObject var desktops: DesktopStore
   @AppStorage(ReportKey.mull) private var mull = 60
   @State private var target: String?
-  @State private var tip: (text: String, at: CGPoint)?
   /// Collapsed org groups as `region id|org`, tab-separated; all expanded by default.
   @AppStorage("tracking.collapsed") private var shut = ""
 
@@ -170,12 +169,6 @@ struct TrackingSettings: View {
         }
       }
       .padding(20)
-      .coordinateSpace(.named("desks"))
-      .overlay(alignment: .topLeading) {
-        GeometryReader { g in
-          if let tip { HoverCard(text: tip.text, at: tip.at, bounds: g.size).allowsHitTesting(false) }
-        }
-      }
     }
   }
 
@@ -281,12 +274,6 @@ struct TrackingSettings: View {
       .fixedSize(horizontal: false, vertical: true)
       .contentShape(Rectangle())
       .draggable(name) { Pill(text: name) { Monogram(name: name, size: 13) } }
-      .onContinuousHover(coordinateSpace: .named("desks")) { phase in
-        switch phase {
-        case .active(let p): tip = (name, p)
-        case .ended: if tip?.text == name { tip = nil }
-        }
-      }
       .accessibilityLabel(name)
   }
 }
