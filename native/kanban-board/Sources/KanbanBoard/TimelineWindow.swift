@@ -100,7 +100,7 @@ final class TimelineModel: ObservableObject {
 
   var rows: [TimelineRow] {
     let q = filter.trimmingCharacters(in: .whitespaces)
-    guard !q.isEmpty else { return ActivityLog.rows(spans) }
+    guard !q.isEmpty else { return ActivityLog.rows(spans, gap: ActivityMonitor.idleAfter) }
     return spans.filter { s in [s.app, s.title, s.url ?? "", s.desktop ?? ""].contains { $0.localizedCaseInsensitiveContains(q) } }
       .map(TimelineRow.span)
   }
@@ -140,7 +140,9 @@ final class TimelineModel: ObservableObject {
     var fresh = (try? Data(contentsOf: url)).map(ActivityLog.parse) ?? []
     // The open span is not in the file yet; show it live for today.
     if Calendar.current.isDateInToday(day), let open = activity.openSpan { fresh.append(open) }
-    return ActivityLog.impute(fresh)
+    // Gaps shorter than the idle threshold cannot be idle time (capture restarts, dropped short
+    // visits), so carry the previous span across them. Longer gaps stay empty. Display only.
+    return ActivityLog.impute(fresh, maxGap: ActivityMonitor.idleAfter)
   }
 
   private func load(chronicle: Bool) {

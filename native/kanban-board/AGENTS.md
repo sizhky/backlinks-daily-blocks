@@ -231,8 +231,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   `kb.chronicle(from, to)` parsed by `ActivityLog.stintsByDay`. Arrows step a day or a week.
   Double-click a Doing block opens its card: `kb.chronicle(..., {refs:true})` appends `file:line`
   (`DoingStint.ref`), opened with `ObsidianClient.open(ref:)`. Activity blocks have no note to open.
-  `TimelineModel.load` runs `ActivityLog.impute` once: gaps under 60 s (dropped sub-5 s visits, capture
-  restarts) carry the previous span forward; 60 s or more stays empty and shows as Away in the list. The log
+  `TimelineModel.load` runs `ActivityLog.impute` once with `maxGap: ActivityMonitor.idleAfter` (300 s): a gap
+  shorter than the idle threshold cannot be idle time (capture restarts, dropped sub-5 s visits), so the previous
+  span carries forward; longer gaps stay empty and show as Away in the list (same threshold). 60 s left visible
+  holes from app relaunches. The log
   file is never rewritten.
   The calendar is one viewport-sized `Canvas` culled to visible hours (`CalendarLayout` precomputed per data
   load); per-block SwiftUI views and a defaults write per scroll tick made zoom chug.
