@@ -131,7 +131,8 @@ enum Probe {
     let desktops = DesktopStore.shared
     desktops.refresh()
     return Sample(app: app.localizedName ?? bundle, bundle: bundle, title: title(pid: app.processIdentifier),
-                  url: browsers[bundle].flatMap(url), space: desktops.current?.number, desktop: desktops.current?.label)
+                  url: browsers[bundle].flatMap(url), space: desktops.current?.number, desktop: desktops.current?.label,
+                  uuid: desktops.current?.uuid)
   }
 
   static func title(pid: pid_t) -> String {

@@ -56,6 +56,7 @@ final class ReportsModel: ObservableObject {
     generation += 1
     let gen = generation, span = interval, rules = activity.rules, open = activity.openSpan, idle = ActivityMonitor.idleAfter
     let labels = Dictionary(DesktopStore.shared.spaces.compactMap { d in d.label.map { (d.number, $0) } }, uniquingKeysWith: { a, _ in a })
+    let names = Dictionary(DesktopStore.shared.spaces.compactMap { d in d.label.map { (d.uuid, $0) } }, uniquingKeysWith: { a, _ in a })
     let mull = UserDefaults.standard.object(forKey: ReportKey.mull) as? Int ?? 60
     let last = min(span.end.addingTimeInterval(-1), Date())
     loading = true
@@ -65,7 +66,7 @@ final class ReportsModel: ObservableObject {
         let result = await Task.detached(priority: .userInitiated) {
           let cards = ReportCard.parse(text)
           let spans = Self.spans(dir: dir, from: span.start, to: last, open: open, idle: idle)
-          return (cards, Report.attribute(spans: spans, cards: cards, rules: rules, labels: labels))
+          return (cards, Report.attribute(spans: spans, cards: cards, rules: rules, labels: labels, names: names))
         }.value
         guard gen == generation else { return }
         cards = result.0

@@ -7,8 +7,12 @@ public struct Sample: Equatable, Sendable {
   public var space: Int?
   /// Desktop name from the label store, when the desktop has one.
   public var desktop: String?
-  public init(app: String, bundle: String, title: String, url: String? = nil, space: Int? = nil, desktop: String? = nil) {
+  /// Space UUID (`DesktopSpace.uuid`): stays with the desktop when numbers shift.
+  public var uuid: String?
+  public init(app: String, bundle: String, title: String, url: String? = nil, space: Int? = nil, desktop: String? = nil,
+              uuid: String? = nil) {
     self.app = app; self.bundle = bundle; self.title = title; self.url = url; self.space = space; self.desktop = desktop
+    self.uuid = uuid
   }
 }
 
@@ -19,6 +23,7 @@ public struct Span: Codable, Equatable, Sendable {
   public var url: String?
   public var space: Int?
   public var desktop: String?
+  public var uuid: String?
 
   /// ```
   /// {"app":"iTerm2","bundle":"com.googlecode.iterm2","end":"2026-10-07T05:10:00Z","space":2,"start":"2026-10-07T05:00:00Z","title":"penguin:api"}
@@ -51,13 +56,14 @@ public struct SpanBuilder: Sendable {
   /// Records `sample` seen at `at`; returns the span that a different sample closes.
   public mutating func add(_ sample: Sample, at: Date) -> Span? {
     if var o = open, o.app == sample.app, o.bundle == sample.bundle, o.title == sample.title,
-       o.url == sample.url, o.space == sample.space, o.desktop == sample.desktop {
+       o.url == sample.url, o.space == sample.space, o.desktop == sample.desktop, o.uuid == sample.uuid {
       o.end = at
       open = o
       return nil
     }
     let closed = close(at: at)
-    open = Span(start: at, end: at, app: sample.app, bundle: sample.bundle, title: sample.title, url: sample.url, space: sample.space, desktop: sample.desktop)
+    open = Span(start: at, end: at, app: sample.app, bundle: sample.bundle, title: sample.title, url: sample.url, space: sample.space, desktop: sample.desktop,
+                uuid: sample.uuid)
     return closed
   }
 

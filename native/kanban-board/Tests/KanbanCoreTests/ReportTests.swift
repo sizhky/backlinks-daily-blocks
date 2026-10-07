@@ -117,6 +117,11 @@ final class ReportTests: XCTestCase {
     let spans = [span(0, 20, space: 5)]
     XCTAssertEqual(minutes(Report.attribute(spans: spans, cards: cards, rules: [], calendar: cal), .card("a")), 0)
     XCTAssertEqual(minutes(Report.attribute(spans: spans, cards: cards, rules: [], labels: [5: "Trading"], calendar: cal), .card("a")), 20)
+    // Desktops reordered: the span's UUID names it, and number 5 now belongs to another desktop.
+    var moved = span(0, 20, space: 5)
+    moved.uuid = "T"
+    XCTAssertEqual(minutes(Report.attribute(spans: [moved], cards: cards, rules: [], labels: [5: "Infoshare"],
+                                            names: ["T": "Trading"], calendar: cal), .card("a")), 20)
   }
 
   func testCardsWithDoingTimeButNoAttributionStayInTheTree() {

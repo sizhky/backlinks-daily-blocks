@@ -66,10 +66,11 @@ public enum Report {
   /// same, A pinned to desktop 2, span on desktop 2             -> A 60 min
   /// same, both pinned to desktop 3, span on desktop 2          -> unattributed 60 min
   /// ```
-  /// `labels` (desktop number -> current name) names spans recorded before their desktop had a name;
-  /// without it a card pinned to "Trading" never matches the earlier `space 5` spans.
+  /// Spans recorded before their desktop had a name take its current name: by Space UUID (`names`), or for
+  /// spans older than the UUID field by desktop number (`labels`), a guess that fails once desktops are reordered.
+  /// Without either, a card pinned to "Trading" never matches the earlier `space 5` spans.
   public static func attribute(spans: [Span], cards: [ReportCard], rules: [ActivityRule], labels: [Int: String] = [:],
-                               calendar: Calendar = .current) -> [Allocation] {
+                               names: [String: String] = [:], calendar: Calendar = .current) -> [Allocation] {
     let stints = cards.indices.flatMap { i in cards[i].stints.map { (s: $0.start, e: $0.end, card: i) } }.sorted { $0.s < $1.s }
     let orgOf = projectOrgs(cards)
     var acc: [Allocation: Double] = [:]
@@ -80,7 +81,8 @@ public enum Report {
     var active: [(s: Date, e: Date, card: Int)] = []
     for span in spans.sorted(by: { $0.start < $1.start }) {
       let ctx = Sample(app: span.app, bundle: span.bundle, title: span.title, url: span.url, space: span.space,
-                       desktop: span.desktop ?? span.space.flatMap { labels[$0] })
+                       desktop: span.desktop ?? (span.uuid.map { names[$0] } ?? span.space.flatMap { labels[$0] }),
+                       uuid: span.uuid)
       for piece in hourPieces(span.start, span.end, calendar) {
         while next < stints.count, stints[next].s < piece.end { active.append(stints[next]); next += 1 }
         active.removeAll { $0.e <= piece.start }
