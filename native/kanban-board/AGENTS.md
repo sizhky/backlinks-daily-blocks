@@ -138,7 +138,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Desktop per card: `Card.desktop`, stored in the note as `%% kbdesktop N %%` (plugin `DESKTOP_RE`, written by
   `kb.setDesktop`, read as the last board-script column). Frontmatter `kbdesktop: N` is the per-note default; the task line beats it. The app keeps no desktop state of its own. Clicking the
   "Desktop N" pill calls `store.switchDesktop`: press the user's macOS "Switch to Desktop N" shortcut (read from
-  `AppleSymbolicHotKeys` by `Spaces.shortcut`). Cards have no double-click action. Needs Accessibility permission and the shortcut
+  `AppleSymbolicHotKeys` by `Spaces.shortcut`). Double-click a card or list row opens it in Obsidian (`store.open`). Needs Accessibility permission and the shortcut
   enabled in Keyboard Shortcuts > Mission Control (any combination). No BetterTouchTool.
 - Menus are custom, never SwiftUI `Menu` or `.contextMenu`. Items are `MenuItem` values; card, column and view items live in
   `BoardStore.cardItems` / `columnItems` / `statusItems` / `desktopItems` so the inspector and the right-click menu share them.

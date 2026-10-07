@@ -584,6 +584,8 @@ struct IssueCard: View {
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
+    .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
+    .help("Double-click to open in Obsidian")
     .pointerStyle(.link)
     .rightClickMenu { store.cardItems(card) }
     // Inserted cards appear in place: on drop the ghost they replace is already there.
@@ -737,6 +739,8 @@ struct IssueRow: View {
     .onTapGesture {
       if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
     }
+    .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
+    .help("Double-click to open in Obsidian")
     .pointerStyle(.link)
     .rightClickMenu { store.cardItems(card) }
   }
