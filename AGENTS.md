@@ -49,6 +49,9 @@ shell), not just the auto-updated app package — keep it current via
 `brew install --cask obsidian`. On a stale installer `eval` cold-spawns an old asar that
 does NOT await: async results come back **blank** and top-level `await` errors. If you see
 the "installer is out of date" banner and blank output, that's the cause.
+On 2026-10-07 async results also came back blank most of the time on a current installer (1.14.4),
+while sync evals always worked. Reliable pattern: start the promise in a sync eval that stores its
+result on `window`, then read it with a second sync eval (the Kanban Board app's `ObsidianClient.eval`).
 
 $ which obsidian
 /Applications/Obsidian.app/Contents/MacOS/obsidian
