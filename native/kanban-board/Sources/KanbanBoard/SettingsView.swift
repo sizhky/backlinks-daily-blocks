@@ -133,91 +133,114 @@ enum ReportKey {
 }
 
 /// 2.4 Project desktops, stored as `DesktopPin` rules in `rules.json`, and the Reports mulling time.
-/// A card's own desktop beats its project's (`ActivityRule.applying`). Org desktops are not offered.
+/// One square per desktop holds the projects pinned to it; drag a project pill to another square, or to
+/// No desktop to unpin it. A card's own desktop beats its project's (`ActivityRule.applying`).
 struct TrackingSettings: View {
   @EnvironmentObject var store: BoardStore
   @EnvironmentObject var activity: ActivityMonitor
   @EnvironmentObject var desktops: DesktopStore
   @AppStorage(ReportKey.mull) private var mull = 60
-  /// Expanded orgs, tab-separated; all collapsed by default.
-  @AppStorage("tracking.expanded") private var open = ""
+  @State private var target: String?
+  @State private var tip: (text: String, at: CGPoint)?
+
+  /// A drop region: a desktop (`ref` = what pins store), a pin whose desktop no longer exists, or none.
+  struct Region: Identifiable {
+    let id: String, title: String, ref: String?, current: Bool, projects: [String]
+  }
 
   var body: some View {
-    Form {
-      Section("Project desktops") {
-        ForEach(groups, id: \.org) { g in
-          DisclosureGroup(isExpanded: expanded(g.org)) {
-            ForEach(g.projects, id: \.self) { row(.project, $0) }
-          } label: {
-            HStack(spacing: 8) {
-              if !g.org.isEmpty { OrgIcon(name: g.org, size: 18).clipShape(.rect(cornerRadius: 4)) }
-              Text(g.org.isEmpty ? "No organization" : g.org)
-              Spacer()
-              let n = g.projects.filter { p in pins.contains { $0.kind == .project && $0.name.caseInsensitiveCompare(p) == .orderedSame } }.count
-              if n > 0 { Text("\(n) pinned").foregroundStyle(.secondary).monospacedDigit() }
-            }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
+        Text("Desktops").font(.headline)
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+          ForEach(regions.dropLast()) { region($0).aspectRatio(1, contentMode: .fit) }
+        }
+        if let none = regions.last { region(none).frame(minHeight: 120) }
+        Divider().padding(.vertical, 4)
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Minimum mulling time")
+            Text("Cards that reach Doing sooner after creation count as ad hoc.").font(.callout).foregroundStyle(.secondary)
           }
+          Spacer()
+          Text("\(mull) min").monospacedDigit()
+          Stepper("Minimum mulling time", value: $mull, in: 0...480, step: 15).labelsHidden()
         }
       }
-      Section {
-        LabeledContent("Minimum mulling time") {
-          Stepper(value: $mull, in: 0...480, step: 15) { Text("\(mull) min").monospacedDigit() }
+      .padding(20)
+      .coordinateSpace(.named("desks"))
+      .overlay(alignment: .topLeading) {
+        GeometryReader { g in
+          if let tip { HoverCard(text: tip.text, at: tip.at, bounds: g.size).allowsHitTesting(false) }
         }
-      } header: {
-        Text("Reports")
-      } footer: {
-        Text("Cards that reach Doing sooner after creation count as ad hoc.").foregroundStyle(.secondary)
       }
     }
-    .formStyle(.grouped)
   }
 
-  private var pins: [DesktopPin] { DesktopPin.pins(activity.rules) }
+  /// Every project on the board plus every pinned project, by name (case-insensitive).
+  private var projects: [String] {
+    var seen = Set<String>(), out: [String] = []
+    let pinned = DesktopPin.pins(activity.rules).filter { $0.kind == .project }.map(\.name)
+    for p in store.columns.flatMap(\.cards).flatMap(\.projects) + pinned where seen.insert(p.lowercased()).inserted { out.append(p) }
+    return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+  }
 
-  /// Projects on the board grouped by their org, orgs and projects sorted; a project with two orgs
-  /// is listed under both. Pinned projects no longer on the board go under "No organization".
-  private var groups: [(org: String, projects: [String])] {
-    let sort = { (a: String, b: String) in a.localizedCaseInsensitiveCompare(b) == .orderedAscending }
-    var byOrg: [String: [String]] = [:], seen = Set<String>()
-    for card in store.columns.flatMap(\.cards) {
-      for org in card.orgs.isEmpty ? [""] : card.orgs {
-        for p in card.projects where seen.insert(org.lowercased() + "\t" + p.lowercased()).inserted { byOrg[org, default: []].append(p) }
-      }
+  /// Desktops in order, then pins to desktops that no longer exist, then No desktop (always last).
+  private var regions: [Region] {
+    var byDesk: [String: [String]] = [:], stale: [String: [String]] = [:], none: [String] = []
+    for p in projects {
+      guard let ref = store.projectDesktop(p) else { none.append(p); continue }
+      if let d = desktops.resolve(ref) { byDesk[d.uuid, default: []].append(p) } else { stale[ref, default: []].append(p) }
     }
-    let listed = Set(byOrg.values.joined().map { $0.lowercased() })
-    for pin in pins where pin.kind == .project && !listed.contains(pin.name.lowercased()) { byOrg["", default: []].append(pin.name) }
-    return byOrg.map { (org: $0.key, projects: $0.value.sorted(by: sort)) }
-      .sorted { a, b in a.org.isEmpty != b.org.isEmpty ? !a.org.isEmpty : sort(a.org, b.org) }
+    let current = desktops.current?.uuid
+    return desktops.spaces.map { Region(id: $0.uuid, title: $0.name, ref: $0.ref, current: $0.uuid == current, projects: byDesk[$0.uuid] ?? []) }
+      + stale.keys.sorted().map { Region(id: "stale|" + $0, title: $0, ref: $0, current: false, projects: stale[$0] ?? []) }
+      + [Region(id: "none", title: "No desktop", ref: nil, current: false, projects: none)]
   }
 
-  private func expanded(_ org: String) -> Binding<Bool> {
-    Binding(
-      get: { open.split(separator: "\t").contains { $0 == org } },
-      set: { on in
-        var set = open.split(separator: "\t").map(String.init).filter { $0 != org }
-        if on { set.append(org) }
-        open = set.joined(separator: "\t")
-      })
-  }
-
-  private func binding(_ kind: DesktopPin.Kind, _ name: String) -> Binding<String?> {
-    Binding(
-      get: { store.projectDesktop(name) },
-      set: { store.setDesktop($0, project: name) })
-  }
-
-  private func row(_ kind: DesktopPin.Kind, _ name: String) -> some View {
-    let pick: Binding<String?> = binding(kind, name)
-    let stale = pick.wrappedValue.flatMap { desktops.resolve($0) == nil ? $0 : nil }
-    return Picker(selection: pick) {
-      Text("None").tag(String?.none)
-      ForEach(desktops.spaces) { (d: DesktopSpace) in Text(d.name).tag(String?.some(d.ref)) }
-      if let stale { Text(stale).tag(String?.some(stale)) }
-    } label: {
-      HStack(spacing: 8) {
-        Monogram(name: name, size: 16)
-        Text(name)
+  private func region(_ r: Region) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 6) {
+        Text(r.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+        if r.current { Circle().fill(Color.accentColor).frame(width: 6, height: 6).help("Current desktop") }
+        Spacer(minLength: 0)
+        if !r.projects.isEmpty { Text("\(r.projects.count)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit() }
       }
+      ScrollView {
+        FlowLayout(spacing: 5) {
+          ForEach(r.projects, id: \.self) { pill($0) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .scrollIndicators(.never)
     }
+    .padding(10)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(target == r.id ? 0.08 : 0.03)))
+    .overlay(RoundedRectangle(cornerRadius: 12)
+      .strokeBorder(target == r.id ? Color.accentColor : Color.white.opacity(0.1), lineWidth: target == r.id ? 1.5 : 1))
+    .dropDestination(for: String.self) { names, _ in
+      for name in names { store.setDesktop(r.ref, project: name) }
+      return !names.isEmpty
+    } isTargeted: { on in
+      if on { target = r.id } else if target == r.id { target = nil }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("\(r.title), \(r.projects.count) projects")
+  }
+
+  private func pill(_ name: String) -> some View {
+    Pill(text: name) { Monogram(name: name, size: 13) }
+      .frame(maxWidth: 150, alignment: .leading)
+      .fixedSize(horizontal: false, vertical: true)
+      .contentShape(Rectangle())
+      .draggable(name) { Pill(text: name) { Monogram(name: name, size: 13) } }
+      .onContinuousHover(coordinateSpace: .named("desks")) { phase in
+        switch phase {
+        case .active(let p): tip = (name, p)
+        case .ended: if tip?.text == name { tip = nil }
+        }
+      }
+      .accessibilityLabel(name)
   }
 }

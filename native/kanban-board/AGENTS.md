@@ -35,7 +35,7 @@ Sources/KanbanBoard/   SwiftUI app
   BoardView.swift      header, filter chips, board, list, cards, rows
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
   Menu.swift           custom Linear-style menus: MenuItem, MenuController, MenuHost, MenuTrigger, rightClickMenu
-  SettingsView.swift   Settings window (Cmd-,); Density metrics; Tracking tab (project desktops, mulling time)
+  SettingsView.swift   Settings window (Cmd-,); Density metrics; Tracking tab (desktop squares holding draggable project pills, mulling time)
   Style.swift          Palette, StatusGlyph, Pill, FlowLayout, Monogram, OrgIcon, renderTitle
 Tests/KanbanCoreTests/ XCTest, millisecond-scale
 ```
@@ -279,7 +279,8 @@ Before building or wording any UI, ask what Apple would do and do that.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
 
-- Project desktops (Settings > Tracking, or right-click a sidebar project > Desktop; orgs are not offered, by request)
+- Project desktops (Settings > Tracking: one square per desktop plus No desktop, drag project pills between them,
+  instant `HoverCard` with the full name; or right-click a sidebar project > Desktop; orgs are not offered, by request)
   go through `store.projectDesktop` / `store.setDesktop(_:project:)` and are `DesktopPin` rules `{project, desktop}` in
   `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.
   `renameDesktop` rewrites pins on the old name as it does cards. A pin gives every card of that scope desktop affinity, so `SwitchEngine` parks and resumes them.
