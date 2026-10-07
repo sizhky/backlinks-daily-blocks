@@ -266,7 +266,7 @@ Before building or wording any UI, ask what Apple would do and do that.
   The panel is a square of the Size setting (`widget.width`), taller when the content needs it: parallel
   Doing cards each get a row with their own timer (none hidden), and `WidgetView` reports its natural
   height via `onHeight`; `TrackerWidget` resizes the panel on the next run loop (never during layout) and
-  keeps the top edge fixed. Armed area, highlight, toast, and window frame stay one rectangle.
+  keeps the bottom edge fixed (content bottom-aligned; the widget grows upward). Armed area, highlight, toast, and window frame stay one rectangle.
   Each element (`WidgetPart`) has its own visibility, justification (`widget.<part>.align`), and font size
   (`widget.<part>.size`); colour, font family, and square size are global. Settings > Widget renders the real
   `WidgetView` (live data, own `WidgetGrip`) on a sample wallpaper; the Settings scene gets the store's

@@ -100,13 +100,12 @@ final class TrackerWidget {
 
   /// A square of the Size setting, taller when the content needs it (parallel Doing cards), so every
   /// task and timer stays visible. Grab area, highlight, toast, and window bounds stay one rectangle.
-  /// The top edge stays put; the widget grows downward.
+  /// The bottom edge stays put; the widget grows upward.
   private func applySize() {
     let side = UserDefaults.standard.double(forKey: WidgetKey.width)
     let target = NSSize(width: side, height: max(side, contentHeight.rounded(.up)))
     guard panel.frame.size != target else { return }
-    let top = panel.frame.maxY
-    panel.setFrame(NSRect(x: panel.frame.minX, y: top - target.height, width: target.width, height: target.height), display: true)
+    panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.minY, width: target.width, height: target.height), display: true)
   }
 
   var isVisible: Bool { UserDefaults.standard.bool(forKey: WidgetKey.visible) }
@@ -141,7 +140,7 @@ struct WidgetView: View {
   private var corner: Double { width * 0.12 }
 
   var body: some View {
-    // Header and footer hug the hero; the group sits centred in at least a square, and its natural
+    // Header and footer hug the hero; the group sits at the bottom of at least a square, and its natural
     // height (measured) sets how far the panel grows when it needs more than the square.
     VStack(spacing: width * 0.04) {
       header
@@ -155,7 +154,7 @@ struct WidgetView: View {
     .fixedSize(horizontal: false, vertical: true)
     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight?($0) }
     .frame(width: width)
-    .frame(minHeight: width)
+    .frame(minHeight: width, alignment: .bottom)
     // Near-zero alpha keeps the square invisible but grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
     .background(RoundedRectangle(cornerRadius: corner, style: .continuous)
@@ -167,7 +166,7 @@ struct WidgetView: View {
       }
     }
     .animation(.spring(duration: 0.3, bounce: 0.15), value: toast)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     .onChange(of: store.widgetToast?.gen) {
       guard let t = store.widgetToast else { return }
       toast = t.changes
