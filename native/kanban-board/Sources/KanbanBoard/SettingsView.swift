@@ -85,7 +85,7 @@ struct WidgetSettings: View {
         Toggle("Browser address", isOn: $url)
       }
       Slider(value: $size, in: 10...20, step: 1) { Text("Text size") }
-      Slider(value: $width, in: 160...640, step: 20) { Text("Width") }
+      Slider(value: $width, in: 160...480, step: 20) { Text("Size") }
     }
     .padding(20)
   }

@@ -87,12 +87,11 @@ final class TrackerWidget {
     panel.ignoresMouseEvents = !armed
   }
 
-  /// Transparent area: width from settings, height for a few tasks plus the activity lines.
+  /// The panel is always a square of the Width setting, so the grab area, highlight, toast,
+  /// and window bounds are the same rectangle. Content that does not fit is clipped.
   private func applySize() {
-    let width = UserDefaults.standard.double(forKey: WidgetKey.width)
-    let size = UserDefaults.standard.double(forKey: WidgetKey.size)
-    // Room for two wrapped task titles plus the activity lines; never shorter than wide.
-    let target = NSSize(width: width, height: max(width, (size * 1.6 * 11).rounded()))
+    let side = UserDefaults.standard.double(forKey: WidgetKey.width)
+    let target = NSSize(width: side, height: side)
     guard panel.frame.size != target else { return }
     let top = panel.frame.maxY
     panel.setFrame(NSRect(x: panel.frame.minX, y: top - target.height, width: target.width, height: target.height), display: true)
@@ -157,13 +156,13 @@ struct WidgetView: View {
     }
     .foregroundStyle(WidgetStyle.color(color))
     .shadow(color: .black.opacity(0.9), radius: 1.5, y: 0.5)
-    .padding(.horizontal, 10).padding(.vertical, 6)
-    // Near-zero alpha keeps the widget invisible but makes the whole text block grabbable when armed;
+    .padding(.horizontal, 10).padding(.vertical, 8)
+    .frame(width: width, height: width, alignment: .topLeading)
+    .clipped()
+    // Near-zero alpha keeps the square invisible but grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
     .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(grip.armed ? 0.08 : 0.001)))
-    .frame(width: width, alignment: .leading)
     .overlay { if !toast.isEmpty { ToastCover(changes: toast, size: size, family: family) } }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .animation(.spring(duration: 0.25), value: toast)
     .onChange(of: store.widgetToast?.gen) {
       guard let t = store.widgetToast else { return }

@@ -229,5 +229,7 @@ Before building or wording any UI, ask what Apple would do and do that.
   did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
   The tracker widget is click-through (`ignoresMouseEvents`) until Cmd is held with the pointer over it;
   global plus local `NSEvent` monitors (flagsChanged, mouseMoved, leftMouseUp) set `WidgetGrip.armed`.
+  The panel is always a square of the Size setting (`widget.width`); content is clipped to it, and the
+  armed area, highlight, toast, and window frame are that one square.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
