@@ -13,8 +13,9 @@ enum WidgetKey {
 
 /// Widget font and colour from settings. An empty family means the system font.
 enum WidgetStyle {
-  static func font(_ family: String, _ size: Double, _ weight: Font.Weight) -> Font {
-    family.isEmpty ? .system(size: size, weight: weight) : .custom(family, size: size).weight(weight)
+  /// `design` applies to the system font only; a chosen family keeps its own design.
+  static func font(_ family: String, _ size: Double, _ weight: Font.Weight, design: Font.Design = .default) -> Font {
+    family.isEmpty ? .system(size: size, weight: weight, design: design) : .custom(family, size: size).weight(weight)
   }
 
   static func color(_ hex: String) -> Color {
@@ -123,47 +124,43 @@ struct WidgetView: View {
   @State private var toast: [DoingChange] = []
   @EnvironmentObject var grip: WidgetGrip
 
+  /// Doing cards, most recently started first: the hero is the task you switched to last.
   private var doing: [Card] {
     store.columns.filter { $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.flatMap(\.cards)
+      .sorted { ($0.since ?? .distantPast) > ($1.since ?? .distantPast) }
   }
 
+  /// One scale for the whole widget, from the Text size setting (13 = Apple's small-widget body).
+  private var unit: Double { size }
+  private var margin: Double { width * 0.07 }
+  private var corner: Double { width * 0.12 }
+  private var tint: Color { WidgetStyle.color(color) }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      if showTask {
-        if doing.isEmpty {
-          line("Nothing in Doing", weight: .semibold, dim: true)
-        }
-        ForEach(doing) { card in
-          HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(card.title).font(WidgetStyle.font(family, size, .semibold)).lineLimit(2)
-            Spacer(minLength: 4)
-            if showTimer, let since = card.since {
-              TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                Text(Self.clock(ctx.date.timeIntervalSince(since))).font(WidgetStyle.font(family, size, .semibold).monospacedDigit())
-              }
-            }
-          }
-        }
-      }
-      if let c = activity.context {
-        let parts = [showDesktop ? (c.desktop ?? c.space.map { "Desktop \($0)" }) : nil, showApp ? c.app : nil].compactMap { $0 }
-        if !parts.isEmpty { line(parts.joined(separator: " · "), dim: true) }
-        if showTitle, !c.title.isEmpty { line(c.title, dim: true, lines: 2) }
-        if showURL, let url = c.url { line(url, dim: true) }
-      } else if showApp || showTitle {
-        line("Away", dim: true)
-      }
+    VStack(spacing: 0) {
+      header
+      Spacer(minLength: unit * 0.4)
+      hero
+      Spacer(minLength: unit * 0.4)
+      footer
     }
-    .foregroundStyle(WidgetStyle.color(color))
-    .shadow(color: .black.opacity(0.9), radius: 1.5, y: 0.5)
-    .padding(.horizontal, 10).padding(.vertical, 8)
-    .frame(width: width, height: width, alignment: .topLeading)
+    .multilineTextAlignment(.center)
+    .foregroundStyle(tint)
+    .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
+    .padding(margin)
+    .frame(width: width, height: width)
     .clipped()
     // Near-zero alpha keeps the square invisible but grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
-    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(grip.armed ? 0.08 : 0.001)))
-    .overlay { if !toast.isEmpty { ToastCover(changes: toast, size: size, family: family) } }
-    .animation(.spring(duration: 0.25), value: toast)
+    .background(RoundedRectangle(cornerRadius: corner, style: .continuous)
+      .fill(Color.white.opacity(grip.armed ? 0.1 : 0.001)))
+    .overlay {
+      if !toast.isEmpty {
+        ToastCover(changes: toast, unit: unit, family: family, corner: corner)
+          .transition(.opacity.combined(with: .scale(scale: 0.96)))
+      }
+    }
+    .animation(.spring(duration: 0.3, bounce: 0.15), value: toast)
     .onChange(of: store.widgetToast?.gen) {
       guard let t = store.widgetToast else { return }
       toast = t.changes
@@ -175,9 +172,63 @@ struct WidgetView: View {
     }
   }
 
-  private func line(_ text: String, weight: Font.Weight = .regular, dim: Bool = false, lines: Int = 1) -> some View {
-    Text(text).font(WidgetStyle.font(family, size * 0.85, weight)).lineLimit(lines).truncationMode(.middle)
-      .opacity(dim ? 0.8 : 1)
+  /// Where you are: desktop name, or Away.
+  @ViewBuilder private var header: some View {
+    if let c = activity.context {
+      if showDesktop, let name = c.desktop ?? c.space.map({ "Desktop \($0)" }) {
+        Label(name, systemImage: "rectangle.3.group")
+          .font(WidgetStyle.font(family, unit * 0.78, .semibold))
+          .labelStyle(.titleAndIcon).lineLimit(1).opacity(0.75)
+      }
+    } else {
+      Label("Away", systemImage: "moon.fill")
+        .font(WidgetStyle.font(family, unit * 0.78, .semibold)).opacity(0.75)
+    }
+  }
+
+  /// What is being tracked: the timer as the one glanceable number, the task under it.
+  @ViewBuilder private var hero: some View {
+    if showTask, let card = doing.first {
+      VStack(spacing: unit * 0.25) {
+        if showTimer, let since = card.since {
+          TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            Text(Self.clock(ctx.date.timeIntervalSince(since)))
+              .font(WidgetStyle.font(family, unit * 2.6, .semibold, design: .rounded).monospacedDigit())
+              .lineLimit(1).minimumScaleFactor(0.6)
+              .contentTransition(.numericText())
+          }
+        }
+        Text(card.title)
+          .font(WidgetStyle.font(family, unit, .semibold))
+          .lineLimit(2)
+        if doing.count > 1 {
+          Text("+\(doing.count - 1) more")
+            .font(WidgetStyle.font(family, unit * 0.72, .medium)).opacity(0.6)
+        }
+      }
+    } else if showTask {
+      VStack(spacing: unit * 0.35) {
+        Image(systemName: "circle.dashed").font(.system(size: unit * 2, weight: .light))
+        Text("Not tracking").font(WidgetStyle.font(family, unit, .semibold))
+      }
+      .opacity(0.7)
+    }
+  }
+
+  /// Context, quieter: app, then window title or address.
+  @ViewBuilder private var footer: some View {
+    if let c = activity.context {
+      VStack(spacing: 1) {
+        if showApp { Text(c.app).font(WidgetStyle.font(family, unit * 0.8, .semibold)).lineLimit(1) }
+        if showTitle, !c.title.isEmpty, c.title != c.app {
+          Text(c.title).font(WidgetStyle.font(family, unit * 0.75, .regular)).lineLimit(1).truncationMode(.middle)
+        }
+        if showURL, let url = c.url {
+          Text(url).font(WidgetStyle.font(family, unit * 0.7, .regular)).lineLimit(1).truncationMode(.middle)
+        }
+      }
+      .opacity(0.65)
+    }
   }
 
   /// 0:42, 12:05, 1:02:09
@@ -187,25 +238,44 @@ struct WidgetView: View {
   }
 }
 
-/// Covers the whole widget while a Doing change is announced.
+/// Covers the whole widget while a Doing change is announced: symbol, verb, task.
 struct ToastCover: View {
   let changes: [DoingChange]
-  let size: Double
+  let unit: Double
   let family: String
+  let corner: Double
+
+  /// A start leads; otherwise the first change.
+  private var lead: DoingChange { changes.first { $0.verb == "Started" } ?? changes[0] }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      ForEach(Array(changes.prefix(3).enumerated()), id: \.offset) { _, c in
-        HStack(spacing: 6) {
-          Text(c.verb).font(WidgetStyle.font(family, size, .bold)).foregroundStyle(color(c.verb))
-          Text(c.title).font(WidgetStyle.font(family, size, .semibold)).lineLimit(2)
-        }
+    VStack(spacing: unit * 0.35) {
+      Image(systemName: symbol(lead.verb))
+        .font(.system(size: unit * 2.2, weight: .semibold))
+        .foregroundStyle(color(lead.verb))
+        .symbolRenderingMode(.hierarchical)
+      Text(lead.verb).font(WidgetStyle.font(family, unit * 0.85, .semibold)).foregroundStyle(color(lead.verb))
+      Text(lead.title).font(WidgetStyle.font(family, unit, .semibold)).lineLimit(3)
+      if changes.count > 1 {
+        Text("+\(changes.count - 1) more").font(WidgetStyle.font(family, unit * 0.72, .medium)).opacity(0.6)
       }
     }
+    .multilineTextAlignment(.center)
     .foregroundStyle(.white)
-    .padding(.horizontal, 10)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .background(RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.88)))
-    .transition(.opacity)
+    .padding(unit)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
+    .environment(\.colorScheme, .dark)
+  }
+
+  private func symbol(_ verb: String) -> String {
+    switch verb.lowercased() {
+    case "started": "play.circle.fill"
+    case "parked", "idle": "pause.circle.fill"
+    case "done": "checkmark.circle.fill"
+    case "cancelled": "xmark.circle.fill"
+    default: "arrow.right.circle.fill"
+    }
   }
 
   private func color(_ verb: String) -> Color {
@@ -213,7 +283,8 @@ struct ToastCover: View {
     case "started": .green
     case "parked", "idle": .orange
     case "done": .blue
-    default: .gray
+    case "cancelled": .red
+    default: .secondary
     }
   }
 }
