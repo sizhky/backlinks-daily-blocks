@@ -39,6 +39,8 @@ final class TrackerWidget {
   private var observer: NSObjectProtocol?
   private var monitors: [Any] = []
   let grip = WidgetGrip()
+  /// Height the content needs (reported by `WidgetView`); the panel grows past the square to fit it.
+  private var contentHeight: CGFloat = 0
 
   init(store: BoardStore) {
     panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 60),
@@ -51,8 +53,9 @@ final class TrackerWidget {
     panel.hidesOnDeactivate = false
     // Fixed frame, no SwiftUI window sizing: `.preferredContentSize` made NSHostingView resize the
     // panel inside its own windowDidLayout, an infinite recursion when Mission Control opened.
-    let host = DragHostingView(rootView: WidgetView(grip: grip).environmentObject(store).environmentObject(store.activity)
-      .environmentObject(store.desktops))
+    var reportHeight: (CGFloat) -> Void = { _ in }
+    let host = DragHostingView(rootView: WidgetView(grip: grip, onHeight: { reportHeight($0) })
+      .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops))
     host.sizingOptions = []
     panel.contentView = host
     if !panel.setFrameUsingName("TrackerWidget"), let screen = NSScreen.main {
@@ -60,6 +63,14 @@ final class TrackerWidget {
     }
     panel.setFrameAutosaveName("TrackerWidget")
     defer { applySize() }
+    // Resize after SwiftUI's layout pass, never inside it (resizing from layout recursed and crashed).
+    reportHeight = { [weak self] h in
+      DispatchQueue.main.async {
+        guard let self, abs(h - self.contentHeight) >= 1 else { return }
+        self.contentHeight = h
+        self.applySize()
+      }
+    }
     UserDefaults.standard.register(defaults: [WidgetKey.visible: true, WidgetKey.width: 240.0, WidgetKey.color: "#FFFFFF", WidgetKey.font: ""])
     WidgetPart.registerDefaults()
     observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -87,11 +98,12 @@ final class TrackerWidget {
     panel.ignoresMouseEvents = !armed
   }
 
-  /// The panel is always a square of the Width setting, so the grab area, highlight, toast,
-  /// and window bounds are the same rectangle. Content that does not fit is clipped.
+  /// A square of the Size setting, taller when the content needs it (parallel Doing cards), so every
+  /// task and timer stays visible. Grab area, highlight, toast, and window bounds stay one rectangle.
+  /// The top edge stays put; the widget grows downward.
   private func applySize() {
     let side = UserDefaults.standard.double(forKey: WidgetKey.width)
-    let target = NSSize(width: side, height: side)
+    let target = NSSize(width: side, height: max(side, contentHeight.rounded(.up)))
     guard panel.frame.size != target else { return }
     let top = panel.frame.maxY
     panel.setFrame(NSRect(x: panel.frame.minX, y: top - target.height, width: target.width, height: target.height), display: true)
@@ -111,6 +123,8 @@ struct WidgetView: View {
   @EnvironmentObject var activity: ActivityMonitor
   @EnvironmentObject var desktops: DesktopStore
   @ObservedObject var grip: WidgetGrip
+  /// Reports the height the content needs; nil in previews.
+  var onHeight: ((CGFloat) -> Void)? = nil
   @ObservedObject private var prefs = WidgetPrefs.shared
   @AppStorage(WidgetKey.width) private var width = 240.0
   @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
@@ -127,18 +141,21 @@ struct WidgetView: View {
   private var corner: Double { width * 0.12 }
 
   var body: some View {
-    // Header and footer hug the hero; the group sits centred in the square.
+    // Header and footer hug the hero; the group sits centred in at least a square, and its natural
+    // height (measured) sets how far the panel grows when it needs more than the square.
     VStack(spacing: width * 0.04) {
       header
       hero
       footer
     }
-    .frame(maxHeight: .infinity)
     .foregroundStyle(WidgetStyle.color(color))
     .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
     .padding(margin)
-    .frame(width: width, height: width)
-    .clipped()
+    .frame(width: width)
+    .fixedSize(horizontal: false, vertical: true)
+    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight?($0) }
+    .frame(width: width)
+    .frame(minHeight: width)
     // Near-zero alpha keeps the square invisible but grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
     .background(RoundedRectangle(cornerRadius: corner, style: .continuous)
@@ -150,6 +167,7 @@ struct WidgetView: View {
       }
     }
     .animation(.spring(duration: 0.3, bounce: 0.15), value: toast)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .onChange(of: store.widgetToast?.gen) {
       guard let t = store.widgetToast else { return }
       toast = t.changes
@@ -186,9 +204,14 @@ struct WidgetView: View {
     }
   }
 
-  /// What is being tracked: the timer as the one glanceable number, the task under it.
+  /// What is being tracked. One card: the timer as the one glanceable number, the task under it.
+  /// Parallel cards: one row each, title and its own timer, newest first; nothing is hidden.
   @ViewBuilder private var hero: some View {
-    if let card = doing.first {
+    if doing.count > 1 {
+      VStack(spacing: 6) {
+        ForEach(doing) { card in parallelRow(card) }
+      }
+    } else if let card = doing.first {
       VStack(spacing: 3) {
         if let since = card.since, prefs.shown(.timer) {
           TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -198,7 +221,6 @@ struct WidgetView: View {
           }
         }
         part(.title, lines: 2) { Text(card.title) }
-        if doing.count > 1 { part(.more) { Text("+\(doing.count - 1) more") }.opacity(0.6) }
       }
     } else {
       VStack(spacing: 3) {
@@ -206,6 +228,26 @@ struct WidgetView: View {
         part(.title) { Text("Not tracking") }
       }
       .opacity(0.7)
+    }
+  }
+
+  /// One of several parallel Doing cards: title left, its own timer right.
+  private func parallelRow(_ card: Card) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      if prefs.shown(.title) {
+        Text(card.title)
+          .font(WidgetStyle.font(family, prefs.size(.title), WidgetPart.title.weight))
+          .lineLimit(2)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      if prefs.shown(.timer), let since = card.since {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+          Text(Self.clock(ctx.date.timeIntervalSince(since)))
+            .font(WidgetStyle.font(family, prefs.size(.title) * 1.15, .semibold, design: .rounded).monospacedDigit())
+            .contentTransition(.numericText())
+        }
+        .fixedSize()
+      }
     }
   }
 

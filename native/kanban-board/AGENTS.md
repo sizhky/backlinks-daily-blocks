@@ -263,8 +263,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
   The tracker widget is click-through (`ignoresMouseEvents`) until Fn (`.function`) is held with the pointer over it;
   global plus local `NSEvent` monitors (flagsChanged, mouseMoved, leftMouseUp) set `WidgetGrip.armed`.
-  The panel is always a square of the Size setting (`widget.width`); content is clipped to it, and the
-  armed area, highlight, toast, and window frame are that one square.
+  The panel is a square of the Size setting (`widget.width`), taller when the content needs it: parallel
+  Doing cards each get a row with their own timer (none hidden), and `WidgetView` reports its natural
+  height via `onHeight`; `TrackerWidget` resizes the panel on the next run loop (never during layout) and
+  keeps the top edge fixed. Armed area, highlight, toast, and window frame stay one rectangle.
   Each element (`WidgetPart`) has its own visibility, justification (`widget.<part>.align`), and font size
   (`widget.<part>.size`); colour, font family, and square size are global. Settings > Widget renders the real
   `WidgetView` (live data, own `WidgetGrip`) on a sample wallpaper; the Settings scene gets the store's

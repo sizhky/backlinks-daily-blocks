@@ -95,7 +95,7 @@ struct WidgetSettings: View {
                      startPoint: .topLeading, endPoint: .bottomTrailing)
       WidgetView(grip: previewGrip)
         .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops)
-        .frame(width: width, height: width)
+        .frame(width: width)
         .overlay(RoundedRectangle(cornerRadius: width * 0.12, style: .continuous)
           .strokeBorder(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
         .scaleEffect(min(1, (previewSide - 24) / width))
