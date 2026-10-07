@@ -5,6 +5,7 @@ const { collectDayTasks } = require('./report');
 const { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require('./core/activity');
 const { activitySummary } = require('./activity');
 const { saveTemplate } = require('./templates');
+const { parkAll } = require('./sleep');
 const { openFileAtLine } = require('./core/render');
 
 const DEFAULT_COLS = 'columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-';
@@ -764,6 +765,7 @@ function buildApi(plugin) {
         'reportCards(from,to,opts) Reports input: cards with Doing stints or done in range; opts.mull minutes',
         'activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)',
         'moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped',
+        'parkAll(at)              park every Doing card (habits to Idle) stamped at ISO at; returns ok <moved>',
         'setDesktop(ref,d)        set (1-9 or a desktop name) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it',
         'sweep(from,to,refs?)     bulk-move a column (refs = file:line list)',
         'sweeps()                 sweep routes from settings: From<TAB>To',
@@ -881,6 +883,13 @@ function buildApi(plugin) {
         if (await moveCard(plugin.app, file, line, col, config, { at })) moved++;
       }
       return `ok ${moved}`;
+    },
+
+    // Sleep park (sleep.js 1.2) on demand: Kanban Board calls it on wake with the sleep moment.
+    async parkAll(at) {
+      const when = new Date(at);
+      if (Number.isNaN(when.getTime())) throw new Error('bad at: ' + at);
+      return `ok ${await parkAll(plugin, when, () => makeConfig({}, plugin))}`;
     },
 
     // Manual order: [[ref, rank], ...]. With toCol, cards not already there move first.

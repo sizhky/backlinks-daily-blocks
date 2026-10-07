@@ -60,6 +60,11 @@ struct ObsidianClient {
     _ = try await eval("kb.moveTasks(\(try js(refs)),\(try js(column)),{at:\(try js(iso))})")
   }
 
+  /// Parks every Doing card, habits to Idle, stamped at `at` (kb.parkAll).
+  func parkAll(at: Date) async throws {
+    _ = try await eval("kb.parkAll(\(try js(ISO8601DateFormatter().string(from: at))))")
+  }
+
   /// Doing stints of one day (`kb.chronicle`), rows `HHMM:HHMM[~]<TAB>dur<TAB>title`.
   func chronicle(_ day: Date) async throws -> String {
     let f = DateFormatter()

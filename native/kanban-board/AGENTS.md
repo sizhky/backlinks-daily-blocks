@@ -222,7 +222,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   a card with a desktop, or whose project/org a rule in `<vault>/.activity/rules.json` names, parks
   120 s after its context is left and resumes 10 s after return, only if the engine parked it. Moves
   are stamped at the moment the context changed (`kb.moveTasks(refs, col, {at})`). Engine state
-  persists in `kanban.switches`. Desktop number uses private CGS calls looked up with `dlsym`; nil on failure.
+  persists in `kanban.switches`. Sleep park: `BoardStore` notes `willSleep` (lid close; not screen lock or display
+  sleep) and on `didWake` calls `kb.parkAll(at)` with that moment, so any sleep length parks. The plugin's 30 min
+  heartbeat-gap park (`src/sleep.js`) stays as the fallback when the app is not running. Desktop number uses private CGS calls looked up with `dlsym`; nil on failure.
 
 - Tracker widget toast: `BoardStore.refresh` diffs live cards against `lastLive` (the previous refresh),
   never against `columns`, because optimistic moves change `columns` first. One diff covers drags,

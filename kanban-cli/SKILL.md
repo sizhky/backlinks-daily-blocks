@@ -198,6 +198,10 @@ Returns `ok file:line -> Col` on success.
 No open-children guard (same as `moveTask`). Returns `ok <moved>`.
 `opts.at` (ISO time) backdates the history stamp; a card whose latest move is after `at` is skipped. The Kanban Board app uses it for activity switch rules.
 
+### `kb.parkAll(at)` — park every Doing card at a moment
+Moves every Doing card to Parked (habit cards to Idle), history stamped at ISO `at`; cards that moved after `at` are skipped.
+Returns `ok <moved>`. The Kanban Board app calls it on wake with the moment the Mac went to sleep.
+
 ### `kb.planned(...)` — planned vs unplanned time in Doing
 
 Arg forms mirror `getReport` (`20261007`, `from,to`, `{days:7}`). Planned = before its first Doing entry the card spent at

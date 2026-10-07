@@ -106,11 +106,31 @@ final class BoardStore: ObservableObject {
   private var lastFlush = Date()
   private var contextSink: Any?
   static let flushEvery: TimeInterval = 300
+  /// When the Mac went to sleep (lid closed); screen lock and display sleep do not set it.
+  private var sleptAt: Date?
 
   init() {
     query = UserDefaults.standard.string(forKey: "kanban.query") ?? ""
     saved = UserDefaults.standard.data(forKey: "kanban.saved")
       .flatMap { try? JSONDecoder().decode([SavedFilter].self, from: $0) } ?? SavedFilter.defaults
+    let ws = NSWorkspace.shared.notificationCenter
+    ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { self?.sleptAt = Date() }
+    }
+    ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { self?.parkSlept() }
+    }
+  }
+
+  /// Parks every Doing card at the sleep moment; the plugin skips cards that moved after it.
+  private func parkSlept() {
+    guard let at = sleptAt else { return }
+    sleptAt = nil
+    writeGen += 1
+    Task {
+      do { try await client.parkAll(at: at) } catch { self.error = error.localizedDescription }
+      await refresh()
+    }
   }
 
   /// Selected org, ignored once it no longer exists on the board.

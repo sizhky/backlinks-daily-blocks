@@ -3238,6 +3238,72 @@ ${stringifyYaml(body)}---
   }
 });
 
+// src/sleep.js
+var require_sleep = __commonJS({
+  "src/sleep.js"(exports2, module2) {
+    var { Notice: Notice2, Platform } = require("obsidian");
+    var { scanKanbanTasks, moveCard: moveCard2, parseKanbanConfig: parseKanbanConfig2 } = require_kanban();
+    var { sleepGap, backdateOk } = require_activity();
+    var TICK_KEY = "bdb-last-tick";
+    var TICK_MS = 6e4;
+    function readTick() {
+      try {
+        return Number(window.localStorage.getItem(TICK_KEY)) || null;
+      } catch {
+        return null;
+      }
+    }
+    function writeTick(ms) {
+      try {
+        window.localStorage.setItem(TICK_KEY, String(ms));
+      } catch {
+      }
+    }
+    async function parkAll(plugin, at, makeConfig2) {
+      const boards = [
+        { config: makeConfig2(), habit: false },
+        { config: parseKanbanConfig2("columns: Idle~, Doing!"), habit: true }
+      ];
+      let moved = 0;
+      for (const { config, habit } of boards) {
+        const live = config.columns.find((c) => c.live);
+        const target = habit ? config.columns.find((c) => c.paused) : config.columns.find((c) => c.key === "parked") || config.columns.find((c) => c.paused && c.key !== "backlog");
+        if (!live || !target) continue;
+        const byCol = await scanKanbanTasks(plugin.app, config);
+        const cards = (byCol.get(live.key) || []).filter((c) => plugin.app.metadataCache.getFileCache(c.file)?.frontmatter?.metric != null === habit).filter((c) => backdateOk(at.getTime(), c.history)).sort((a, b) => a.file.path === b.file.path ? b.line - a.line : a.file.path.localeCompare(b.file.path));
+        for (const card of cards) {
+          if (await moveCard2(plugin.app, card.file, card.line, target, config, { fromCol: live, at })) moved++;
+        }
+      }
+      return moved;
+    }
+    function startSleepWatch2(plugin, makeConfig2) {
+      if (!Platform.isDesktopApp) return;
+      let busy = false;
+      const tick = async () => {
+        if (busy) return;
+        busy = true;
+        try {
+          const now = Date.now();
+          const gapStart = sleepGap(readTick(), now);
+          writeTick(now);
+          if (gapStart == null) return;
+          const n = await parkAll(plugin, new Date(gapStart), makeConfig2);
+          if (n) new Notice2(`kanban: parked ${n} Doing card${n > 1 ? "s" : ""} at ${new Date(gapStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (Mac was asleep)`);
+        } catch (err) {
+          console.warn("backlinks-daily-blocks: sleep park failed", err);
+        } finally {
+          busy = false;
+        }
+      };
+      plugin.app.workspace.onLayoutReady(tick);
+      plugin.registerInterval(window.setInterval(tick, TICK_MS));
+      plugin.register(() => writeTick(Date.now()));
+    }
+    module2.exports = { startSleepWatch: startSleepWatch2, parkAll };
+  }
+});
+
 // src/api.js
 var require_api = __commonJS({
   "src/api.js"(exports2, module2) {
@@ -3266,6 +3332,7 @@ var require_api = __commonJS({
     var { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require_activity();
     var { activitySummary } = require_activity2();
     var { saveTemplate } = require_templates();
+    var { parkAll } = require_sleep();
     var { openFileAtLine } = require_render();
     var DEFAULT_COLS = "columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-";
     var HABIT_COLS = "columns: Idle~, Doing!";
@@ -3965,6 +4032,7 @@ projects:
             "reportCards(from,to,opts) Reports input: cards with Doing stints or done in range; opts.mull minutes",
             "activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)",
             "moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped",
+            "parkAll(at)              park every Doing card (habits to Idle) stamped at ISO at; returns ok <moved>",
             "setDesktop(ref,d)        set (1-9 or a desktop name) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",
             "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
             "sweeps()                 sweep routes from settings: From<TAB>To",
@@ -4078,6 +4146,12 @@ projects:
             if (await moveCard2(plugin.app, file, line, col, config, { at })) moved++;
           }
           return `ok ${moved}`;
+        },
+        // Sleep park (sleep.js 1.2) on demand: Kanban Board calls it on wake with the sleep moment.
+        async parkAll(at) {
+          const when = new Date(at);
+          if (Number.isNaN(when.getTime())) throw new Error("bad at: " + at);
+          return `ok ${await parkAll(plugin, when, () => makeConfig2({}, plugin))}`;
         },
         // Manual order: [[ref, rank], ...]. With toCol, cards not already there move first.
         // Same-file refs go bottom-up (each edit only inserts below its task). Returns "ok <n>".
@@ -4246,72 +4320,6 @@ projects:
       };
     }
     module2.exports = { buildApi: buildApi2, makeConfig: makeConfig2, fileNameStamp, filterSince, scopeInactive, taskNote };
-  }
-});
-
-// src/sleep.js
-var require_sleep = __commonJS({
-  "src/sleep.js"(exports2, module2) {
-    var { Notice: Notice2, Platform } = require("obsidian");
-    var { scanKanbanTasks, moveCard: moveCard2, parseKanbanConfig: parseKanbanConfig2 } = require_kanban();
-    var { sleepGap, backdateOk } = require_activity();
-    var TICK_KEY = "bdb-last-tick";
-    var TICK_MS = 6e4;
-    function readTick() {
-      try {
-        return Number(window.localStorage.getItem(TICK_KEY)) || null;
-      } catch {
-        return null;
-      }
-    }
-    function writeTick(ms) {
-      try {
-        window.localStorage.setItem(TICK_KEY, String(ms));
-      } catch {
-      }
-    }
-    async function parkAll(plugin, at, makeConfig2) {
-      const boards = [
-        { config: makeConfig2(), habit: false },
-        { config: parseKanbanConfig2("columns: Idle~, Doing!"), habit: true }
-      ];
-      let moved = 0;
-      for (const { config, habit } of boards) {
-        const live = config.columns.find((c) => c.live);
-        const target = habit ? config.columns.find((c) => c.paused) : config.columns.find((c) => c.key === "parked") || config.columns.find((c) => c.paused && c.key !== "backlog");
-        if (!live || !target) continue;
-        const byCol = await scanKanbanTasks(plugin.app, config);
-        const cards = (byCol.get(live.key) || []).filter((c) => plugin.app.metadataCache.getFileCache(c.file)?.frontmatter?.metric != null === habit).filter((c) => backdateOk(at.getTime(), c.history)).sort((a, b) => a.file.path === b.file.path ? b.line - a.line : a.file.path.localeCompare(b.file.path));
-        for (const card of cards) {
-          if (await moveCard2(plugin.app, card.file, card.line, target, config, { fromCol: live, at })) moved++;
-        }
-      }
-      return moved;
-    }
-    function startSleepWatch2(plugin, makeConfig2) {
-      if (!Platform.isDesktopApp) return;
-      let busy = false;
-      const tick = async () => {
-        if (busy) return;
-        busy = true;
-        try {
-          const now = Date.now();
-          const gapStart = sleepGap(readTick(), now);
-          writeTick(now);
-          if (gapStart == null) return;
-          const n = await parkAll(plugin, new Date(gapStart), makeConfig2);
-          if (n) new Notice2(`kanban: parked ${n} Doing card${n > 1 ? "s" : ""} at ${new Date(gapStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (Mac was asleep)`);
-        } catch (err) {
-          console.warn("backlinks-daily-blocks: sleep park failed", err);
-        } finally {
-          busy = false;
-        }
-      };
-      plugin.app.workspace.onLayoutReady(tick);
-      plugin.registerInterval(window.setInterval(tick, TICK_MS));
-      plugin.register(() => writeTick(Date.now()));
-    }
-    module2.exports = { startSleepWatch: startSleepWatch2, parkAll };
   }
 });
 
