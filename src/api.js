@@ -574,7 +574,7 @@ function buildApi(plugin) {
     },
 
     // Chronicle of time spent in a column (default Doing), sorted by stint start.
-    // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body
+    // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body[<TAB>file:line with opts.refs]
     async chronicle(a, b, c) {
       const { dates, opts } = resolveDates(a, b, c);
       const want = String(opts.col || 'Doing').toLowerCase();
@@ -592,14 +592,14 @@ function buildApi(plugin) {
         const openEnd = s => (today ? Date.now() : endOfDayMs(s));
         for (const [, list] of byCol) for (const card of list) {
           for (const x of stints(card.history, want, lo, hi, openEnd)) {
-            segs.push({ ...x, open: x.open && today, body: cleanText(card.body) });
+            segs.push({ ...x, open: x.open && today, body: cleanText(card.body), ref: `${card.file.path}:${card.line}` });
           }
         }
         const tracked = segs.reduce((sum, x) => sum + (x.e - x.s), 0);
         grandTracked += tracked;
         grandElapsed += elapsed;
         const rows = segs.sort((a, b) => a.s - b.s)
-          .map(x => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? '~' : ''}\t${durCompact(x.e - x.s)}\t${x.body}`);
+          .map(x => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? '~' : ''}\t${durCompact(x.e - x.s)}\t${x.body}${opts.refs ? `\t${x.ref}` : ''}`);
         const footer = `TOTAL\t${dur(tracked)}\t${pct(tracked, elapsed)} elapsed`;
         if (multi) out.push(`== ${dateStr} ==`, ...(rows.length ? rows : ['(none)']), footer);
         else out.push(...rows, footer);

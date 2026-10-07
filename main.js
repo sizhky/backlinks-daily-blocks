@@ -3730,7 +3730,7 @@ projects:
 ` + rows.join("\n");
         },
         // Chronicle of time spent in a column (default Doing), sorted by stint start.
-        // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body
+        // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body[<TAB>file:line with opts.refs]
         async chronicle(a, b, c) {
           const { dates, opts } = resolveDates(a, b, c);
           const want = String(opts.col || "Doing").toLowerCase();
@@ -3748,13 +3748,13 @@ projects:
             const openEnd = (s) => today ? Date.now() : endOfDayMs(s);
             for (const [, list] of byCol) for (const card of list) {
               for (const x of stints(card.history, want, lo, hi, openEnd)) {
-                segs.push({ ...x, open: x.open && today, body: cleanText(card.body) });
+                segs.push({ ...x, open: x.open && today, body: cleanText(card.body), ref: `${card.file.path}:${card.line}` });
               }
             }
             const tracked = segs.reduce((sum, x) => sum + (x.e - x.s), 0);
             grandTracked += tracked;
             grandElapsed += elapsed;
-            const rows = segs.sort((a2, b2) => a2.s - b2.s).map((x) => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? "~" : ""}	${durCompact(x.e - x.s)}	${x.body}`);
+            const rows = segs.sort((a2, b2) => a2.s - b2.s).map((x) => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? "~" : ""}	${durCompact(x.e - x.s)}	${x.body}${opts.refs ? `	${x.ref}` : ""}`);
             const footer = `TOTAL	${dur(tracked)}	${pct(tracked, elapsed)} elapsed`;
             if (multi) out.push(`== ${dateStr} ==`, ...rows.length ? rows : ["(none)"], footer);
             else out.push(...rows, footer);

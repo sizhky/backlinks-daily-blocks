@@ -129,6 +129,7 @@ TOTAL	10h10m	42% elapsed
 `~` means the stint is still open now.
 Chronicle appends `TOTAL<TAB>tracked<TAB>P% elapsed`.
 For today, `% elapsed` uses midnight -> now. For completed days, full day.
+`opts.refs: true` appends `<TAB>file:line` to each stint row (the Kanban Board Timeline opens cards from it).
 
 ### `kb.summary(...)` — done counts grouped by a frontmatter key
 Rolls up terminal-column moves ("done") over a date range, grouped by `by` (default
