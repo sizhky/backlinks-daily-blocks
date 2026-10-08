@@ -225,7 +225,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   are stamped at the moment the context changed (`kb.moveTasks(refs, col, {at})`). Engine state
   persists in `kanban.switches`. Sleep park: `BoardStore` notes `willSleep` (lid close; not screen lock or display
   sleep) and on `didWake` calls `kb.parkAll(at)` with that moment, so any sleep length parks. The plugin's 30 min
-  heartbeat-gap park (`src/sleep.js`) stays as the fallback when the app is not running. Desktop number uses private CGS calls looked up with `dlsym`; nil on failure.
+  heartbeat-gap park (`src/sleep.js`) stays as the fallback when the app is not running. Break key: `BreakHotKey` (Carbon
+  `RegisterEventHotKey`, no Accessibility permission) runs `takeBreak` -> `kb.parkAll(now)`; default F6 (fn+F6),
+  stored as `kanban.breakKey`/`breakMods`/`breakLabel`, recorded in Settings > Tracking (`BreakShortcutRow`). Desktop number uses private CGS calls looked up with `dlsym`; nil on failure.
 
 - Tracker widget toast: `BoardStore.refresh` diffs live cards against `lastLive` (the previous refresh),
   never against `columns`, because optimistic moves change `columns` first. One diff covers drags,

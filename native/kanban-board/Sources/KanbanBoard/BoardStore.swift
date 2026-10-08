@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import AppKit
 import Combine
 import Foundation
@@ -126,6 +127,16 @@ final class BoardStore: ObservableObject {
   private func parkSlept() {
     guard let at = sleptAt else { return }
     sleptAt = nil
+    parkAll(at: at)
+  }
+
+  /// The break key (`BreakHotKey`): parks every Doing card now.
+  func takeBreak() {
+    show("Parked everything. Take a break.")
+    parkAll(at: Date())
+  }
+
+  private func parkAll(at: Date) {
     writeGen += 1
     Task {
       do { try await client.parkAll(at: at) } catch { self.error = error.localizedDescription }
@@ -273,6 +284,8 @@ final class BoardStore: ObservableObject {
 
   func start() {
     guard loop == nil else { return }
+    BreakHotKey.shared.action = { [weak self] in self?.takeBreak() }
+    BreakHotKey.shared.install()
     desktopMenu = DesktopMenu(store: self)
     widget = TrackerWidget(store: self)
     desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
@@ -619,5 +632,58 @@ final class BoardStore: ObservableObject {
 
   private func persistSaved() {
     UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "kanban.saved")
+  }
+}
+
+/// Global "take a break" key (Settings > Tracking), default F6 (fn+F6 on a Mac keyboard).
+/// Carbon hot keys work while the app is in the background and need no Accessibility permission.
+@MainActor
+final class BreakHotKey {
+  static let shared = BreakHotKey()
+  static let codeKey = "kanban.breakKey", modsKey = "kanban.breakMods", labelKey = "kanban.breakLabel"
+  var action: () -> Void = {}
+  private var ref: EventHotKeyRef?
+  private var handler: EventHandlerRef?
+
+  func install() {
+    if handler == nil {
+      var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+      InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+        DispatchQueue.main.async { MainActor.assumeIsolated { BreakHotKey.shared.action() } }
+        return noErr
+      }, 1, &spec, nil, &handler)
+    }
+    register()
+  }
+
+  /// Unregisters, then registers the stored key; a stored code of -1 means none.
+  func register() {
+    pause()
+    let d = UserDefaults.standard
+    let code = d.object(forKey: Self.codeKey) as? Int ?? kVK_F6
+    guard code >= 0 else { return }
+    RegisterEventHotKey(UInt32(code), UInt32(d.integer(forKey: Self.modsKey)), EventHotKeyID(signature: 0x4B42524B, id: 1),
+                        GetApplicationEventTarget(), 0, &ref)
+  }
+
+  /// Off while Settings records a new key, so the old one does not fire.
+  func pause() {
+    if let ref { UnregisterEventHotKey(ref) }
+    ref = nil
+  }
+
+  /// Carbon modifier mask from AppKit flags.
+  static func carbon(_ f: NSEvent.ModifierFlags) -> Int {
+    (f.contains(.command) ? cmdKey : 0) | (f.contains(.shift) ? shiftKey : 0)
+      | (f.contains(.option) ? optionKey : 0) | (f.contains(.control) ? controlKey : 0)
+  }
+
+  /// "⌃⌥F6", "⌘B".
+  static func label(_ e: NSEvent) -> String {
+    let fkeys = [122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8",
+                 101: "F9", 109: "F10", 103: "F11", 111: "F12", 105: "F13", 107: "F14", 113: "F15"]
+    let f = e.modifierFlags
+    let mods = (f.contains(.control) ? "⌃" : "") + (f.contains(.option) ? "⌥" : "") + (f.contains(.shift) ? "⇧" : "") + (f.contains(.command) ? "⌘" : "")
+    return mods + (fkeys[Int(e.keyCode)] ?? (e.charactersIgnoringModifiers ?? "?").uppercased())
   }
 }

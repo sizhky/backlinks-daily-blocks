@@ -177,6 +177,7 @@ struct TrackingSettings: View {
         }
         if let none = regions.last { region(none).frame(minHeight: 120) }
         Divider().padding(.vertical, 4)
+        BreakShortcutRow()
         HStack {
           VStack(alignment: .leading, spacing: 2) {
             Text("Minimum mulling time")
@@ -393,5 +394,47 @@ private struct FloatingPill: View {
       .shadow(color: .black.opacity(0.45), radius: 10, y: 5)
       .offset(x: pointer.origin.x, y: pointer.origin.y)
       .allowsHitTesting(false)
+  }
+}
+
+/// Records the global break key (`BreakHotKey`): click, press a key with any modifiers; esc cancels.
+struct BreakShortcutRow: View {
+  @AppStorage(BreakHotKey.labelKey) private var label = "F6"
+  @State private var monitor: Any?
+
+  var body: some View {
+    HStack {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Take a break")
+        Text("Global shortcut that parks every Doing card.").font(.callout).foregroundStyle(.secondary)
+      }
+      Spacer()
+      Button(monitor != nil ? "Press a key…" : label.isEmpty ? "None" : label) { monitor == nil ? record() : stop() }
+        .monospaced()
+      Button("Clear") { save(-1, 0, "") }.disabled(label.isEmpty)
+    }
+    .onDisappear { stop() }
+  }
+
+  private func record() {
+    BreakHotKey.shared.pause()
+    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+      if e.keyCode != 53 { save(Int(e.keyCode), BreakHotKey.carbon(e.modifierFlags), BreakHotKey.label(e)) }
+      stop()
+      return nil
+    }
+  }
+
+  private func stop() {
+    if let monitor { NSEvent.removeMonitor(monitor) }
+    monitor = nil
+    BreakHotKey.shared.register()
+  }
+
+  private func save(_ code: Int, _ mods: Int, _ text: String) {
+    UserDefaults.standard.set(code, forKey: BreakHotKey.codeKey)
+    UserDefaults.standard.set(mods, forKey: BreakHotKey.modsKey)
+    label = text
+    BreakHotKey.shared.register()
   }
 }
