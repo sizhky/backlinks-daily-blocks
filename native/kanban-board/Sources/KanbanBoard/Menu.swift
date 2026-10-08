@@ -4,7 +4,7 @@ import SwiftUI
 
 /// One row of a custom menu. Replaces `Menu` and `.contextMenu` so every menu shares the Linear look.
 struct MenuItem: Identifiable {
-  enum Kind { case action(() -> Void), submenu([MenuItem]), separator }
+  enum Kind { case action(() -> Void), submenu([MenuItem]), separator, grid(columns: Int, [MenuSwatch]) }
   let id = UUID()
   var title = ""
   var icon: AnyView?
@@ -14,9 +14,17 @@ struct MenuItem: Identifiable {
   var destructive = false
   var kind: Kind
 
-  var isRow: Bool { if case .separator = kind { false } else { true } }
+  var isRow: Bool {
+    switch kind { case .separator, .grid: false; default: true }
+  }
   var enabled: Bool { isRow && !disabled }
-  var height: CGFloat { isRow ? MenuMetrics.row : MenuMetrics.separator }
+  var height: CGFloat {
+    switch kind {
+    case .separator: MenuMetrics.separator
+    case .grid(let columns, let cells): CGFloat((cells.count + columns - 1) / columns) * MenuMetrics.swatch + 8
+    default: MenuMetrics.row
+    }
+  }
 
   static let separator = MenuItem(kind: .separator)
 
@@ -31,13 +39,26 @@ struct MenuItem: Identifiable {
     MenuItem(title: title, icon: symbol.map(MenuItem.symbol), disabled: disabled, kind: .submenu(items))
   }
 
+  /// Colour cells clicked by the pointer; arrow keys skip the grid.
+  static func grid(columns: Int, _ cells: [MenuSwatch]) -> MenuItem { MenuItem(kind: .grid(columns: columns, cells)) }
+
   static func symbol(_ name: String) -> AnyView {
     AnyView(Image(systemName: name).font(.system(size: 12, weight: .medium)))
   }
 }
 
+/// One cell of a `.grid` menu item.
+struct MenuSwatch: Identifiable {
+  let id = UUID()
+  var color: Color
+  var help: String
+  var checked = false
+  var run: () -> Void
+}
+
 enum MenuMetrics {
   static let row: CGFloat = 28
+  static let swatch: CGFloat = 34
   static let separator: CGFloat = 9
   static let pad: CGFloat = 4
   static let width: CGFloat = 220
@@ -108,7 +129,7 @@ final class MenuController: ObservableObject {
     switch levels[level].items[index].kind {
     case .action(let run): close(); run()
     case .submenu: trim(to: level); levels[level].highlight = index; openSubmenu(level, index, selectFirst: true)
-    case .separator: break
+    case .separator, .grid: break
     }
   }
 
@@ -198,7 +219,9 @@ struct MenuPanel: View {
     let aligned = level.items.contains { $0.icon != nil }
     VStack(spacing: 0) {
       ForEach(Array(level.items.enumerated()), id: \.element.id) { i, item in
-        if item.isRow {
+        if case .grid(let columns, let cells) = item.kind {
+          SwatchGrid(columns: columns, cells: cells).frame(height: item.height)
+        } else if item.isRow {
           MenuRow(item: item, aligned: aligned, highlighted: level.highlight == i)
             .onHover { if $0 { menu.hover(depth, i) } }
             .onTapGesture { menu.activate(depth, i) }.pointerStyle(.link)
@@ -212,6 +235,26 @@ struct MenuPanel: View {
     .background(Palette.cardHover, in: .rect(cornerRadius: 9))
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.hairlineStrong))
     .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
+  }
+}
+
+/// `.grid` menu item: round swatches, a checkmark on the current one; a click runs it and closes the menu.
+struct SwatchGrid: View {
+  @EnvironmentObject var menu: MenuController
+  let columns: Int
+  let cells: [MenuSwatch]
+
+  var body: some View {
+    LazyVGrid(columns: Array(repeating: GridItem(.fixed(MenuMetrics.swatch), spacing: 4), count: columns), spacing: 0) {
+      ForEach(cells) { cell in
+        Circle().fill(cell.color).frame(width: 22, height: 22)
+          .overlay { if cell.checked { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white) } }
+          .overlay(Circle().strokeBorder(Color.white.opacity(cell.checked ? 0.9 : 0), lineWidth: 1.5).padding(-3))
+          .frame(width: MenuMetrics.swatch, height: MenuMetrics.swatch).contentShape(Rectangle())
+          .onTapGesture { menu.close(); cell.run() }.pointerStyle(.link).help(cell.help)
+      }
+    }
+    .padding(.vertical, 4)
   }
 }
 

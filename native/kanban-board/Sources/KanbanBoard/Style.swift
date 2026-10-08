@@ -53,10 +53,8 @@ extension Color {
 /// Stored as `name<TAB>hue` lines in one defaults key so views can observe it with @AppStorage.
 enum ProjectHues {
   static let key = "kanban.projectHues"
-  static let choices: [(name: String, hue: Double)] = [
-    ("Red", 25), ("Orange", 60), ("Yellow", 95), ("Green", 145), ("Teal", 190),
-    ("Blue", 250), ("Indigo", 280), ("Purple", 310), ("Pink", 350),
-  ]
+  /// 20 hues 18 degrees apart, shown 5 per row (sidebar project > Color).
+  static let choices: [Double] = stride(from: 0.0, to: 360, by: 18).map { $0 }
 
   static func all(_ raw: String? = UserDefaults.standard.string(forKey: key)) -> [String: Double] {
     var out: [String: Double] = [:]

@@ -428,13 +428,15 @@ extension BoardStore {
   }
 
   /// Desktop menu for a project row in the sidebar: pins every card of the project (`DesktopPin`).
-  /// Color submenu for a sidebar project: Automatic (hashed), Randomise (any hue), or one of `ProjectHues.choices`.
+  /// Color submenu for a sidebar project: Automatic (hashed), Randomise (any hue), or a 5 x 4 grid of `ProjectHues.choices`.
   func colorItems(project: String) -> [MenuItem] {
     let current = ProjectHues.all()[project]
     let swatch = { (hue: Double) in AnyView(Circle().fill(Color(ProjectColor.pair(project, hue: hue).light)).frame(width: 10, height: 10)) }
     return [.action("Automatic", glyph: swatch(ProjectColor.hue(project)), checked: current == nil) { ProjectHues.set(project, nil) },
             .action("Randomise", symbol: "dice") { ProjectHues.set(project, Double(Int.random(in: 0..<360))) }, .separator]
-      + ProjectHues.choices.map { c in .action(c.name, glyph: swatch(c.hue), checked: current == c.hue) { ProjectHues.set(project, c.hue) } }
+      + [.grid(columns: 5, ProjectHues.choices.map { hue in
+          MenuSwatch(color: Color(ProjectColor.pair(project, hue: hue).light), help: "Hue \(Int(hue))°", checked: current == hue) { ProjectHues.set(project, hue) }
+        })]
   }
 
   func desktopItems(project: String) -> [MenuItem] {
