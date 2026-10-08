@@ -86,3 +86,13 @@ test('a card no longer in the column has no open stint', () => {
   assert.equal(A.stints(h, 'doing', lo, hi, () => hi, false).length, 0);
   assert.equal(A.stints(h, 'doing', lo, hi, () => hi, true).length, 1);
 });
+
+test('columnSeconds sums closed stints per column and leaves the open one out', () => {
+  const { columnSeconds } = require('../src/core/activity');
+  const h = [
+    { stamp: '202610081000', from: 'Todo', to: 'Doing', seq: 3 },
+    { stamp: '202610081030', from: 'Doing', to: 'Parked', seq: 2 },
+    { stamp: '202610081100', from: 'Parked', to: 'Doing', seq: 1 },
+  ];
+  assert.deepEqual({ ...columnSeconds(h) }, { Doing: 1800, Parked: 1800 });
+});

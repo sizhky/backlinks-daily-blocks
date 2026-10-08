@@ -2,7 +2,7 @@
 const { scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, noteText, setNoteLines, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
-const { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require('./core/activity');
+const { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS, columnSeconds } = require('./core/activity');
 const { activitySummary } = require('./activity');
 const { saveTemplate } = require('./templates');
 const { parkAll } = require('./sleep');
@@ -751,6 +751,7 @@ function buildApi(plugin) {
         'getDone(date,opts?)      tasks moved to terminal col on a date',
         'note("file:line")        freeform notes under a task (prose to next task or ---)',
         'setNote(ref,text)        replace a task\'s notes; metadata lines stay',
+        'columnTimes(opts)        closed seconds per column per card: ref<TAB>Col=sec|Col=sec',
         'getReport(...)           move timeline; day | from,to | {days:N}',
         'chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}',
         'summary(...)             done counts grouped by fm key; opts: by,col,sample,paths',
@@ -989,6 +990,18 @@ function buildApi(plugin) {
       const out = [];
       for (const [, list] of byCol) for (const card of list) {
         if (card.activeSec != null) out.push(`${card.file.path}:${card.line}\t${card.activeSec}`);
+      }
+      return '\n' + out.join('\n');
+    },
+
+    // Closed time per column for every card: "file:line<TAB>Doing=1800|Todo=600" (seconds).
+    // The open stint (current column since its last move) is left to the caller.
+    async columnTimes(opts = {}) {
+      const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
+      const out = [];
+      for (const [, list] of byCol) for (const card of list) {
+        const t = Object.entries(columnSeconds(card.history)).map(([c, sec]) => `${c}=${Math.round(sec)}`);
+        if (t.length) out.push(`${card.file.path}:${card.line}\t${t.join('|')}`);
       }
       return '\n' + out.join('\n');
     },

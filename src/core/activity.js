@@ -146,4 +146,17 @@ function desktopRef(v) {
   return s;
 }
 
-module.exports = { birthMs, chrono, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };
+/** Seconds per column over closed stints (each move to the next); the open stint is the caller's.
+ * >>> columnSeconds([{stamp:'202610081000',from:'Todo',to:'Doing'},{stamp:'202610081030',from:'Doing',to:'Parked'}])
+ * -> { Doing: 1800 }
+ */
+function columnSeconds(history) {
+  const ev = chrono(history), out = {};
+  for (let i = 0; i + 1 < ev.length; i++) {
+    const sec = (stampMs(ev[i + 1].stamp) - stampMs(ev[i].stamp)) / 1000;
+    if (sec > 0) out[ev[i].to] = (out[ev[i].to] || 0) + sec;
+  }
+  return out;
+}
+
+module.exports = { birthMs, chrono, columnSeconds, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };

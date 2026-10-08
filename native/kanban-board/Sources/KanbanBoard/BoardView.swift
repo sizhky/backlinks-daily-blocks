@@ -369,6 +369,37 @@ struct ColumnView: View {
   private var targeted: Bool { drag.slot?.column == column.name && drag.session?.home != column.name }
 }
 
+/// Total time in Doing (every stint) and active time; ticks each second while the card is in Doing.
+struct TimePills: View {
+  @EnvironmentObject var store: BoardStore
+  let card: Card
+  let live: Bool
+
+  var body: some View {
+    if card.col.caseInsensitiveCompare("Doing") == .orderedSame {
+      TimelineView(.periodic(from: .now, by: 1)) { pills($0.date) }
+    } else {
+      pills(Date())
+    }
+  }
+
+  @ViewBuilder private func pills(_ now: Date) -> some View {
+    let doing = card.seconds(in: "Doing", at: now), active = store.activeTime(card, at: now)
+    HStack(spacing: 6) {
+      if doing > 0 {
+        Pill(text: Age.span(seconds: doing), color: accent(for: "Doing")) { Image(systemName: "timer").imageScale(.small) }
+          .help("Time in Doing, all stints")
+      }
+      if active > 0 || live {
+        Pill(text: Age.span(seconds: active), color: live ? accent(for: "Doing") : Palette.muted) {
+          Image(systemName: live ? "bolt.fill" : "bolt").imageScale(.small)
+        }
+        .help(live ? "Active now; active time" : "Active time")
+      }
+    }
+  }
+}
+
 /// Column header options: hide, move left or right, and the plugin's sweep routes.
 struct ColumnMenu: View {
   @EnvironmentObject var store: BoardStore
@@ -581,20 +612,10 @@ struct IssueCard: View {
           .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
       }
       FlowLayout(spacing: 6) {
-        if card.col.caseInsensitiveCompare("Doing") == .orderedSame, let since = card.since {
-          TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            HStack(spacing: 6) {
-              Pill(text: Age.span(seconds: ctx.date.timeIntervalSince(since))) { Image(systemName: "clock").imageScale(.small) }
-                .help("Time in Doing")
-              Pill(text: Age.span(seconds: store.activeTime(card, at: ctx.date)), color: live ? accent(for: "Doing") : Palette.muted) {
-                Image(systemName: live ? "bolt.fill" : "bolt").imageScale(.small)
-              }
-              .help(live ? "Active now; active time" : "Active time")
-            }
-          }
-        } else {
+        if card.col.caseInsensitiveCompare("Doing") != .orderedSame {
           Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
         }
+        TimePills(card: card, live: live)
         if let est = card.est {
           Button { store.estimating = card } label: { Pill(text: Age.label(minutes: est)) { Image(systemName: "hourglass").imageScale(.small) } }
             .buttonStyle(.pointing).pointerStyle(.link).help("Edit time estimate")

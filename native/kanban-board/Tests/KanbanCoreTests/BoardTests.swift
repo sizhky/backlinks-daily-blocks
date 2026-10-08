@@ -166,4 +166,14 @@ final class CreatedTests: XCTestCase {
     XCTAssertEqual(Age.span(seconds: 3900), "1h 5m")
     XCTAssertEqual(Age.span(seconds: 97200), "1d 3h")
   }
+
+  func testColumnSecondsAddOpenStintInCurrentColumn() {
+    let since = Card.iso.string(from: Date(timeIntervalSince1970: 1000))
+    var f = Array(repeating: "", count: 16)
+    (f[0], f[1], f[2], f[3], f[13], f[15]) = ("Doing", "a.md:0", "Task", "1m", since, "Doing=1800|Parked=600")
+    let c = Card(fields: f)!
+    XCTAssertEqual(c.seconds(in: "doing", at: Date(timeIntervalSince1970: 1600)), 2400)
+    XCTAssertEqual(c.seconds(in: "Parked", at: Date(timeIntervalSince1970: 1600)), 600)
+    XCTAssertEqual(c.moved(to: "Parked").columnSeconds["Doing"].map { $0 >= 1800 }, true)
+  }
 }

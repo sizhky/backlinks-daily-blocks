@@ -50,6 +50,8 @@ struct Inspector: View {
             prop("Note") { Text(card.ref).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle) }
           }
           Divider().overlay(Palette.hairline)
+          TimeBreakdown(card: card)
+          Divider().overlay(Palette.hairline)
           TextEditor(text: $draft)
             .font(.system(size: 13.5)).lineSpacing(4).foregroundStyle(Palette.secondary)
             .scrollContentBackground(.hidden).scrollDisabled(true)
@@ -84,5 +86,67 @@ struct Inspector: View {
       Spacer(minLength: 0)
     }
     .frame(minHeight: 30)
+  }
+}
+
+/// Time per column as one stacked bar plus rows, and active time; instant hover cards on the bar.
+struct TimeBreakdown: View {
+  @EnvironmentObject var store: BoardStore
+  let card: Card
+  @State private var pointer: CGPoint?
+
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+      let parts = buckets(ctx.date), total = parts.reduce(0) { $0 + $1.seconds }
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Time").font(.system(size: 12.5)).foregroundStyle(Palette.muted)
+        if total > 0 {
+          GeometryReader { geo in
+            HStack(spacing: 2) {
+              ForEach(parts, id: \.name) { p in
+                Rectangle().fill(accent(for: p.name)).frame(width: max(2, (geo.size.width - CGFloat(parts.count - 1) * 2) * p.seconds / total))
+              }
+            }
+            .clipShape(.rect(cornerRadius: 4))
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in if case .active(let p) = phase { pointer = p } else { pointer = nil } }
+            .overlay(alignment: .topLeading) {
+              if let p = pointer, let hit = hit(p.x, parts, total, geo.size.width) {
+                HoverCard(text: "\(hit.name)  \(Age.span(seconds: hit.seconds))  (\(Int((hit.seconds / total * 100).rounded()))%)", at: p, bounds: geo.size)
+                  .allowsHitTesting(false)
+              }
+            }
+          }
+          .frame(height: 10).zIndex(1)
+        }
+        ForEach(parts, id: \.name) { p in row(AnyView(StatusGlyph(column: p.name)), p.name, p.seconds) }
+        row(AnyView(Image(systemName: store.activeID == card.id ? "bolt.fill" : "bolt").foregroundStyle(accent(for: "Doing"))),
+            "Active", store.activeTime(card, at: ctx.date))
+      }
+    }
+  }
+
+  /// Columns in board order with time in them, the current one included.
+  private func buckets(_ now: Date) -> [(name: String, seconds: Double)] {
+    store.columns.map(\.name).map { ($0, card.seconds(in: $0, at: now)) }.filter { $0.1 > 0 }
+  }
+
+  private func hit(_ x: CGFloat, _ parts: [(name: String, seconds: Double)], _ total: Double, _ width: CGFloat) -> (name: String, seconds: Double)? {
+    var edge: CGFloat = 0
+    for p in parts {
+      edge += width * p.seconds / total
+      if x <= edge { return p }
+    }
+    return parts.last
+  }
+
+  private func row(_ icon: AnyView, _ name: String, _ seconds: Double) -> some View {
+    HStack(spacing: 8) {
+      icon.font(.system(size: 12)).frame(width: 16)
+      Text(name).foregroundStyle(Palette.secondary)
+      Spacer()
+      Text(Age.span(seconds: seconds)).monospacedDigit().foregroundStyle(Palette.text)
+    }
+    .font(.system(size: 13))
   }
 }

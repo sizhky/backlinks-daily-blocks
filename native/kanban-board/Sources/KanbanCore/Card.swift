@@ -22,6 +22,8 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var since: Date?
   /// Seconds the card was the one active task (`%% kbactive N %%`, written by `ActiveClock` flushes).
   public var activeSeconds: Int?
+  /// Seconds per column over closed stints (`kb.columnTimes`); the open stint comes from `since`.
+  public var columnSeconds: [String: Int] = [:]
   /// View identity that survives line shifts (`file|title`, set by `Board.parse`); `ref` changes
   /// whenever a line is inserted above the task, which would make SwiftUI re-insert the card.
   public var id: String
@@ -74,7 +76,8 @@ public struct Card: Identifiable, Equatable, Sendable {
     name.split { !$0.isLetter && !$0.isNumber }.prefix(3).compactMap(\.first).map(String.init).joined().uppercased()
   }
 
-  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings, doneAt (ISO), est, took, since (ISO).
+  /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings, doneAt (ISO), est, took, since (ISO),
+  /// active seconds, column seconds (`Doing=1800|Todo=600`).
   init?(fields f: [String]) {
     guard f.count >= 4, let colon = f[1].lastIndex(of: ":"),
       let line = Int(f[1][f[1].index(after: colon)...]) else { return nil }
@@ -91,6 +94,22 @@ public struct Card: Identifiable, Equatable, Sendable {
     took = f.count > 12 ? Int(f[12]) : nil
     since = f.count > 13 ? Self.iso.date(from: f[13]) : nil
     activeSeconds = f.count > 14 ? Int(f[14]) : nil
+    if f.count > 15 {
+      for pair in f[15].split(separator: "|") {
+        let kv = pair.split(separator: "=")
+        if kv.count == 2, let n = Int(kv[1]) { columnSeconds[String(kv[0]), default: 0] += n }
+      }
+    }
+  }
+
+  /// Total seconds in `column` at `now`: closed stints plus the open one when the card is there.
+  /// ```
+  /// columnSeconds ["Doing": 1800], col "Doing", since 10 min ago -> 2400
+  /// ```
+  public func seconds(in column: String, at now: Date) -> TimeInterval {
+    let closed = columnSeconds.reduce(0) { $0 + ($1.key.caseInsensitiveCompare(column) == .orderedSame ? $1.value : 0) }
+    let open = col.caseInsensitiveCompare(column) == .orderedSame ? since.map { max(0, now.timeIntervalSince($0)) } ?? 0 : 0
+    return Double(closed) + open
   }
 
   init(ref: String, file: String, line: Int, col: String, title: String, age: String,
@@ -109,6 +128,9 @@ public struct Card: Identifiable, Equatable, Sendable {
     c.siblings = siblings
     c.est = est
     c.took = took
+    c.activeSeconds = activeSeconds
+    c.columnSeconds = columnSeconds
+    if let since { c.columnSeconds[self.col, default: 0] += Int(max(0, Date().timeIntervalSince(since))) }
     c.since = Date()
     c.id = id
     return c

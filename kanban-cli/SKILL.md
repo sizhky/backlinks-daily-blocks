@@ -92,6 +92,11 @@ Returns the trimmed prose (leading `\n` like other reads), `""` when there are n
 Throws if the file is missing or the line isn't a task.
 Example: `kb.note("20260616-0946.md:0")`
 
+### `kb.columnTimes(opts?)` — closed time per column for every card
+Rows `file:line<TAB>Doing=1800|Parked=600`, seconds summed over closed stints (each move to the next).
+The open stint (current column since the latest move) is left out; add `now - since` for it.
+The Kanban Board app loads it with the board for the card time pills and the Inspector Time section.
+
 ### `kb.setNote(ref, text)` — replace a task's notes
 Writes `text` verbatim as the task's prose (what `kb.note` returns). Metadata lines stay and move
 directly under the task, ahead of the prose; trailing blank lines stay. `""` clears the prose.

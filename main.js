@@ -345,7 +345,15 @@ var require_activity = __commonJS({
       if (/^\d+$/.test(s)) return +s >= 1 && +s <= 9 ? String(+s) : null;
       return s;
     }
-    module2.exports = { birthMs, chrono, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };
+    function columnSeconds(history2) {
+      const ev = chrono(history2), out = {};
+      for (let i = 0; i + 1 < ev.length; i++) {
+        const sec = (stampMs(ev[i + 1].stamp) - stampMs(ev[i].stamp)) / 1e3;
+        if (sec > 0) out[ev[i].to] = (out[ev[i].to] || 0) + sec;
+      }
+      return out;
+    }
+    module2.exports = { birthMs, chrono, columnSeconds, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };
   }
 });
 
@@ -3363,7 +3371,7 @@ var require_api = __commonJS({
       EI_HIST_RE
     } = require_kanban();
     var { collectDayTasks } = require_report();
-    var { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require_activity();
+    var { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS, columnSeconds } = require_activity();
     var { activitySummary } = require_activity2();
     var { saveTemplate } = require_templates();
     var { parkAll } = require_sleep();
@@ -4051,6 +4059,7 @@ projects:
             "getDone(date,opts?)      tasks moved to terminal col on a date",
             'note("file:line")        freeform notes under a task (prose to next task or ---)',
             "setNote(ref,text)        replace a task's notes; metadata lines stay",
+            "columnTimes(opts)        closed seconds per column per card: ref<TAB>Col=sec|Col=sec",
             "getReport(...)           move timeline; day | from,to | {days:N}",
             "chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}",
             "summary(...)             done counts grouped by fm key; opts: by,col,sample,paths",
@@ -4280,6 +4289,17 @@ projects:
           const out = [];
           for (const [, list] of byCol) for (const card of list) {
             if (card.activeSec != null) out.push(`${card.file.path}:${card.line}	${card.activeSec}`);
+          }
+          return "\n" + out.join("\n");
+        },
+        // Closed time per column for every card: "file:line<TAB>Doing=1800|Todo=600" (seconds).
+        // The open stint (current column since its last move) is left to the caller.
+        async columnTimes(opts = {}) {
+          const byCol = await scanKanbanTasks(plugin.app, makeConfig2(opts, plugin));
+          const out = [];
+          for (const [, list] of byCol) for (const card of list) {
+            const t = Object.entries(columnSeconds(card.history)).map(([c, sec]) => `${c}=${Math.round(sec)}`);
+            if (t.length) out.push(`${card.file.path}:${card.line}	${t.join("|")}`);
           }
           return "\n" + out.join("\n");
         },
