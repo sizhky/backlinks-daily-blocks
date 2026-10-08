@@ -118,8 +118,11 @@ final class TrackerWidget {
   }
 
   /// Armed = Fn held with the pointer over the widget; only then does it take the mouse.
+  /// Control held with the pointer over it fades the widget out to show the text underneath.
   private func updateGrip() {
-    let armed = panel.isVisible && NSEvent.modifierFlags.contains(.function) && panel.frame.contains(NSEvent.mouseLocation)
+    let over = panel.frame.contains(NSEvent.mouseLocation), flags = NSEvent.modifierFlags
+    panel.alphaValue = over && flags.contains(.control) ? 0 : 1
+    let armed = panel.isVisible && flags.contains(.function) && over
     guard armed != grip.armed else { return }
     grip.armed = armed
     panel.ignoresMouseEvents = !armed
