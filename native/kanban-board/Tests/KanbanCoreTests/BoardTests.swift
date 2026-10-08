@@ -159,4 +159,11 @@ final class CreatedTests: XCTestCase {
     let card = Board.parse(rows)[0].cards[0]
     XCTAssertEqual([card.est, card.took], [60, 85])
   }
+
+  func testSpanUsesSecondsUnderAMinute() {
+    XCTAssertEqual(Age.span(seconds: 42), "42s")
+    XCTAssertEqual(Age.span(seconds: 600), "10m")
+    XCTAssertEqual(Age.span(seconds: 3900), "1h 5m")
+    XCTAssertEqual(Age.span(seconds: 97200), "1d 3h")
+  }
 }

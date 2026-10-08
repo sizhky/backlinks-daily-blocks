@@ -577,7 +577,18 @@ struct IssueCard: View {
           .lineLimit(4).lineSpacing(1.5).frame(maxWidth: .infinity, alignment: .leading)
       }
       FlowLayout(spacing: 6) {
-        Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
+        if card.col.caseInsensitiveCompare("Doing") == .orderedSame, let since = card.since {
+          TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            HStack(spacing: 6) {
+              Pill(text: Age.span(seconds: ctx.date.timeIntervalSince(since))) { Image(systemName: "clock").imageScale(.small) }
+                .help("Time in Doing")
+              Pill(text: Age.span(seconds: store.activeTime(card, at: ctx.date))) { Image(systemName: "bolt").imageScale(.small) }
+                .help("Active time")
+            }
+          }
+        } else {
+          Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
+        }
         if let est = card.est {
           Button { store.estimating = card } label: { Pill(text: Age.label(minutes: est)) { Image(systemName: "hourglass").imageScale(.small) } }
             .buttonStyle(.pointing).pointerStyle(.link).help("Edit time estimate")

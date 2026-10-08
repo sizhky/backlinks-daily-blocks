@@ -33,6 +33,19 @@ extension Age {
     return digits.isEmpty && total > 0 ? total : nil
   }
 
+  /// A running duration, seconds while under a minute.
+  /// ```
+  /// 42 -> "42s";  600 -> "10m";  3900 -> "1h 5m";  97200 -> "1d 3h"
+  /// ```
+  public static func span(seconds: TimeInterval) -> String {
+    let s = max(0, Int(seconds))
+    if s < 60 { return "\(s)s" }
+    if s < 3600 { return "\(s / 60)m" }
+    if s < 86400 { return label(minutes: s / 60) }
+    let d = s / 86400, h = s % 86400 / 3600
+    return h == 0 ? "\(d)d" : "\(d)d \(h)h"
+  }
+
   /// "45m", "2h", "1h 30m".
   public static func label(minutes: Int) -> String {
     let h = minutes / 60, m = minutes % 60
