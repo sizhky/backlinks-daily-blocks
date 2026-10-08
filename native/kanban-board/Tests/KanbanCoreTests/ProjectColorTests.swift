@@ -30,7 +30,19 @@ final class ProjectColorTests: XCTestCase {
   }
 
   func testPickedHueOverridesHash() {
-    XCTAssertEqual(ProjectColor.pair("Arka", hue: 145).light.h, 145)
+    XCTAssertEqual(ProjectColor.pair("Arka", base: OKLCH(l: 0.6, c: 0.1, h: 145)).light.h, 145)
     XCTAssertEqual(ProjectColor.pair("Arka").light.h, ProjectColor.hue("Arka"))
+  }
+
+  func testPaletteIsFortyDistinctColours() {
+    let p = ProjectColor.palette
+    XCTAssertEqual(p.count, 40)
+    func lab(_ c: OKLCH) -> [Double] { [c.l, c.c * cos(c.h * .pi / 180), c.c * sin(c.h * .pi / 180)] }
+    for (i, a) in p.enumerated() {
+      for b in p[(i + 1)...] {
+        let d = zip(lab(a), lab(b)).map { ($0 - $1) * ($0 - $1) }.reduce(0, +).squareRoot()
+        XCTAssertGreaterThan(d, 0.05, "\(a) \(b)")
+      }
+    }
   }
 }

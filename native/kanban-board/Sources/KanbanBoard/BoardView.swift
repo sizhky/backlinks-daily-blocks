@@ -462,14 +462,14 @@ extension BoardStore {
   }
 
   /// Desktop menu for a project row in the sidebar: pins every card of the project (`DesktopPin`).
-  /// Color submenu for a sidebar project: Automatic (hashed), Randomise (any hue), or a 5 x 4 grid of `ProjectHues.choices`.
+  /// Color submenu for a sidebar project: Automatic (hashed), Randomise (any hue), or a 5 x 8 grid of `ProjectColor.palette`.
   func colorItems(project: String) -> [MenuItem] {
     let current = ProjectHues.all()[project]
-    let swatch = { (hue: Double) in AnyView(Circle().fill(Color(ProjectColor.pair(project, hue: hue).light)).frame(width: 10, height: 10)) }
-    return [.action("Automatic", glyph: swatch(ProjectColor.hue(project)), checked: current == nil) { ProjectHues.set(project, nil) },
-            .action("Randomise", symbol: "dice") { ProjectHues.set(project, Double(Int.random(in: 0..<360))) }, .separator]
-      + [.grid(columns: 5, ProjectHues.choices.map { hue in
-          MenuSwatch(color: Color(ProjectColor.pair(project, hue: hue).light), help: "Hue \(Int(hue))°", checked: current == hue) { ProjectHues.set(project, hue) }
+    let swatch = { (c: OKLCH) in AnyView(Circle().fill(Color(c)).frame(width: 10, height: 10)) }
+    return [.action("Automatic", glyph: swatch(ProjectColor.base(project)), checked: current == nil) { ProjectHues.set(project, nil) },
+            .action("Randomise", symbol: "dice") { ProjectHues.set(project, OKLCH(l: 0.68, c: 0.13, h: Double(Int.random(in: 0..<360)))) }, .separator]
+      + [.grid(columns: 5, ProjectColor.palette.map { c in
+          MenuSwatch(color: Color(c), help: "Hue \(Int(c.h))°, lightness \(Int(c.l * 100))%, chroma \(c.c)", checked: current == c) { ProjectHues.set(project, c) }
         })]
   }
 

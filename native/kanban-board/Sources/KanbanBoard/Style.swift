@@ -53,27 +53,29 @@ extension Color {
 /// Stored as `name<TAB>hue` lines in one defaults key so views can observe it with @AppStorage.
 enum ProjectHues {
   static let key = "kanban.projectHues"
-  /// 20 hues 18 degrees apart, shown 5 per row (sidebar project > Color).
-  static let choices: [Double] = stride(from: 0.0, to: 360, by: 18).map { $0 }
 
-  static func all(_ raw: String? = UserDefaults.standard.string(forKey: key)) -> [String: Double] {
-    var out: [String: Double] = [:]
+  /// One `name<TAB>l c h` line per project; a lone number is a hue saved before the 40-colour palette.
+  static func all(_ raw: String? = UserDefaults.standard.string(forKey: key)) -> [String: OKLCH] {
+    var out: [String: OKLCH] = [:]
     for line in (raw ?? "").split(separator: "\n") {
       let f = line.split(separator: "\t")
-      if f.count == 2, let h = Double(f[1]) { out[String(f[0])] = h }
+      guard f.count == 2 else { continue }
+      let v = f[1].split(separator: " ").compactMap { Double($0) }
+      if v.count == 3 { out[String(f[0])] = OKLCH(l: v[0], c: v[1], h: v[2]) }
+      if v.count == 1 { out[String(f[0])] = OKLCH(l: 0.68, c: 0.13, h: v[0]) }
     }
     return out
   }
 
   /// nil goes back to the hashed colour.
-  static func set(_ name: String, _ hue: Double?) {
+  static func set(_ name: String, _ color: OKLCH?) {
     var map = all()
-    map[name] = hue
-    UserDefaults.standard.set(map.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value)" }.joined(separator: "\n"), forKey: key)
+    map[name] = color
+    UserDefaults.standard.set(map.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value.l) \($0.value.c) \($0.value.h)" }.joined(separator: "\n"), forKey: key)
   }
 
   static func pair(_ name: String, _ raw: String? = UserDefaults.standard.string(forKey: key)) -> (light: OKLCH, dark: OKLCH) {
-    ProjectColor.pair(name, hue: all(raw)[name])
+    ProjectColor.pair(name, base: all(raw)[name])
   }
 }
 
