@@ -260,6 +260,8 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Gotchas
 
+- Board shortcuts (`BoardView.board`) fire for any focused descendant, including the Inspector note editor. They return
+  `.ignored` while an `NSTextView` is first responder; otherwise Return opened Obsidian mid-typing.
 - `make run` can fail with launch error -600 if `open` races `pkill`; the Makefile sleeps 1 s.
 - Scroll views clip overlays (the rail badge); give the content side padding.
 - A bare `Color.clear.frame(width:)` in an HStack is flexible in height and steals space from a sibling

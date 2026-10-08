@@ -41,15 +41,22 @@ struct BoardView: View {
     .animation(.spring(duration: 0.32, bounce: 0.08), value: store.selected != nil)
     .focusable().focused($boardFocus).focusEffectDisabled()
     .onChange(of: store.selected) { boardFocus = true }
-    .onKeyPress(.upArrow) { store.moveSelection(dx: 0, dy: -1); return .handled }
-    .onKeyPress(.downArrow) { store.moveSelection(dx: 0, dy: 1); return .handled }
-    .onKeyPress(.leftArrow) { store.moveSelection(dx: -1, dy: 0); return .handled }
-    .onKeyPress(.rightArrow) { store.moveSelection(dx: 1, dy: 0); return .handled }
-    .onKeyPress(characters: ["j"]) { _ in store.moveSelection(dx: 0, dy: 1); return .handled }
-    .onKeyPress(characters: ["k"]) { _ in store.moveSelection(dx: 0, dy: -1); return .handled }
-    .onKeyPress(characters: ["/"]) { _ in store.focusFilter += 1; return .handled }
-    .onKeyPress(.return) { store.openSelected(); return .handled }
-    .onKeyPress(.escape) { store.select(nil); return .handled }
+    .onKeyPress(.upArrow) { board { store.moveSelection(dx: 0, dy: -1) } }
+    .onKeyPress(.downArrow) { board { store.moveSelection(dx: 0, dy: 1) } }
+    .onKeyPress(.leftArrow) { board { store.moveSelection(dx: -1, dy: 0) } }
+    .onKeyPress(.rightArrow) { board { store.moveSelection(dx: 1, dy: 0) } }
+    .onKeyPress(characters: ["j"]) { _ in board { store.moveSelection(dx: 0, dy: 1) } }
+    .onKeyPress(characters: ["k"]) { _ in board { store.moveSelection(dx: 0, dy: -1) } }
+    .onKeyPress(characters: ["/"]) { _ in board { store.focusFilter += 1 } }
+    .onKeyPress(.return) { board { store.openSelected() } }
+    .onKeyPress(.escape) { board { store.select(nil) } }
+  }
+
+  /// Board shortcuts; keys go to the text instead while a text view (the Inspector note) has focus.
+  private func board(_ action: () -> Void) -> KeyPress.Result {
+    if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
+    action()
+    return .handled
   }
 }
 
