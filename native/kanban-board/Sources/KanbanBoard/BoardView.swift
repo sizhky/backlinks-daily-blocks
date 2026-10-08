@@ -63,6 +63,7 @@ struct BoardView: View {
 
 struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
+  @AppStorage(BreakHotKey.labelKey) private var breakKey = "F6"
   @FocusState private var focused: Bool
   @State private var pickingOrgs = false
   @State private var tabMonitor: Any?
@@ -86,6 +87,7 @@ struct BoardHeader: View {
           IconButton(icon: "list.bullet", help: "List", active: store.mode == .list) { store.mode = .list }
           IconButton(icon: "book.closed", help: "Logbook", active: store.mode == .logbook) { store.mode = .logbook }
         }
+        IconButton(icon: "cup.and.saucer", help: "Take a break: park every Doing card" + (breakKey.isEmpty ? "" : " (\(breakKey))")) { store.takeBreak() }
         IconButton(icon: "calendar.day.timeline.left", help: "Timeline (⇧⌘T)") { store.openTimeline() }
         IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
       }
