@@ -409,6 +409,32 @@ function setMetaLine(lines, line, re, text) {
   lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, indent + text);
 }
 
+// Card metadata under a task: the tag line and every one-line `%% ... %%` comment.
+const isNoteMeta = t => TAGLINE_RE.test(t) || /^\s*%%.*%%\s*$/.test(t);
+
+// The task's prose (kb.note): lines up to the next task or `---`, minus metadata, blank ends trimmed.
+function noteText(lines, line) {
+  const out = [];
+  for (let i = line + 1; i < lines.length && !TASK_END_RE.test(lines[i]); i++) if (!isNoteMeta(lines[i])) out.push(lines[i]);
+  return out.join('\n').replace(/^\n+|\n+$/g, '');
+}
+
+// Replaces the task's prose with `text` verbatim. Metadata lines move directly under the task,
+// in order, so setMetaLine's contiguous scan still finds them; trailing blank lines stay.
+// Returns false when the prose already equals `text`.
+// setNoteLines(['- [ ] a', 'old', '  %% kbest 5 %%'], 0, 'new') -> ['- [ ] a', '  %% kbest 5 %%', 'new']
+function setNoteLines(lines, line, text) {
+  const want = String(text ?? '').replace(/\r/g, '').replace(/^\n+|\n+$/g, '');
+  if (noteText(lines, line) === want) return false;
+  let end = line + 1;
+  while (end < lines.length && !TASK_END_RE.test(lines[end])) end++;
+  let last = end;
+  while (last > line + 1 && !lines[last - 1].trim()) last--;
+  const span = lines.slice(line + 1, last);
+  lines.splice(line + 1, last - line - 1, ...span.filter(isNoteMeta), ...(want ? want.split('\n') : []));
+  return true;
+}
+
 const setRankLine = (lines, line, rank) => setMetaLine(lines, line, RANK_RE, `%% kbrank ${rank} %%`);
 const setEstLine = (lines, line, min) => setMetaLine(lines, line, EST_RE, min == null ? null : `%% kbest ${min} %%`);
 
@@ -1386,7 +1412,7 @@ async function drawBoard(plugin, board, config, state = { dragging: false }) {
 }
 
 module.exports = {
-  parseKanbanConfig, parseSweeps, scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, RANK_RE, DESKTOP_RE, EST_RE, ACTIVE_RE, logTapSpan, renderKanbanBlock, drawBoard,
+  parseKanbanConfig, parseSweeps, scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, noteText, setNoteLines, RANK_RE, DESKTOP_RE, EST_RE, ACTIVE_RE, logTapSpan, renderKanbanBlock, drawBoard,
   resolveKanbanConfig, editTags, tagLineAt, commentInsertAt,
   taskColumn,
   openDescendants, cleanText, addTitleCopy, stampNow, stampToDate, stampDigits, stampWrite, fmtDur, TASK_RE, TASK_END_RE, STAMP_RE,

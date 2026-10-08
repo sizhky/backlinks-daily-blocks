@@ -123,10 +123,15 @@ struct ObsidianClient {
     _ = try await eval("kb.sweep(\(try js(from)),\(try js(to)),\(try js(cards.map(\.ref))))")
   }
 
-  /// Freeform prose under a task (kb.note), without the CLI's `=>` prefix.
+  /// Freeform prose under a task (kb.note), raw: only the `=> ` prefix and blank ends go, indentation stays.
   func note(_ card: Card) async throws -> String {
-    let out = try await eval("kb.note(\(try js(card.ref)))").trimmingCharacters(in: .whitespacesAndNewlines)
-    return (out.hasPrefix("=>") ? String(out.dropFirst(2)) : out).trimmingCharacters(in: .whitespacesAndNewlines)
+    let out = try await eval("kb.note(\(try js(card.ref)))")
+    return (out.hasPrefix("=> ") ? String(out.dropFirst(3)) : out).trimmingCharacters(in: .newlines)
+  }
+
+  /// Replaces the task's prose with `text` (kb.setNote); metadata lines stay.
+  func setNote(ref: String, _ text: String) async throws {
+    _ = try await eval("kb.setNote(\(try js(ref)),\(try js(text)))")
   }
 
   /// Opens a task by `file:line` and brings Obsidian forward.

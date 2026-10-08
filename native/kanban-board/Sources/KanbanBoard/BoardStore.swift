@@ -448,6 +448,16 @@ final class BoardStore: ObservableObject {
   }
 
   /// `ref` is a desktop name or number (`DesktopSpace.ref`); nil clears.
+  /// Saves an edited note once its text has loaded; the refresh after it picks up refs that shifted below it in the same file.
+  func setNote(_ text: String, ref: String) {
+    guard let old = notes[ref], old != text else { return }
+    notes[ref] = text
+    writeGen += 1
+    Task {
+      do { try await client.setNote(ref: ref, text); await refresh() } catch { self.error = error.localizedDescription }
+    }
+  }
+
   func setDesktop(_ ref: String?, for card: Card) {
     for i in columns.indices {
       if let j = columns[i].cards.firstIndex(where: { $0.ref == card.ref }) { columns[i].cards[j].desktop = ref }

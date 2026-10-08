@@ -84,13 +84,19 @@ Lines: `col<TAB>file:line<TAB>body<TAB>HH:MM`
 
 ### `kb.note(arg, line?)` — freeform notes attached to one task
 The prose body that lives under a task: every line between the task line and the
-**next task line** (any indent), with the metadata block (tag line, `%% kbcolor %%`,
-`%% kb %%`, `%% ei %%`) stripped out. This is how a task carries notes naturally —
+**next task line** (any indent) or `---`, with the metadata block (tag line and every
+one-line `%% ... %%` comment: `kb`, `ei`, `kbcolor`, `kbactive`, `kbest`, ...) stripped out. This is how a task carries notes naturally —
 write prose under it, fetch on demand without opening the file.
 `arg` = `"file:line"` (the exact `file:line` the other reads emit) or `(filePath, line)`.
 Returns the trimmed prose (leading `\n` like other reads), `""` when there are none.
 Throws if the file is missing or the line isn't a task.
 Example: `kb.note("20260616-0946.md:0")`
+
+### `kb.setNote(ref, text)` — replace a task's notes
+Writes `text` verbatim as the task's prose (what `kb.note` returns). Metadata lines stay and move
+directly under the task, ahead of the prose; trailing blank lines stay. `""` clears the prose.
+Returns `ok <ref> note set` or `ok <ref> unchanged`. Lines below the task shift, so re-read refs after.
+Example: `kb.setNote("20260616-0946.md:0", "first line\n  second line")`
 
 ### `kb.getReport(...)` — full move timeline, single day or range
 Arg forms:

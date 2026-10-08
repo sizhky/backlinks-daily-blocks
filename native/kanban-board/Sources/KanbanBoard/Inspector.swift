@@ -1,10 +1,13 @@
 import KanbanCore
 import SwiftUI
 
-/// Issue peek: identifier, title, property rows, and the task note.
+/// Issue peek: identifier, title, property rows, and the task note as editable raw text.
 struct Inspector: View {
   @EnvironmentObject var store: BoardStore
   let card: Card
+  /// The note as raw text; saved to Obsidian when the editor loses focus or the card changes.
+  @State private var draft = ""
+  @FocusState private var editing: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -43,11 +46,16 @@ struct Inspector: View {
             prop("Note") { Text(card.ref).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle) }
           }
           Divider().overlay(Palette.hairline)
-          let note = store.notes[card.ref] ?? ""
-          Text(note.isEmpty ? AttributedString("No description") : renderTitle(note))
-            .font(.system(size: 13.5)).lineSpacing(4).tint(Palette.link)
-            .foregroundStyle(note.isEmpty ? Palette.muted : Palette.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+          TextEditor(text: $draft)
+            .font(.system(size: 13.5)).lineSpacing(4).foregroundStyle(Palette.secondary)
+            .scrollContentBackground(.hidden).scrollDisabled(true)
+            .focused($editing)
+            .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
+            .overlay(alignment: .topLeading) {
+              if draft.isEmpty && !editing {
+                Text("No description").font(.system(size: 13.5)).foregroundStyle(Palette.muted).padding(.leading, 5).allowsHitTesting(false)
+              }
+            }
         }
         .padding(20)
       }
@@ -55,6 +63,14 @@ struct Inspector: View {
     }
     .frame(width: 380)
     .background(Palette.base)
+    .onAppear { draft = store.notes[card.ref] ?? "" }
+    .onChange(of: store.notes[card.ref]) { _, now in if !editing { draft = now ?? "" } }
+    .onChange(of: editing) { _, now in if !now { store.setNote(draft, ref: card.ref) } }
+    .onChange(of: card.ref) { old, now in
+      store.setNote(draft, ref: old)
+      draft = store.notes[now] ?? ""
+    }
+    .onDisappear { store.setNote(draft, ref: card.ref) }
   }
 
   private func prop<V: View>(_ label: String, @ViewBuilder _ value: () -> V) -> some View {

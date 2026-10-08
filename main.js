@@ -1084,6 +1084,23 @@ var require_kanban = __commonJS({
       const indent = lines[line].match(/^\s*/)[0] + "  ";
       lines.splice((tagLineAt(lines, line) ?? line) + 1, 0, indent + text);
     }
+    var isNoteMeta = (t) => TAGLINE_RE.test(t) || /^\s*%%.*%%\s*$/.test(t);
+    function noteText(lines, line) {
+      const out = [];
+      for (let i = line + 1; i < lines.length && !TASK_END_RE2.test(lines[i]); i++) if (!isNoteMeta(lines[i])) out.push(lines[i]);
+      return out.join("\n").replace(/^\n+|\n+$/g, "");
+    }
+    function setNoteLines(lines, line, text) {
+      const want = String(text ?? "").replace(/\r/g, "").replace(/^\n+|\n+$/g, "");
+      if (noteText(lines, line) === want) return false;
+      let end = line + 1;
+      while (end < lines.length && !TASK_END_RE2.test(lines[end])) end++;
+      let last = end;
+      while (last > line + 1 && !lines[last - 1].trim()) last--;
+      const span = lines.slice(line + 1, last);
+      lines.splice(line + 1, last - line - 1, ...span.filter(isNoteMeta), ...want ? want.split("\n") : []);
+      return true;
+    }
     var setRankLine = (lines, line, rank) => setMetaLine(lines, line, RANK_RE, `%% kbrank ${rank} %%`);
     var setEstLine = (lines, line, min) => setMetaLine(lines, line, EST_RE, min == null ? null : `%% kbest ${min} %%`);
     function addActiveLine(lines, line, sec) {
@@ -1878,6 +1895,8 @@ var require_kanban = __commonJS({
       setDesktopLine,
       setEstLine,
       addActiveLine,
+      noteText,
+      setNoteLines,
       RANK_RE,
       DESKTOP_RE,
       EST_RE,
@@ -3328,6 +3347,8 @@ var require_api = __commonJS({
       setDesktopLine,
       setEstLine,
       addActiveLine,
+      noteText,
+      setNoteLines,
       taskColumn,
       parseKanbanConfig: parseKanbanConfig2,
       stampToDate,
@@ -3732,12 +3753,18 @@ projects:
           if (!file) throw new Error("file not found: " + path);
           const lines = (await plugin.app.vault.cachedRead(file)).split(/\r?\n/);
           if (!TASK_RE2.test(lines[line] || "")) throw new Error(`no task at ${path}:${line}`);
-          const meta = (t) => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE2.test(t) || EI_HIST_RE.test(t);
-          const out = [];
-          for (let i = line + 1; i < lines.length && !TASK_END_RE2.test(lines[i]); i++) {
-            if (!meta(lines[i])) out.push(lines[i]);
-          }
-          return "\n" + out.join("\n").replace(/^\n+|\n+$/g, "");
+          return "\n" + noteText(lines, line);
+        },
+        // Replaces a task's prose (what note() returns) with `text`; metadata lines stay.
+        async setNote(ref, text) {
+          const i = ref.lastIndexOf(":"), path = ref.slice(0, i), line = +ref.slice(i + 1);
+          const file = plugin.app.vault.getAbstractFileByPath(path);
+          if (!file) throw new Error("no file: " + path);
+          const changed = await editLines(plugin.app, file, (lines) => {
+            if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+            return setNoteLines(lines, line, text);
+          });
+          return `ok ${ref} ${changed === false ? "unchanged" : "note set"}`;
         },
         // Tasks moved to a terminal column on a date — "what I did"
         // Tab-lines: col<TAB>file:line<TAB>body<TAB>HH:MM
@@ -4023,6 +4050,7 @@ projects:
             "active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit,timestamps",
             "getDone(date,opts?)      tasks moved to terminal col on a date",
             'note("file:line")        freeform notes under a task (prose to next task or ---)',
+            "setNote(ref,text)        replace a task's notes; metadata lines stay",
             "getReport(...)           move timeline; day | from,to | {days:N}",
             "chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}",
             "summary(...)             done counts grouped by fm key; opts: by,col,sample,paths",

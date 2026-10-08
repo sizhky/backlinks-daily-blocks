@@ -1,5 +1,5 @@
 // plugin.api — callable via: obsidian eval "JSON.stringify(await app.plugins.plugins['backlinks-daily-blocks'].api.METHOD())"
-const { scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, taskColumn, parseKanbanConfig, stampToDate, cleanText,
+const { scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, noteText, setNoteLines, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
 const { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS } = require('./core/activity');
@@ -443,12 +443,19 @@ function buildApi(plugin) {
       if (!file) throw new Error('file not found: ' + path);
       const lines = (await plugin.app.vault.cachedRead(file)).split(/\r?\n/);
       if (!TASK_RE.test(lines[line] || '')) throw new Error(`no task at ${path}:${line}`);
-      const meta = t => TAGLINE_RE.test(t) || COLOR_RE.test(t) || HIST_RE.test(t) || EI_HIST_RE.test(t);
-      const out = [];
-      for (let i = line + 1; i < lines.length && !TASK_END_RE.test(lines[i]); i++) {
-        if (!meta(lines[i])) out.push(lines[i]);
-      }
-      return '\n' + out.join('\n').replace(/^\n+|\n+$/g, '');
+      return '\n' + noteText(lines, line);
+    },
+
+    // Replaces a task's prose (what note() returns) with `text`; metadata lines stay.
+    async setNote(ref, text) {
+      const i = ref.lastIndexOf(':'), path = ref.slice(0, i), line = +ref.slice(i + 1);
+      const file = plugin.app.vault.getAbstractFileByPath(path);
+      if (!file) throw new Error('no file: ' + path);
+      const changed = await editLines(plugin.app, file, lines => {
+        if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
+        return setNoteLines(lines, line, text);
+      });
+      return `ok ${ref} ${changed === false ? 'unchanged' : 'note set'}`;
     },
 
     // Tasks moved to a terminal column on a date — "what I did"
@@ -743,6 +750,7 @@ function buildApi(plugin) {
         'active(opts?)            live tasks on plate; opts: paths,col,tag,staleDays,limit,timestamps',
         'getDone(date,opts?)      tasks moved to terminal col on a date',
         'note("file:line")        freeform notes under a task (prose to next task or ---)',
+        'setNote(ref,text)        replace a task\'s notes; metadata lines stay',
         'getReport(...)           move timeline; day | from,to | {days:N}',
         'chronicle(...)           day chronicle of Doing stints; day | from,to | {days:N}',
         'summary(...)             done counts grouped by fm key; opts: by,col,sample,paths',
