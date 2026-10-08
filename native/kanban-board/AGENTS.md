@@ -260,6 +260,8 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Gotchas
 
+- Ghost frames are keyed by column (`FrameRegistry.ghosts`, through `dragFrame`). A ghost leaving a column fades out
+  and keeps reporting its frame; with one shared slot the drop flew back to the home column first.
 - Board shortcuts (`BoardView.board`) fire for any focused descendant, including the Inspector note editor. They return
   `.ignored` while an `NSTextView` is first responder; otherwise Return opened Obsidian mid-typing.
 - `make run` can fail with launch error -600 if `open` races `pkill`; the Makefile sleeps 1 s.

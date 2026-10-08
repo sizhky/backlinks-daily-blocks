@@ -14,6 +14,9 @@ final class FrameRegistry {
   var columns: [String: CGRect] = [:]
   var cards: [String: CGRect] = [:]
   var ghost: CGRect?
+  /// Board ghosts by column. A ghost leaving a column fades out and keeps reporting its frame,
+  /// so one shared slot sent drops back to the home column; the drop reads the slot column's own.
+  var ghosts: [String: CGRect] = [:]
   /// The view that last appeared for each key; only it may write or clear that key.
   var owners: [AnyKeyPath: [String: UUID]] = [:]
 }
@@ -74,7 +77,7 @@ final class DragController: ObservableObject {
     ignoring = false
     guard session != nil, !settling else { return }
     settling = true
-    guard let dest = frames.ghost?.origin else { return finish() }
+    guard let column = slot?.column, let dest = frames.ghosts[column]?.origin else { return finish() }
     withAnimation(Self.spring, completionCriteria: .logicallyComplete) { pointer.origin = dest } completion: { self.finish() }
   }
 
@@ -149,7 +152,6 @@ final class DragController: ObservableObject {
       session = nil
       slot = nil
     }
-    frames.ghost = nil
     store?.dragActive = false
     settling = false
     if let monitor { NSEvent.removeMonitor(monitor) }

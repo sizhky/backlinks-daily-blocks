@@ -348,7 +348,7 @@ struct ColumnView: View {
               if let card = row.card {
                 IssueCard(card: card).dragFrame(card.id, in: \.cards, drag.frames)
               } else {
-                GhostCard()
+                GhostCard(column: column.name)
               }
             }
           }
@@ -605,6 +605,7 @@ struct IssueCard: View {
 /// floating card can settle onto it.
 struct GhostCard: View {
   @EnvironmentObject var drag: DragController
+  let column: String
 
   var body: some View {
     let count = drag.session?.refs.count ?? 1
@@ -613,7 +614,7 @@ struct GhostCard: View {
       .background(Palette.indigo.opacity(0.06), in: .rect(cornerRadius: 9))
       .overlay { if count > 1 { Text("\(count) issues").font(.system(size: 12)).foregroundStyle(Palette.secondary) } }
       .frame(height: drag.session?.size.height ?? 78)
-      .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(DragController.space)) } action: { drag.frames.ghost = $0 }
+      .dragFrame(column, in: \.ghosts, drag.frames)
       .transition(.opacity)
   }
 }
@@ -638,7 +639,7 @@ struct ListMode: View {
             .padding(.horizontal, 16).frame(height: 36)
             .background(Color.white.opacity(0.03))
             ForEach(drag.rows(column, store)) { row in
-              if let card = row.card { IssueRow(card: card).dragFrame(card.id, in: \.cards, drag.frames) } else { GhostCard() }
+              if let card = row.card { IssueRow(card: card).dragFrame(card.id, in: \.cards, drag.frames) } else { GhostCard(column: column.name) }
             }
             }
             .dragFrame(column.name, in: \.columns, drag.frames)
