@@ -188,7 +188,7 @@ struct WidgetView: View {
     // Near-zero alpha keeps the square invisible but grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
     .background(RoundedRectangle(cornerRadius: corner, style: .continuous)
-      .fill(Color.white.opacity(grip.armed ? 0.1 : 0.001)))
+      .fill(grip.armed ? Color.black.opacity(0.8) : Color.white.opacity(0.001)))
     .overlay {
       if !toast.isEmpty {
         ToastCover(changes: toast, unit: prefs.size(.title), family: family, corner: corner, align: prefs.align(.title))
