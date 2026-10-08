@@ -700,18 +700,30 @@ struct HoverCard: View {
   let at: CGPoint
   let bounds: CGSize
   static let width = 280.0
+  @State private var size = CGSize.zero
+
   var body: some View {
     Text(text)
       .font(.system(size: 11.5)).foregroundStyle(Palette.text)
       .lineSpacing(2)
+      .frame(maxWidth: min(Self.width, bounds.width) - 18, alignment: .leading)
+      .fixedSize(horizontal: true, vertical: true)
       .padding(.horizontal, 9).padding(.vertical, 7)
-      .frame(maxWidth: Self.width, alignment: .leading)
-      .fixedSize(horizontal: false, vertical: true)
       .background(RoundedRectangle(cornerRadius: 7).fill(Palette.window))
       .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Palette.hairlineStrong))
       .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
-      // Right of and below the pointer; flips left near the right edge.
-      .offset(x: at.x + 14 + Self.width > bounds.width ? at.x - Self.width - 10 : at.x + 14, y: at.y + 14)
+      .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+      .offset(x: Self.x(at.x, width: size.width, bounds: bounds.width), y: at.y + 14)
+  }
+
+  /// Right of the pointer; left of it when that overflows; then clamped inside `bounds`.
+  /// ```
+  /// x(10, width: 100, bounds: 340) -> 24;  x(330, width: 100, bounds: 340) -> 220;  x(200, width: 300, bounds: 340) -> 40
+  /// ```
+  static func x(_ px: CGFloat, width: CGFloat, bounds: CGFloat) -> CGFloat {
+    let right = px + 14, left = px - width - 10
+    let pick = right + width <= bounds ? right : left
+    return max(0, min(pick, bounds - width))
   }
 }
 
