@@ -57,6 +57,8 @@ final class TrackerWidget {
   /// Height the content needs (reported by `WidgetView`); the panel grows past the square to fit it.
   private var contentHeight: CGFloat = 0
   private var moveObserver: Any?
+  /// Target of the Control peek fade, so pointer moves do not restart a running fade.
+  private var peekAlpha: CGFloat = 1
 
   init(store: BoardStore) {
     panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 60),
@@ -121,7 +123,11 @@ final class TrackerWidget {
   /// Control held with the pointer over it fades the widget out to show the text underneath.
   private func updateGrip() {
     let over = panel.frame.contains(NSEvent.mouseLocation), flags = NSEvent.modifierFlags
-    panel.alphaValue = over && flags.contains(.control) ? 0 : 1
+    let alpha: CGFloat = over && flags.contains(.control) ? 0 : 1
+    if alpha != peekAlpha {
+      peekAlpha = alpha
+      NSAnimationContext.runAnimationGroup { $0.duration = 0.25; panel.animator().alphaValue = alpha }
+    }
     let armed = panel.isVisible && flags.contains(.function) && over
     guard armed != grip.armed else { return }
     grip.armed = armed

@@ -283,7 +283,7 @@ Before building or wording any UI, ask what Apple would do and do that.
   did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
   The tracker widget is click-through (`ignoresMouseEvents`) until Fn (`.function`) is held with the pointer over it;
   global plus local `NSEvent` monitors (flagsChanged, mouseMoved, leftMouseUp) set `WidgetGrip.armed`.
-  Control held with the pointer over it sets the panel `alphaValue` to 0 (peek at the text underneath).
+  Control held with the pointer over it fades the panel `alphaValue` to 0 over 0.25 s (peek at the text underneath).
   The panel is a square of the Size setting (`widget.width`), taller when the content needs it: parallel
   Doing cards each get a row with their own timer (none hidden), and `WidgetView` reports its natural
   height via `onHeight`; `TrackerWidget` resizes the panel on the next run loop (never during layout) and
