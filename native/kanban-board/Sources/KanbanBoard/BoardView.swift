@@ -87,7 +87,7 @@ struct BoardHeader: View {
           IconButton(icon: "list.bullet", help: "List", active: store.mode == .list) { store.mode = .list }
           IconButton(icon: "book.closed", help: "Logbook", active: store.mode == .logbook) { store.mode = .logbook }
         }
-        IconButton(icon: "cup.and.saucer", help: "Take a break: park every Doing card" + (breakKey.isEmpty ? "" : " (\(breakKey))")) { store.takeBreak() }
+        IconButton(icon: "cup.and.saucer", help: "Take a break: park every Doing card; again to resume them" + (breakKey.isEmpty ? "" : " (\(breakKey))")) { store.takeBreak() }
         IconButton(icon: "calendar.day.timeline.left", help: "Timeline (⇧⌘T)") { store.openTimeline() }
         IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
       }

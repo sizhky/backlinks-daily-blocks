@@ -130,12 +130,30 @@ final class BoardStore: ObservableObject {
     parkAll(at: at)
   }
 
-  /// The break key (`BreakHotKey`): parks every Doing card now.
-  /// The widget gets one "Break" toast instead of a "Parked" toast per card: the next refresh skips its diff.
+  /// Card ids (`Card.id`) the last break moved from Doing to Parked; persisted so a relaunch can end the break.
+  private var breakParked: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "kanban.breakParked") ?? []) {
+    didSet { UserDefaults.standard.set(Array(breakParked), forKey: "kanban.breakParked") }
+  }
+
+  /// The break key (`BreakHotKey`) toggles: while a card the break parked is still in Parked, it ends the
+  /// break and moves those cards back to Doing; otherwise it parks every Doing card now.
+  /// The widget gets one "Break" or "Started" toast instead of one per card: the next refresh skips its diff.
   func takeBreak() {
-    show("Parked everything. Take a break.")
-    let n = columns.filter { !$0.done && $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.reduce(0) { $0 + $1.cards.count }
+    let back = columns.flatMap(\.cards)
+      .filter { breakParked.contains($0.id) && $0.col.caseInsensitiveCompare("Parked") == .orderedSame }
     lastLive = nil
+    breakParked = []
+    if !back.isEmpty {
+      show("Break over. Resumed \(back.count) task\(back.count == 1 ? "" : "s").")
+      widgetToast = ((widgetToast?.gen ?? 0) + 1,
+                     [DoingChange(title: "Resumed \(back.count) task\(back.count == 1 ? "" : "s")", verb: "Started")])
+      move(refs: back.map(\.ref), to: "Doing")
+      return
+    }
+    show("Parked everything. Take a break.")
+    let doing = columns.filter { !$0.done && $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.flatMap(\.cards)
+    let n = doing.count
+    breakParked = Set(doing.map(\.id))
     widgetToast = ((widgetToast?.gen ?? 0) + 1,
                    [DoingChange(title: n == 0 ? "Nothing was running" : "Parked \(n) task\(n == 1 ? "" : "s")", verb: "Break")])
     parkAll(at: Date())
