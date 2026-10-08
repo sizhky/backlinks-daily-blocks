@@ -542,6 +542,8 @@ struct IssueCard: View {
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
   private var selected: Bool { store.selected == card.ref }
   private var picked: Bool { store.picked.contains(card.ref) }
+  /// The one card `trackActive` credits time to (`BoardStore.activeID`).
+  private var live: Bool { store.activeID == card.id }
 
   var body: some View {
     VStack(alignment: .leading, spacing: density.cardInner) {
@@ -582,8 +584,10 @@ struct IssueCard: View {
             HStack(spacing: 6) {
               Pill(text: Age.span(seconds: ctx.date.timeIntervalSince(since))) { Image(systemName: "clock").imageScale(.small) }
                 .help("Time in Doing")
-              Pill(text: Age.span(seconds: store.activeTime(card, at: ctx.date))) { Image(systemName: "bolt").imageScale(.small) }
-                .help("Active time")
+              Pill(text: Age.span(seconds: store.activeTime(card, at: ctx.date)), color: live ? accent(for: "Doing") : Palette.muted) {
+                Image(systemName: live ? "bolt.fill" : "bolt").imageScale(.small)
+              }
+              .help(live ? "Active now; active time" : "Active time")
             }
           }
         } else {
@@ -611,7 +615,9 @@ struct IssueCard: View {
     .padding(.horizontal, density.cardPadH).padding(.vertical, density.cardPadV)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(picked ? Palette.indigo.opacity(0.14) : (hovering || selected ? Palette.cardHover : Palette.card), in: .rect(cornerRadius: 9))
-    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo : (hovering ? Palette.hairlineStrong : Palette.hairline)))
+    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo
+      : live ? accent(for: "Doing").opacity(0.8) : (hovering ? Palette.hairlineStrong : Palette.hairline), lineWidth: live ? 1.5 : 1))
+    .shadow(color: live ? accent(for: "Doing").opacity(0.25) : .clear, radius: 8)
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
     .onTapGesture {
