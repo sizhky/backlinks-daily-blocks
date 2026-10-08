@@ -179,14 +179,15 @@ public struct SwitchMove: Equatable, Sendable {
 }
 
 /// 4.1 Debounced task switching. A card has affinity when it has a desktop or a rule names its
-/// project or org. Leaving its context parks it, stamped at the moment of leaving; returning
-/// resumes it, but only when the engine parked it. Cards without affinity are never touched.
+/// project or org. Going away (idle, locked, asleep) parks it, stamped at the start of away; returning
+/// to its context resumes it, but only when the engine parked it. Another context only makes the card
+/// inactive (`Focus`). Cards without affinity are never touched.
 public struct SwitchEngine: Codable, Sendable {
   public var startAfter: TimeInterval = 10
   public var stopAfter: TimeInterval = 120
   /// Card ids (`Card.id`) the engine parked and may resume.
   public private(set) var parked: Set<String> = []
-  struct Flip: Codable, Sendable { var owned: Bool; var since: Date; var acted: Bool }
+  struct Flip: Codable, Sendable { var owned: Bool; var away: Bool?; var since: Date; var acted: Bool }
   var flips: [String: Flip] = [:]
 
   public init() {}
@@ -221,10 +222,13 @@ public struct SwitchEngine: Codable, Sendable {
       let inPaused = card.col.caseInsensitiveCompare(paused) == .orderedSame
       if parked.contains(card.id), !inLive, !inPaused { parked.remove(card.id) }
       guard let owned = Self.owns(card, context, rules) else { continue }
-      if flips[card.id]?.owned != owned { flips[card.id] = Flip(owned: owned, since: contextSince, acted: false) }
+      let away = context == nil
+      if flips[card.id]?.owned != owned || (flips[card.id]?.away ?? false) != away {
+        flips[card.id] = Flip(owned: owned, away: away, since: contextSince, acted: false)
+      }
       guard var f = flips[card.id], !f.acted else { continue }
       let held = now.timeIntervalSince(f.since)
-      if inLive, !owned, held >= stopAfter {
+      if inLive, away, held >= stopAfter {
         moves.append(SwitchMove(ref: card.ref, title: card.title, column: paused, at: f.since))
         parked.insert(card.id)
         f.acted = true

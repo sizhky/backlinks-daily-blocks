@@ -220,7 +220,8 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Activity capture (blueprint `.yeshwanth/blueprints/activity-tracking.md`): `ActivityMonitor` only
   records spans; it never moves cards. `BoardStore.switchTasks` runs `SwitchEngine` once per refresh:
   a card with a desktop, or whose project/org a rule in `<vault>/.activity/rules.json` names, parks
-  120 s after its context is left and resumes 10 s after return, only if the engine parked it. Moves
+  120 s after the user goes away (idle, locked) and resumes 10 s after return to its context, only if the
+  engine parked it. Another desktop or context keeps the card in Doing; `Focus` only makes it inactive. Moves
   are stamped at the moment the context changed (`kb.moveTasks(refs, col, {at})`). Engine state
   persists in `kanban.switches`. Sleep park: `BoardStore` notes `willSleep` (lid close; not screen lock or display
   sleep) and on `didWake` calls `kb.parkAll(at)` with that moment, so any sleep length parks. The plugin's 30 min
@@ -297,7 +298,7 @@ Before building or wording any UI, ask what Apple would do and do that.
   release animates onto `frames.ghost`, then `setDesktop` and the swap run unanimated; or right-click a sidebar project > Desktop; orgs are not offered, by request)
   go through `store.projectDesktop` / `store.setDesktop(_:project:)` and are `DesktopPin` rules `{project, desktop}` in
   `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.
-  `renameDesktop` rewrites pins on the old name as it does cards. A pin gives every card of that scope desktop affinity, so `SwitchEngine` parks and resumes them.
+  `renameDesktop` rewrites pins on the old name as it does cards. A pin gives every card of that scope desktop affinity, so `Focus` and `SwitchEngine` treat them as owned by that desktop.
   Precedence lives in `ActivityRule.applying`: card `kbdesktop` beats project desktop beats org desktop.
 - Reports tab (`timeline.mode` = `reports`): `kb.reportCards(from, to, {mull})` gives cards with stints;
   `Report.attribute` splits each active minute (day logs, `impute` at the idle threshold): owners of the

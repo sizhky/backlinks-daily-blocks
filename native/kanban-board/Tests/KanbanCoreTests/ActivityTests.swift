@@ -38,19 +38,25 @@ final class ActivityTests: XCTestCase {
     XCTAssertEqual(ActivityRule.parse(Data("nope".utf8)), [])
   }
 
-  func testLeavingTheDesktopParksAfterTheDelayStampedAtDeparture() {
+  func testLeavingTheDesktopKeepsTheCardInDoing() {
     var e = SwitchEngine()
     XCTAssertEqual(e.step(now: at(0), context: term, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: []), [])
-    XCTAssertEqual(e.step(now: at(100), context: mail, contextSince: at(30), cards: [card("Doing", desktop: "2")], rules: []), [], "90 s away is below the 120 s delay")
-    let moves = e.step(now: at(160), context: mail, contextSince: at(30), cards: [card("Doing", desktop: "2")], rules: [])
-    XCTAssertEqual(moves, [SwitchMove(ref: "a.md:3", title: "Fix API", column: "Parked", at: at(30))])
-    XCTAssertEqual(e.step(now: at(170), context: mail, contextSince: at(30), cards: [card("Doing", desktop: "2")], rules: []), [], "one move per flip")
+    XCTAssertEqual(e.step(now: at(500), context: mail, contextSince: at(30), cards: [card("Doing", desktop: "2")], rules: []), [],
+                   "another desktop only makes the card inactive (Focus)")
+  }
+
+  func testGoingAwayFromAnotherDesktopParksStampedAtAwayStart() {
+    var e = SwitchEngine()
+    _ = e.step(now: at(0), context: mail, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: [])
+    XCTAssertEqual(e.step(now: at(300), context: nil, contextSince: at(200), cards: [card("Doing", desktop: "2")], rules: []), [], "80 s away is below the 120 s delay")
+    XCTAssertEqual(e.step(now: at(330), context: nil, contextSince: at(200), cards: [card("Doing", desktop: "2")], rules: []),
+                   [SwitchMove(ref: "a.md:3", title: "Fix API", column: "Parked", at: at(200))])
   }
 
   func testReturningResumesOnlyCardsTheEngineParked() {
     var e = SwitchEngine()
-    _ = e.step(now: at(0), context: mail, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: [])
-    _ = e.step(now: at(200), context: mail, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: [])
+    _ = e.step(now: at(0), context: nil, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: [])
+    _ = e.step(now: at(200), context: nil, contextSince: at(0), cards: [card("Doing", desktop: "2")], rules: [])
     XCTAssertEqual(e.step(now: at(305), context: term, contextSince: at(300), cards: [card("Parked", desktop: "2")], rules: []), [])
     XCTAssertEqual(e.step(now: at(311), context: term, contextSince: at(300), cards: [card("Parked", desktop: "2")], rules: []),
                    [SwitchMove(ref: "a.md:3", title: "Fix API", column: "Doing", at: at(300))])
@@ -97,10 +103,9 @@ final class ActivityTests: XCTestCase {
   }
 
   func testNamedCardFollowsItsDesktop() {
-    var e = SwitchEngine()
     let named = Sample(app: "iTerm2", bundle: "b", title: "t", space: 4, desktop: "PenguinAI")
-    _ = e.step(now: at(0), context: named, contextSince: at(0), cards: [card("Doing", desktop: "PenguinAI")], rules: [])
-    XCTAssertEqual(e.step(now: at(200), context: mail, contextSince: at(10), cards: [card("Doing", desktop: "PenguinAI")], rules: []).first?.at, at(10))
+    XCTAssertEqual(SwitchEngine.owns(card("Doing", desktop: "PenguinAI"), named, []), true)
+    XCTAssertEqual(SwitchEngine.owns(card("Doing", desktop: "PenguinAI"), mail, []), false)
   }
 
   func testCleanLabel() {
