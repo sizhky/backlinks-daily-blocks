@@ -288,8 +288,9 @@ struct ColumnView: View {
   @AppStorage(Density.key) private var density: Density = .compact
   let column: Column
 
-  /// An empty column shrinks to a slim strip in place; it widens again while a drag is over it.
-  private var collapsed: Bool { column.cards.isEmpty && !drag.rows(column, store).contains { $0.card == nil } }
+  /// An empty column shrinks to a slim strip in place. A drag over it only highlights the strip;
+  /// the column widens after the drop puts a card in it.
+  private var collapsed: Bool { column.cards.isEmpty }
 
   /// `collapsed` as last animated. A drop ends its transaction with animations off, so the shrink
   /// follows `collapsed` through its own `withAnimation` instead of the transaction that caused it.

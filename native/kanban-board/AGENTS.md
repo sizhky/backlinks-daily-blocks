@@ -102,7 +102,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 
 - Column order (`kanban.columnOrder`) and user-hidden columns (`kanban.hiddenColumns`) are by name.
   `store.visible` is already ordered. Only user-hidden columns render in `HiddenColumns` (right panel),
-  each row a drop target; empty columns shrink in place to a 44 pt strip (`ColumnView.collapsed`, animated width) and widen under a drag; list mode skips hidden columns. Column options live in `ColumnMenu`.
+  each row a drop target; empty columns shrink in place to a 44 pt strip (`ColumnView.collapsed`, animated width); a drag over one only highlights the strip, and it widens after the drop; list mode skips hidden columns. Column options live in `ColumnMenu`.
 - Never pair `onTapGesture(count: 2)` with a single tap: SwiftUI holds the single tap for the
   double-click interval and selection feels laggy. Use `.simultaneousGesture(TapGesture(count: 2))`.
 - Drag frames go through `dragFrame` (`DragFrame`): the newest view for a key owns it. Refresh animates `columns`, so a
