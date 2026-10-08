@@ -42,6 +42,10 @@ struct Inspector: View {
             prop("Desktop") {
               MenuTrigger(items: { store.desktopItems(card) }) { Text(card.desktop.map(store.desktops.name) ?? "None") }
             }
+            prop("Estimate") {
+              Button { store.estimating = card } label: { Text(card.est.map { Age.label(minutes: $0) } ?? "None") }
+                .buttonStyle(.pointing).help("Edit time estimate")
+            }
             prop("In status") { Text(card.age).monospacedDigit() }
             prop("Note") { Text(card.ref).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle) }
           }

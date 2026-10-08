@@ -38,6 +38,7 @@ struct BoardView: View {
       }
       Button("Skip", role: .cancel) { estimateText = "" }
     } message: { Text(store.estimating?.title ?? "") }
+    .onChange(of: store.estimating?.ref) { estimateText = store.estimating?.est.map { Age.label(minutes: $0) } ?? "" }
     .animation(.spring(duration: 0.32, bounce: 0.08), value: store.selected != nil)
     .focusable().focused($boardFocus).focusEffectDisabled()
     .onChange(of: store.selected) { boardFocus = true }
@@ -568,6 +569,10 @@ struct IssueCard: View {
       }
       FlowLayout(spacing: 6) {
         Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
+        if let est = card.est {
+          Button { store.estimating = card } label: { Pill(text: Age.label(minutes: est)) { Image(systemName: "hourglass").imageScale(.small) } }
+            .buttonStyle(.pointing).pointerStyle(.link).help("Edit time estimate")
+        }
         if let d = card.desktop {
         Button { store.switchDesktop(ref: d) } label: { Pill(text: store.desktops.name(d)) { Image(systemName: "rectangle.3.group").imageScale(.small) } }
           .buttonStyle(.pointing).pointerStyle(.link).help("Switch to \(store.desktops.name(d))")
