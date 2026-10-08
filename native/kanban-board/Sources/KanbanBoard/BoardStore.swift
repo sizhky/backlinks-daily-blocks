@@ -131,8 +131,13 @@ final class BoardStore: ObservableObject {
   }
 
   /// The break key (`BreakHotKey`): parks every Doing card now.
+  /// The widget gets one "Break" toast instead of a "Parked" toast per card: the next refresh skips its diff.
   func takeBreak() {
     show("Parked everything. Take a break.")
+    let n = columns.filter { !$0.done && $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.reduce(0) { $0 + $1.cards.count }
+    lastLive = nil
+    widgetToast = ((widgetToast?.gen ?? 0) + 1,
+                   [DoingChange(title: n == 0 ? "Nothing was running" : "Parked \(n) task\(n == 1 ? "" : "s")", verb: "Break")])
     parkAll(at: Date())
   }
 

@@ -7,6 +7,8 @@ public struct DoingChange: Equatable, Sendable {
   /// "Started" on entry; on exit, the column the card went to ("Parked", "Done"), or "Removed".
   public let verb: String
 
+  public init(title: String, verb: String) { (self.title, self.verb) = (title, verb) }
+
   /// ```
   /// before [A Doing, B Doing], after [A Parked, C Doing] -> [C Started, A Parked]
   /// ```

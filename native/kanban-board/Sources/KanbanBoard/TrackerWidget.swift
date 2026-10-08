@@ -353,6 +353,7 @@ struct ToastCover: View {
   private func symbol(_ verb: String) -> String {
     switch verb.lowercased() {
     case "started": "play.circle.fill"
+    case "break": "cup.and.saucer.fill"
     case "parked", "idle": "pause.circle.fill"
     case "done": "checkmark.circle.fill"
     case "cancelled": "xmark.circle.fill"
@@ -363,6 +364,7 @@ struct ToastCover: View {
   private func color(_ verb: String) -> Color {
     switch verb.lowercased() {
     case "started": .green
+    case "break": .teal
     case "parked", "idle": .orange
     case "done": .blue
     case "cancelled": .red
