@@ -152,6 +152,38 @@ function cmdView(argv) {
   console.log(s);
 }
 
+// Seconds -> "42s", "10m", "1h 5m", "1d 3h" (Age.span in the Kanban Board app).
+function span(sec) {
+  const s = Math.max(0, Math.round(+sec || 0));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return m ? `${h}h ${m}m` : `${h}h`; }
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600);
+  return h ? `${d}d ${h}h` : `${d}d`;
+}
+
+function cmdTask(argv) {
+  const { f, pos } = parseFlags(argv);
+  if (f.help || !pos[0]) return console.log(
+    'usage: kanban task <id> [--full]\n' +
+    'Details of one task by its Kanban Board ID (KEY-yymmdd-HHmm[.NN]): column, project, times, notes.\n' +
+    'examples:\n  kanban task HTP-261008-1106.01');
+  const [t] = rows(kb(`task(${JSON.stringify(pos[0])})`),
+    ['id', 'ref', 'col', 'title', 'age', 'org', 'projects', 'desktop', 'est', 'active', 'times']);
+  if (!t) fail(`no task for ${pos[0]}`);
+  const times = t.times ? t.times.split('|').map(p => { const [c, n] = p.split('='); return `${c} ${span(n)}`; }).join(', ') : '';
+  const prose = t.col ? kb(`note(${JSON.stringify(t.ref)})`) : '';
+  const full = f.full || prose.length <= TRUNC;
+  let s = 'task:\n' + [
+    ['id', t.id], ['ref', t.ref], ['title', t.title], ['col', t.col || '(not on the board)'], ['in_col', t.age],
+    ['org', t.org], ['projects', t.projects], ['desktop', t.desktop], ['estimate', t.est && span(t.est * 60)],
+    ['active', t.active && span(t.active)], ['closed_time_by_col', times],
+    ['notes', prose.trim() ? (full ? prose : prose.slice(0, TRUNC) + `\n    ... (truncated, ${prose.length} chars total)`) : '(none)'],
+  ].map(([k, v]) => `  ${k}: ${v || '·'}`).join('\n');
+  s += '\n' + help([`Run \`kanban move ${t.ref} <col>\` to move it`].concat(full ? [] : [`Run \`kanban task ${t.id} --full\` for complete notes`]));
+  console.log(s);
+}
+
 function refToArgs(ref) {
   const i = ref.lastIndexOf(':');
   if (i < 0 || !/^\d+$/.test(ref.slice(i + 1))) fail(`bad ref: ${ref}`, 'use <file.md:line>, e.g. 20260616-0946.md:0');
@@ -319,6 +351,7 @@ switch (cmd) {
   case 'list': cmdList(rest); break;
   case 'plate': cmdPlate(rest); break;
   case 'view': cmdView(rest); break;
+  case 'task': cmdTask(rest); break;
   case 'move': cmdMove(rest); break;
   case 'scopes': cmdScopes(rest); break;
   case 'create': cmdCreate(rest); break;
@@ -331,8 +364,8 @@ switch (cmd) {
   case 'habits': cmdHabits(rest); break;
   case 'toggle': cmdToggle(rest); break;
   case 'help': case '--help': console.log(`bin: ${BIN}\ndescription: ${DESC}\n` +
-    help(['list', 'plate [project]', 'view <ref>', 'move <ref> <col>', 'scopes', 'create <text> --org X --project Y', 'done <date>',
+    help(['list', 'plate [project]', 'view <ref>', 'task <id>', 'move <ref> <col>', 'scopes', 'create <text> --org X --project Y', 'done <date>',
       'report <date>|--days N', 'chronicle <date>|--days N', 'summary --days N --by <key>',
       'props [since]', 'notes --where k=v', 'habits', 'toggle <name>'].map(c => `kanban ${c}`))); break;
-  default: fail(`unknown command: ${cmd}`, 'kanban [list|plate|view|move|scopes|create|done|report|chronicle|summary|props|notes|habits|toggle]');
+  default: fail(`unknown command: ${cmd}`, 'kanban [list|plate|view|task|move|scopes|create|done|report|chronicle|summary|props|notes|habits|toggle]');
 }

@@ -22,6 +22,7 @@ node kanban-cli/axi.mjs                       # content-first dashboard (active 
 node kanban-cli/axi.mjs list --col Todo --limit 5
 node kanban-cli/axi.mjs plate "Obsidian Workflow" --col Backlog
 node kanban-cli/axi.mjs view 20260616-0946.md:0 [--full]
+node kanban-cli/axi.mjs task HTP-261008-1106.01 [--full]   # task by its Kanban Board ID
 node kanban-cli/axi.mjs move 20260616-0946.md:0 Done
 node kanban-cli/axi.mjs scopes --query InfoshareSystems
 node kanban-cli/axi.mjs create "Reply to Srinivas" --org InfoshareSystems --project AAA
@@ -91,6 +92,14 @@ write prose under it, fetch on demand without opening the file.
 Returns the trimmed prose (leading `\n` like other reads), `""` when there are none.
 Throws if the file is missing or the line isn't a task.
 Example: `kb.note("20260616-0946.md:0")`
+
+### `kb.task(id)` — one task by its Kanban Board ID
+The ID the Kanban Board app shows and copies: `KEY-yymmdd-HHmm[.NN]`, e.g. `HTP-261008-1106.01`.
+`yymmdd-HHmm` names the daily note (`20261008-1106.md`); `.NN` is the 1-based checkbox task in it
+(absent = 1); `KEY` is the project initials and is not used for lookup. Returns one tab row:
+`id, ref, col, body, age, orgs, projects, desktop, estMinutes, activeSeconds, columnSeconds`.
+Throws on a malformed ID, a missing note, or a missing ordinal. IDs of non-daily notes (`TAS-K3F9`) are not supported.
+When a user gives an ID, run `node kanban-cli/axi.mjs task <id>`: it adds the notes and readable times.
 
 ### `kb.columnTimes(opts?)` — closed time per column for every card
 Rows `file:line<TAB>Doing=1800|Parked=600`, seconds summed over closed stints (each move to the next).

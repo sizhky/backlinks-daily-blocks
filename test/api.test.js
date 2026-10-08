@@ -44,3 +44,10 @@ test('taskNote writes validated scope properties and one kanban task', () => {
   assert.equal(taskNote({ text: ' Reply   to Srinivas ', org: 'InfoshareSystems', project: 'AAA', col: 'Backlog', stamp: '20260919-1423' }),
     '---\norg:\n  - "[[InfoshareSystems]]"\nprojects:\n  - "[[AAA]]"\n---\n\n- [ ] Reply to Srinivas #kb/backlog\n  %% kb 20260919-1423 Backlog > Backlog %%\n');
 });
+
+test('parseTaskId maps a Kanban Board ID to its note and task ordinal', () => {
+  const { parseTaskId } = loadApi();
+  assert.deepEqual({ ...parseTaskId('HTP-261008-1106.01') }, { key: 'HTP', base: '20261008-1106', ordinal: 1 });
+  assert.deepEqual({ ...parseTaskId('ow-260613-1844') }, { key: 'OW', base: '20260613-1844', ordinal: 1 });
+  assert.equal(parseTaskId('TAS-K3F9'), null);
+});

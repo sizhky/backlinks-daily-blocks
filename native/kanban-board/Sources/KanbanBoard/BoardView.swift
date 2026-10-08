@@ -374,6 +374,7 @@ struct TimePills: View {
   @EnvironmentObject var store: BoardStore
   let card: Card
   let live: Bool
+  var tint = accent(for: "Doing")
 
   var body: some View {
     if card.col.caseInsensitiveCompare("Doing") == .orderedSame {
@@ -391,7 +392,7 @@ struct TimePills: View {
           .help("Time in Doing, all stints")
       }
       if active > 0 || live {
-        Pill(text: Age.span(seconds: active), color: live ? accent(for: "Doing") : Palette.muted) {
+        Pill(text: Age.span(seconds: active), color: live ? tint : Palette.muted) {
           Image(systemName: live ? "bolt.fill" : "bolt").imageScale(.small)
         }
         .help(live ? "Active now; active time" : "Active time")
@@ -577,6 +578,9 @@ struct IssueCard: View {
   private var picked: Bool { store.picked.contains(card.ref) }
   /// The one card `trackActive` credits time to (`BoardStore.activeID`).
   private var live: Bool { store.activeID == card.id }
+  @AppStorage(ProjectHues.key) private var hues = ""
+  /// The active card's highlight: its project's colour, Doing's when it has no project.
+  private var tint: Color { card.projects.first.map { Color(ProjectHues.pair($0, hues).light) } ?? accent(for: "Doing") }
 
   var body: some View {
     VStack(alignment: .leading, spacing: density.cardInner) {
@@ -615,7 +619,7 @@ struct IssueCard: View {
         if card.col.caseInsensitiveCompare("Doing") != .orderedSame {
           Pill(text: card.age, color: stale ? Palette.amber : Palette.secondary) { Image(systemName: "clock").imageScale(.small) }
         }
-        TimePills(card: card, live: live)
+        TimePills(card: card, live: live, tint: tint)
         if let est = card.est {
           Button { store.estimating = card } label: { Pill(text: Age.label(minutes: est)) { Image(systemName: "hourglass").imageScale(.small) } }
             .buttonStyle(.pointing).pointerStyle(.link).help("Edit time estimate")
@@ -639,8 +643,8 @@ struct IssueCard: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(picked ? Palette.indigo.opacity(0.14) : (hovering || selected ? Palette.cardHover : Palette.card), in: .rect(cornerRadius: 9))
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo
-      : live ? accent(for: "Doing").opacity(0.8) : (hovering ? Palette.hairlineStrong : Palette.hairline), lineWidth: live ? 1.5 : 1))
-    .shadow(color: live ? accent(for: "Doing").opacity(0.25) : .clear, radius: 8)
+      : live ? tint.opacity(0.85) : (hovering ? Palette.hairlineStrong : Palette.hairline), lineWidth: live ? 1.5 : 1))
+    .shadow(color: live ? tint.opacity(0.3) : .clear, radius: 8)
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
     .onTapGesture {

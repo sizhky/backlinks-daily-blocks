@@ -3693,6 +3693,11 @@ projects:
         recent
       };
     }
+    function parseTaskId(id) {
+      const m = String(id).trim().match(/^([A-Za-z0-9]+)-(\d{6})-(\d{4})(?:\.(\d{2}))?$/);
+      if (!m) return null;
+      return { key: m[1].toUpperCase(), base: `20${m[2]}-${m[3]}`, ordinal: m[4] ? +m[4] : 1 };
+    }
     function filterSince(rows, since, now = Date.now()) {
       const span = spanMs(since);
       if (span == null) return rows;
@@ -4292,6 +4297,46 @@ projects:
           }
           return "\n" + out.join("\n");
         },
+        // One task by its Kanban Board ID ("HTP-261008-1106.01"): the note named by the stamp, the
+        // ordinal-th checkbox task in it. Tab fields: id, ref, col, body, age, orgs, projects, desktop,
+        // estMinutes, activeSeconds, columnSeconds (Doing=1800|Todo=600, closed stints).
+        async task(id) {
+          const p = parseTaskId(id);
+          if (!p) throw new Error("bad task id: " + id + " (want KEY-yymmdd-HHmm[.NN], e.g. HTP-261008-1106.01)");
+          const file = plugin.app.vault.getMarkdownFiles().find((f) => f.basename === p.base || f.basename.startsWith(p.base + "."));
+          if (!file) throw new Error("no note " + p.base + ".md for " + id);
+          const tasks = (plugin.app.metadataCache.getFileCache(file)?.listItems || []).filter((i) => i.task !== void 0);
+          const item = tasks[p.ordinal - 1];
+          if (!item) throw new Error(`${file.path} has ${tasks.length} task(s), no #${p.ordinal}`);
+          const line = item.position.start.line;
+          const config = makeConfig2({}, plugin);
+          const byCol = await scanKanbanTasks(plugin.app, config);
+          let r = null, found = null;
+          for (const col of config.columns) for (const card of byCol.get(col.key) || []) {
+            if (card.file.path === file.path && card.line === line) {
+              found = card;
+              r = cardJson(card, col);
+            }
+          }
+          if (!found) return `
+${id}	${file.path}:${line}		(not on the board)`;
+          const fm = plugin.app.metadataCache.getFileCache(file)?.frontmatter || {};
+          const list = (k) => [].concat(fm[k] ?? []).map((v) => String(v).replace(/^\[\[|\]\]$/g, "").split("|")[0]).join("|");
+          const times = Object.entries(columnSeconds(found.history)).map(([c, sec]) => `${c}=${Math.round(sec)}`).join("|");
+          return "\n" + [
+            id,
+            `${file.path}:${line}`,
+            r.col,
+            cleanText(r.body),
+            relAge(r.since),
+            list("org"),
+            list("projects"),
+            r.desktop ?? "",
+            found.est ?? "",
+            found.activeSec ?? "",
+            times
+          ].join("	");
+        },
         // Closed time per column for every card: "file:line<TAB>Doing=1800|Todo=600" (seconds).
         // The open stint (current column since its last move) is left to the caller.
         async columnTimes(opts = {}) {
@@ -4380,7 +4425,7 @@ projects:
         }
       };
     }
-    module2.exports = { buildApi: buildApi2, makeConfig: makeConfig2, fileNameStamp, filterSince, scopeInactive, taskNote };
+    module2.exports = { buildApi: buildApi2, makeConfig: makeConfig2, fileNameStamp, filterSince, scopeInactive, taskNote, parseTaskId };
   }
 });
 
