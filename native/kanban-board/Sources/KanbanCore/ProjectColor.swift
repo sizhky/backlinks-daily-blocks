@@ -32,8 +32,9 @@ public enum ProjectColor {
   }
 
   /// Gradient ends for a project tile: light top-left, darker bottom-right, hue shifted 25 to 45 degrees.
-  public static func pair(_ name: String) -> (light: OKLCH, dark: OKLCH) {
-    let hue = hue(name), shift = 25 + Double(Self.hue(String(name.reversed()))).truncatingRemainder(dividingBy: 20)
+  /// `hue` overrides the hashed hue (a colour the user picked).
+  public static func pair(_ name: String, hue picked: Double? = nil) -> (light: OKLCH, dark: OKLCH) {
+    let hue = picked ?? hue(name), shift = 25 + Double(Self.hue(String(name.reversed()))).truncatingRemainder(dividingBy: 20)
     return (OKLCH(l: 0.68, c: 0.13, h: hue), OKLCH(l: 0.5, c: 0.11, h: (hue + shift).truncatingRemainder(dividingBy: 360)))
   }
 }

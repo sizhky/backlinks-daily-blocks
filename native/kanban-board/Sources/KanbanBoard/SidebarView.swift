@@ -39,7 +39,10 @@ struct SidebarView: View {
             item(f.name, leading: AnyView(Monogram(name: f.name, size: 18)), active: false, count: f.count) {
               store.append("project:" + store.quote(f.name))
             }
-            .rightClickMenu { [.submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name))] }
+            .rightClickMenu {
+              [.submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name)),
+               .submenu("Color", symbol: "paintpalette", store.colorItems(project: f.name))]
+            }
           }
           ForEach(nonEmpty(store.facets { $0.projects.isEmpty ? ["Unassigned"] : [] }, "Projects"), id: \.name) { f in
             item(f.name, icon: "tray", active: store.query.contains("no:project"), count: f.count) {

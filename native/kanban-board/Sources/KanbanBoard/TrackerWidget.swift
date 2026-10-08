@@ -258,7 +258,7 @@ struct WidgetView: View {
   /// The card's project colour (the light end of its `Monogram` gradient); the Text color setting without a
   /// project. Only task titles and timers take it; desktop, app, window, and URL keep the Text color setting.
   private func tint(_ card: Card) -> Color {
-    card.projects.first.map { Color(ProjectColor.pair($0).light) } ?? WidgetStyle.color(color)
+    card.projects.first.map { Color(ProjectHues.pair($0).light) } ?? WidgetStyle.color(color)
   }
 
   @ViewBuilder private var pausedRows: some View {

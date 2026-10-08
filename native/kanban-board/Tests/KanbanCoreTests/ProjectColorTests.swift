@@ -28,4 +28,9 @@ final class ProjectColorTests: XCTestCase {
     let names = ["Arka", "AAA", "Obsidian Workflow", "Kanban App", "Levo", "Yaksh", "Vyasa", "Divami"]
     XCTAssertEqual(Set(names.map { Int(ProjectColor.hue($0)) / 30 }).count >= 5, true)
   }
+
+  func testPickedHueOverridesHash() {
+    XCTAssertEqual(ProjectColor.pair("Arka", hue: 145).light.h, 145)
+    XCTAssertEqual(ProjectColor.pair("Arka").light.h, ProjectColor.hue("Arka"))
+  }
 }

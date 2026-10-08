@@ -204,7 +204,7 @@ struct ReportsView: View {
     let names = Array(Set(rows.map(\.name))).sorted { a, b in
       a == "Unattributed" ? false : b == "Unattributed" ? true : a < b
     }
-    let colors = names.map { $0 == "Unattributed" ? Palette.muted.opacity(0.5) : Color(ProjectColor.pair($0).light) }
+    let colors = names.map { $0 == "Unattributed" ? Palette.muted.opacity(0.5) : Color(ProjectHues.pair($0).light) }
     return VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 6) {
         Button("All organizations") { model.org = nil }

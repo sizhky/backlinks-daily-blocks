@@ -49,10 +49,42 @@ extension Color {
 
 /// Deterministic tile per project: a two-hue gradient from the name hash and the name's initials,
 /// in a rounded tile as wide as `maxLetters` letters so rows stay aligned; shorter initials sit centred.
+/// Project colours the user picked (sidebar project > Color), by project name; the rest stay hashed.
+/// Stored as `name<TAB>hue` lines in one defaults key so views can observe it with @AppStorage.
+enum ProjectHues {
+  static let key = "kanban.projectHues"
+  static let choices: [(name: String, hue: Double)] = [
+    ("Red", 25), ("Orange", 60), ("Yellow", 95), ("Green", 145), ("Teal", 190),
+    ("Blue", 250), ("Indigo", 280), ("Purple", 310), ("Pink", 350),
+  ]
+
+  static func all(_ raw: String? = UserDefaults.standard.string(forKey: key)) -> [String: Double] {
+    var out: [String: Double] = [:]
+    for line in (raw ?? "").split(separator: "\n") {
+      let f = line.split(separator: "\t")
+      if f.count == 2, let h = Double(f[1]) { out[String(f[0])] = h }
+    }
+    return out
+  }
+
+  /// nil goes back to the hashed colour.
+  static func set(_ name: String, _ hue: Double?) {
+    var map = all()
+    map[name] = hue
+    UserDefaults.standard.set(map.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value)" }.joined(separator: "\n"), forKey: key)
+  }
+
+  static func pair(_ name: String, _ raw: String? = UserDefaults.standard.string(forKey: key)) -> (light: OKLCH, dark: OKLCH) {
+    ProjectColor.pair(name, hue: all(raw)[name])
+  }
+}
+
 struct Monogram: View {
   let name: String?
   var size: CGFloat = 16
   var maxLetters = 3
+  /// Read in `fill` so a colour change redraws every tile.
+  @AppStorage(ProjectHues.key) private var hues = ""
 
   private var letters: String {
     guard let name else { return "" }
@@ -62,7 +94,7 @@ struct Monogram: View {
 
   private var fill: AnyShapeStyle {
     guard let name else { return AnyShapeStyle(Color.clear) }
-    let pair = ProjectColor.pair(name)
+    let pair = ProjectHues.pair(name, hues)
     return AnyShapeStyle(LinearGradient(
       colors: [Color(pair.light), Color(pair.dark)], startPoint: .topLeading, endPoint: .bottomTrailing))
   }
