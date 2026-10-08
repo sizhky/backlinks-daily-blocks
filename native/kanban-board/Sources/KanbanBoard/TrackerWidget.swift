@@ -17,6 +17,17 @@ enum WidgetKey {
 
 /// Widget font and colour from settings. An empty family means the system font.
 enum WidgetStyle {
+  /// A task title with markdown and wiki links reduced to underlined labels (`Title.segments`);
+  /// no link colour, so the widget's tint applies.
+  static func title(_ raw: String) -> AttributedString {
+    Title.segments(raw, vault: Vault.name).reduce(into: AttributedString()) { out, segment in
+      switch segment {
+      case .text(let t): out += AttributedString(t)
+      case .link(let label, _): var run = AttributedString(label); run.underlineStyle = .single; out += run
+      }
+    }
+  }
+
   /// `design` applies to the system font only; a chosen family keeps its own design.
   static func font(_ family: String, _ size: Double, _ weight: Font.Weight, design: Font.Design = .default) -> Font {
     family.isEmpty ? .system(size: size, weight: weight, design: design) : .custom(family, size: size).weight(weight)
@@ -238,7 +249,7 @@ struct WidgetView: View {
           }
           .foregroundStyle(tint(card))
         }
-        part(.title, lines: 2) { Text(card.title) }.foregroundStyle(tint(card))
+        part(.title, lines: 2) { Text(WidgetStyle.title(card.title)) }.foregroundStyle(tint(card))
         pausedRows.padding(.top, 4)
       }
     } else if !doing.isEmpty {
@@ -274,7 +285,7 @@ struct WidgetView: View {
   private func pausedRow(_ card: Card) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       if prefs.shown(.title) {
-        Text(card.title)
+        Text(WidgetStyle.title(card.title))
           .font(WidgetStyle.font(family, prefs.size(.title), WidgetPart.title.weight))
           .lineLimit(2)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -326,7 +337,7 @@ struct ToastCover: View {
         .foregroundStyle(color(lead.verb))
         .symbolRenderingMode(.hierarchical)
       Text(lead.verb).font(WidgetStyle.font(family, unit * 0.85, .semibold)).foregroundStyle(color(lead.verb))
-      Text(lead.title).font(WidgetStyle.font(family, unit, .semibold)).lineLimit(3)
+      Text(WidgetStyle.title(lead.title)).font(WidgetStyle.font(family, unit, .semibold)).lineLimit(3)
       if changes.count > 1 {
         Text("+\(changes.count - 1) more").font(WidgetStyle.font(family, unit * 0.72, .medium)).opacity(0.6)
       }
