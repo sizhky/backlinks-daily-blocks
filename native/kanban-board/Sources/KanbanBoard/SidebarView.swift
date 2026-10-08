@@ -41,6 +41,11 @@ struct SidebarView: View {
             }
             .rightClickMenu { [.submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name))] }
           }
+          ForEach(nonEmpty(store.facets { $0.projects.isEmpty ? ["Unassigned"] : [] }, "Projects"), id: \.name) { f in
+            item(f.name, icon: "tray", active: store.query.contains("no:project"), count: f.count) {
+              store.append("no:project")
+            }
+          }
           showAll(store.facets(\.projects), "Projects")
         }
         section("Labels") {
