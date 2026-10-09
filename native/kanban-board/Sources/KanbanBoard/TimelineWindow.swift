@@ -803,12 +803,9 @@ struct CalendarDay: View {
     case .activity(let b, let day):
       let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
       return "\(b.app)\(b.title.isEmpty || b.title == b.app ? "" : "\n" + b.title)\n\(when)\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(b.end)) · \(TimelineScreen.dur(b.end.timeIntervalSince(b.start)))"
-    case .doing(let st, let others, let day):
+    case .doing(let st, _, let day):
       let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
       return "\(st.title)\n\(when)\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
-        + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
-        + (st.ref != nil ? "\nDouble-click to open · right-click to delete" : "")
-        + (editable(st) ? "\nDrag the top\(st.open ? "" : " or bottom") edge to retime" : "")
     }
   }
 
