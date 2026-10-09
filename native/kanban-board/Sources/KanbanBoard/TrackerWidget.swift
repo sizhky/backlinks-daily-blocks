@@ -246,23 +246,15 @@ struct WidgetView: View {
   }
 
   /// What is being tracked. The active card: its active time as the one glanceable number, its time in
-  /// Doing over every stint (`Card.seconds(in:)`) as a small caption under it (the "Desktop 1" pattern),
-  /// the task under that. Other Doing cards follow as quiet rows with their paused totals.
+  /// Doing as a small caption under it, the task under that. Other Doing cards follow as smaller quiet
+  /// rows with the same pair.
   @ViewBuilder private var hero: some View {
     if let card = active {
       VStack(spacing: 3) {
         if prefs.shown(.timer) {
           TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            VStack(spacing: 0) {
-              part(.timer) { Text(Self.clock(store.activeTime(card, at: ctx.date))).monospacedDigit() }
-                .minimumScaleFactor(0.6)
-                .contentTransition(.numericText())
-              part(.timer, scale: 0.4) { Text(Self.clock(card.seconds(in: "Doing", at: ctx.date))).monospacedDigit() }
-                .opacity(0.5)
-                .padding(.top, -prefs.size(.timer) * 0.15)
-                .contentTransition(.numericText())
-                .accessibilityLabel("Time in Doing")
-            }
+            clockStack(card, at: ctx.date, size: prefs.size(.timer), captionScale: 0.4, captionOpacity: 0.5, align: prefs.align(.timer))
+              .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
           }
           .foregroundStyle(tint(card))
         }
@@ -283,34 +275,59 @@ struct WidgetView: View {
     }
   }
 
+  /// The pair: active time at `size`, and under it the card's time in Doing over every stint
+  /// (`Card.seconds(in:)`) as a dimmed caption tucked up close, the "Desktop 1" pattern. One owner for
+  /// the hero and the paused rows, so they read alike at their own scale.
+  private func clockStack(_ card: Card, at now: Date, size: Double, captionScale: Double, captionOpacity: Double,
+                          align: WidgetAlign) -> some View {
+    VStack(alignment: align.horizontal, spacing: 0) {
+      Text(Self.clock(store.activeTime(card, at: now)))
+        .font(WidgetStyle.font(family, size, WidgetPart.timer.weight, design: .rounded).monospacedDigit())
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .contentTransition(.numericText())
+      Text(Self.clock(card.seconds(in: "Doing", at: now)))
+        .font(WidgetStyle.font(family, size * captionScale, .medium, design: .rounded).monospacedDigit())
+        .lineLimit(1)
+        .opacity(captionOpacity)
+        .padding(.top, -size * 0.15)
+        .contentTransition(.numericText())
+        .accessibilityLabel("Time in Doing")
+    }
+  }
+
   /// The card's project colour (the light end of its `Monogram` gradient); the Text color setting without a
   /// project. Only task titles and timers take it; desktop, app, window, and URL keep the Text color setting.
   private func tint(_ card: Card) -> Color {
     card.projects.first.map { Color(ProjectHues.pair($0).light) } ?? WidgetStyle.color(color)
   }
 
+  /// Ticks each second: the active totals stand still, but the time in Doing captions keep running.
   @ViewBuilder private var pausedRows: some View {
     if !paused.isEmpty {
-      VStack(spacing: 6) {
-        ForEach(paused) { card in pausedRow(card) }
+      TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        VStack(spacing: 6) {
+          ForEach(paused) { card in pausedRow(card, at: ctx.date) }
+        }
       }
       .opacity(0.5)
     }
   }
 
-  /// A Doing card that is not active: title left, its active total right, not running. One number
-  /// per row: two per row read as clutter (2026-10-09), so time in Doing shows on the hero only.
-  private func pausedRow(_ card: Card) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
+  /// A Doing card that is not active, at 0.85 of the title size: title left; right, the hero's pair at row
+  /// scale (active total not running, time in Doing caption running). An inline `23:14 (45:11)` on every
+  /// row read as clutter (2026-10-09); the stacked pair keeps one number per line.
+  private func pausedRow(_ card: Card, at now: Date) -> some View {
+    let unit = prefs.size(.title) * 0.85
+    return HStack(alignment: .firstTextBaseline, spacing: 8) {
       if prefs.shown(.title) {
         Text(WidgetStyle.title(card.title))
-          .font(WidgetStyle.font(family, prefs.size(.title), WidgetPart.title.weight))
+          .font(WidgetStyle.font(family, unit, WidgetPart.title.weight))
           .lineLimit(2)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       if prefs.shown(.timer) {
-        Text(Self.clock(store.activeTime(card, at: Date())))
-          .font(WidgetStyle.font(family, prefs.size(.title) * 1.15, .semibold, design: .rounded).monospacedDigit())
+        clockStack(card, at: now, size: unit * 1.15, captionScale: 0.75, captionOpacity: 0.7, align: .trailing)
           .fixedSize()
       }
     }

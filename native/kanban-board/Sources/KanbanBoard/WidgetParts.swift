@@ -9,6 +9,7 @@ enum WidgetAlign: String, CaseIterable, Identifiable {
   var symbol: String { switch self { case .leading: "text.alignleft"; case .center: "text.aligncenter"; case .trailing: "text.alignright" } }
   var text: TextAlignment { switch self { case .leading: .leading; case .center: .center; case .trailing: .trailing } }
   var frame: Alignment { switch self { case .leading: .leading; case .center: .center; case .trailing: .trailing } }
+  var horizontal: HorizontalAlignment { switch self { case .leading: .leading; case .center: .center; case .trailing: .trailing } }
 }
 
 /// The widget's elements, top to bottom. Each has its own visibility, justification, and font size

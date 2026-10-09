@@ -332,8 +332,9 @@ Before building or wording any UI, ask what Apple would do and do that.
 - One active task (`Focus.pick`): among Doing cards, owners of the current context win, else cards with no
   affinity, ties to the latest into Doing; away = none. The widget shows that card as the hero with its active
   time running, its time in Doing over every stint (`Card.seconds(in:)`) as a dimmed caption under it at 0.4 of
-  the timer size, and the other Doing cards as dimmed paused rows with their active total only. One number per
-  row: an inline `23:14 (45:11)` pair on every row read as clutter (2026-10-09). Reports use the same pick per moment.
+  the timer size (`WidgetView.clockStack`), and the other Doing cards as dimmed paused rows at 0.85 of the title
+  size with the same stacked pair (caption 0.75 of the row number, running). One number per line: an inline
+  `23:14 (45:11)` pair on every row read as clutter (2026-10-09). Reports use the same pick per moment.
   `ActiveClock` (persisted in `kanban.activeClock`) credits ticks (refresh and every context change, capped at
   15 s), takes back time after the idle start when going away, and `BoardStore.flushActive` writes whole seconds
   with `kb.addActive` on a switch and every 300 s. The board adds flushed seconds locally so the timer never dips.
