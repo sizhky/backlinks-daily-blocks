@@ -252,7 +252,7 @@ struct WidgetView: View {
       VStack(spacing: 3) {
         if prefs.shown(.timer) {
           TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            part(.timer) { heroClock(card, at: ctx.date) }
+            part(.timer) { clockText(card, at: ctx.date, size: prefs.size(.timer), doingSize: prefs.size(.timer) * 0.5) }
               .minimumScaleFactor(0.6)
               .contentTransition(.numericText())
           }
@@ -275,13 +275,15 @@ struct WidgetView: View {
     }
   }
 
-  /// Active time, then the card's time in Doing over every stint (`Card.seconds(in:)`) in parentheses at
-  /// half size and dimmed: `23:14 (45:11)`. The timer part's font sets the first number only.
-  private func heroClock(_ card: Card, at now: Date) -> Text {
+  /// Active time at `size`, then the card's time in Doing over every stint (`Card.seconds(in:)`) in
+  /// parentheses at `doingSize`, dimmed: `23:14 (45:11)`. Both runs carry their own font.
+  private func clockText(_ card: Card, at now: Date, size: Double, doingSize: Double) -> Text {
+    let active = Text(Self.clock(store.activeTime(card, at: now)))
+      .font(WidgetStyle.font(family, size, WidgetPart.timer.weight, design: .rounded))
     let doing = Text(" (\(Self.clock(card.seconds(in: "Doing", at: now))))")
-      .font(WidgetStyle.font(family, prefs.size(.timer) * 0.5, .medium, design: .rounded))
+      .font(WidgetStyle.font(family, doingSize, .medium, design: .rounded))
       .foregroundStyle(tint(card).opacity(0.7))
-    return (Text(Self.clock(store.activeTime(card, at: now))) + doing).monospacedDigit()
+    return (active + doing).monospacedDigit()
   }
 
   /// The card's project colour (the light end of its `Monogram` gradient); the Text color setting without a
@@ -290,17 +292,20 @@ struct WidgetView: View {
     card.projects.first.map { Color(ProjectHues.pair($0).light) } ?? WidgetStyle.color(color)
   }
 
+  /// Ticks each second: the active totals stand still, but the time in Doing keeps running.
   @ViewBuilder private var pausedRows: some View {
     if !paused.isEmpty {
-      VStack(spacing: 6) {
-        ForEach(paused) { card in pausedRow(card) }
+      TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        VStack(spacing: 6) {
+          ForEach(paused) { card in pausedRow(card, at: ctx.date) }
+        }
       }
       .opacity(0.5)
     }
   }
 
-  /// A Doing card that is not active: title left, its active total right, not running.
-  private func pausedRow(_ card: Card) -> some View {
+  /// A Doing card that is not active: title left; right, its paused active total and its time in Doing.
+  private func pausedRow(_ card: Card, at now: Date) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       if prefs.shown(.title) {
         Text(WidgetStyle.title(card.title))
@@ -309,9 +314,8 @@ struct WidgetView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       if prefs.shown(.timer) {
-        Text(Self.clock(store.activeTime(card, at: Date())))
-          .font(WidgetStyle.font(family, prefs.size(.title) * 1.15, .semibold, design: .rounded).monospacedDigit())
-          .fixedSize()
+        let size = prefs.size(.title) * 1.15
+        clockText(card, at: now, size: size, doingSize: size).fixedSize()
       }
     }
     .foregroundStyle(tint(card))
