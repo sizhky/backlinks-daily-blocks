@@ -246,15 +246,23 @@ struct WidgetView: View {
   }
 
   /// What is being tracked. The active card: its active time as the one glanceable number, its time in
-  /// Doing beside it in parentheses, the task under it. Other Doing cards follow as quiet rows with their paused totals.
+  /// Doing over every stint (`Card.seconds(in:)`) as a small caption under it (the "Desktop 1" pattern),
+  /// the task under that. Other Doing cards follow as quiet rows with their paused totals.
   @ViewBuilder private var hero: some View {
     if let card = active {
       VStack(spacing: 3) {
         if prefs.shown(.timer) {
           TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            part(.timer) { clockText(card, at: ctx.date, size: prefs.size(.timer), doingSize: prefs.size(.timer) * 0.5) }
-              .minimumScaleFactor(0.6)
-              .contentTransition(.numericText())
+            VStack(spacing: 0) {
+              part(.timer) { Text(Self.clock(store.activeTime(card, at: ctx.date))).monospacedDigit() }
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+              part(.timer, scale: 0.4) { Text(Self.clock(card.seconds(in: "Doing", at: ctx.date))).monospacedDigit() }
+                .opacity(0.5)
+                .padding(.top, -prefs.size(.timer) * 0.15)
+                .contentTransition(.numericText())
+                .accessibilityLabel("Time in Doing")
+            }
           }
           .foregroundStyle(tint(card))
         }
@@ -275,37 +283,24 @@ struct WidgetView: View {
     }
   }
 
-  /// Active time at `size`, then the card's time in Doing over every stint (`Card.seconds(in:)`) in
-  /// parentheses at `doingSize`, dimmed: `23:14 (45:11)`. Both runs carry their own font.
-  private func clockText(_ card: Card, at now: Date, size: Double, doingSize: Double) -> Text {
-    let active = Text(Self.clock(store.activeTime(card, at: now)))
-      .font(WidgetStyle.font(family, size, WidgetPart.timer.weight, design: .rounded))
-    let doing = Text(" (\(Self.clock(card.seconds(in: "Doing", at: now))))")
-      .font(WidgetStyle.font(family, doingSize, .medium, design: .rounded))
-      .foregroundStyle(tint(card).opacity(0.7))
-    return (active + doing).monospacedDigit()
-  }
-
   /// The card's project colour (the light end of its `Monogram` gradient); the Text color setting without a
   /// project. Only task titles and timers take it; desktop, app, window, and URL keep the Text color setting.
   private func tint(_ card: Card) -> Color {
     card.projects.first.map { Color(ProjectHues.pair($0).light) } ?? WidgetStyle.color(color)
   }
 
-  /// Ticks each second: the active totals stand still, but the time in Doing keeps running.
   @ViewBuilder private var pausedRows: some View {
     if !paused.isEmpty {
-      TimelineView(.periodic(from: .now, by: 1)) { ctx in
-        VStack(spacing: 6) {
-          ForEach(paused) { card in pausedRow(card, at: ctx.date) }
-        }
+      VStack(spacing: 6) {
+        ForEach(paused) { card in pausedRow(card) }
       }
       .opacity(0.5)
     }
   }
 
-  /// A Doing card that is not active: title left; right, its paused active total and its time in Doing.
-  private func pausedRow(_ card: Card, at now: Date) -> some View {
+  /// A Doing card that is not active: title left, its active total right, not running. One number
+  /// per row: two per row read as clutter (2026-10-09), so time in Doing shows on the hero only.
+  private func pausedRow(_ card: Card) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       if prefs.shown(.title) {
         Text(WidgetStyle.title(card.title))
@@ -314,8 +309,9 @@ struct WidgetView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       if prefs.shown(.timer) {
-        let size = prefs.size(.title) * 1.15
-        clockText(card, at: now, size: size, doingSize: size).fixedSize()
+        Text(Self.clock(store.activeTime(card, at: Date())))
+          .font(WidgetStyle.font(family, prefs.size(.title) * 1.15, .semibold, design: .rounded).monospacedDigit())
+          .fixedSize()
       }
     }
     .foregroundStyle(tint(card))
