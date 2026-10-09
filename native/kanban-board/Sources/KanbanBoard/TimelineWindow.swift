@@ -4,13 +4,14 @@ import SwiftUI
 import KanbanCore
 
 /// Day timeline window: what the Mac showed, second by second (activity log), beside what was
-/// in Doing (`kb.chronicle`). Read-only; it never moves cards.
+/// in Doing (`kb.chronicle`). It never moves cards; it only retimes or deletes Doing stints (`kb.editStint`).
 @MainActor
 final class TimelineWindow {
   private var window: NSWindow?
   private let model: TimelineModel
   private let reports: ReportsModel
   private var zoomMonitor: Any?
+  private let menu = MenuController()
 
   init(activity: ActivityMonitor) {
     model = TimelineModel(activity: activity)
@@ -26,7 +27,8 @@ final class TimelineWindow {
       w.titlebarAppearsTransparent = true
       w.isReleasedWhenClosed = false
       w.appearance = NSAppearance(named: .darkAqua)
-      let host = NSHostingController(rootView: TimelineScreen().environmentObject(model).environmentObject(reports))
+      let host = NSHostingController(rootView: TimelineScreen().environmentObject(model).environmentObject(reports)
+        .environmentObject(menu))
       host.sizingOptions = [.minSize]  // otherwise the window shrinks to the content's fitting size
       w.contentViewController = host
       if !w.setFrameUsingName("Timeline") {
@@ -89,6 +91,19 @@ final class TimelineModel: ObservableObject {
 
   func open(ref: String) {
     Task { do { try await client.open(ref: ref) } catch { self.error = error.localizedDescription } }
+  }
+
+  /// Writes a retimed or deleted Doing stint to its note, then reloads the stints.
+  func editStint(_ st: DoingStint, _ edge: StintEdge? = nil, to t: Date? = nil) {
+    guard let ref = st.ref, let enter = st.enter else { return }
+    Task {
+      var failure: String?
+      do {
+        try await client.editStint(ref: ref, enter: enter, start: edge == .start ? t : nil, end: edge == .end ? t : nil, delete: edge == nil)
+      } catch { failure = error.localizedDescription.split(separator: "\n").first.map(String.init) }
+      load(chronicle: true)
+      if let failure { self.error = failure }
+    }
   }
 
   func setWeek(_ on: Bool) {
@@ -205,12 +220,15 @@ struct TimelineScreen: View {
       } else {
         header
         Divider().overlay(Palette.hairline)
-        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:))
+        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:),
+                    edit: { model.editStint($0, $1, to: $2) })
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
     }
     .onAppear { model.setWeek(mode == "week") }
     .onChange(of: mode) { model.setWeek(mode == "week") }
+    .coordinateSpace(.named(MenuController.space))
+    .overlay { MenuHost() }
     .background(Palette.base)
     .foregroundStyle(Palette.text)
     .frame(minWidth: 640, minHeight: 420)
@@ -413,6 +431,8 @@ struct CalendarDay: View {
   let zoom: PassthroughSubject<ZoomRequest, Never>
   /// Opens a Doing card (`file:line`) in Obsidian; double-click on its block.
   let open: (String) -> Void
+  /// Retimes a Doing stint (edge dragged to a time) or deletes it (nil edge); right-click and edge drags.
+  let edit: (DoingStint, StintEdge?, Date?) -> Void
   static let gutter = 64.0
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
   static let zoomRange = 24.0...3600.0
@@ -425,6 +445,16 @@ struct CalendarDay: View {
   /// Pointer in content coordinates (y from midnight).
   @State private var pointer: CGPoint?
   @State private var save: Task<Void, Never>?
+  @EnvironmentObject private var menu: MenuController
+  /// The edge being dragged, and where it is now; kept after release until the stints reload.
+  @State private var drag: EdgeDrag?
+  @State private var menuOrigin = CGPoint.zero
+
+  private struct EdgeDrag {
+    let stint: DoingStint, day: Date, edge: StintEdge
+    var time: Date
+    var released = false
+  }
 
   private var single: Bool { days.count == 1 }
   /// y of a time within its own day.
@@ -459,17 +489,22 @@ struct CalendarDay: View {
           .onTapGesture(count: 2) { p in
             if case .doing(let st, _, _)? = item(at: p), let ref = st.ref { open(ref) }
           }
+          .gesture(DragGesture(minimumDistance: 2).onChanged(dragChanged).onEnded { _ in dragEnded() })
+          .pointerStyle(drag != nil || pointer.flatMap(edge(at:)) != nil ? .rowResize : nil)
+          .onRightClick(showMenu)
       }
       .scrollPosition($position)
       .onScrollGeometryChange(for: Double.self) { $0.contentOffset.y } action: { _, v in offsetY = v }
       .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { viewport = $0 }
+      .onGeometryChange(for: CGPoint.self) { $0.frame(in: .named(MenuController.space)).origin } action: { menuOrigin = $0 }
+      .onChange(of: layouts.map(\.stints)) { if drag?.released == true { drag = nil } }
       .background(alignment: .topLeading) {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
           Canvas { gc, size in draw(gc, size: size, now: ctx.date) }
         }
       }
       .overlay(alignment: .topLeading) {
-        if let p = pointer, let text = item(at: p).map(tip) {
+        if let p = pointer, let text = drag.map(dragTip) ?? item(at: p).map(tip) {
           HoverCard(text: text, at: CGPoint(x: p.x, y: p.y - offsetY), bounds: viewport.size).allowsHitTesting(false)
         }
       }
@@ -549,6 +584,7 @@ struct CalendarDay: View {
     let top = offsetY, bottom = offsetY + size.height
     let visible = { (a: Double, b: Double) in b >= top - 2 && a <= bottom + 2 }
     let sl = slots(width: size.width)
+    let hot = hotStint
     // Grid
     let step = Double(tick ?? 60)
     var minute = max(0, floor(top / hourHeight * 60 / step) * step)
@@ -587,13 +623,15 @@ struct CalendarDay: View {
         }
       }
       // Doing
-      for (k, st) in layout.stints.enumerated() {
-        let y0 = y(st.start, day), y1 = y(st.end, day)
-        guard visible(y0, y1) else { continue }
-        let w = (s.dw + 2) / Double(layout.lanes[k])
-        let r = CGRect(x: s.dx + Double(layout.lane[k]) * w, y: y0 - top, width: max(1, w - 2), height: max(2, y1 - y0 - 1))
-        block(gc, r, tint: st.project.map { Color(ProjectHues.pair($0).light) } ?? Palette.indigo, title: r.width >= 60 ? st.title : nil, icon: nil,
+      for (k, base) in layout.stints.enumerated() {
+        let st = preview(base, day)
+        let c = doingRect(k, st, layout, s, day)
+        guard visible(c.minY, c.maxY) else { continue }
+        let r = c.offsetBy(dx: 0, dy: -top)
+        let tint = st.project.map { Color(ProjectHues.pair($0).light) } ?? Palette.indigo
+        block(gc, r, tint: tint, title: r.width >= 60 ? st.title : nil, icon: nil,
               dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: 0.28)
+        if editable(base), hot?.id == base.id, hot?.day == day { handles(gc, r, tint: tint, end: !st.open) }
       }
       // Now
       if Calendar.current.isDateInToday(day) {
@@ -630,6 +668,16 @@ struct CalendarDay: View {
                at: CGPoint(x: x, y: r.minY + 3), anchor: .topLeading)
   }
 
+  /// Grab bars on a Doing block's start edge and, once the stint has closed, its end edge.
+  private func handles(_ gc: GraphicsContext, _ r: CGRect, tint: Color, end: Bool) {
+    let w = min(28, max(8, r.width - 12))
+    for y in end ? [r.minY, r.maxY] : [r.minY] {
+      let bar = Path(roundedRect: CGRect(x: r.midX - w / 2, y: y - 2.5, width: w, height: 5), cornerRadius: 2.5)
+      gc.fill(bar, with: .color(tint))
+      gc.stroke(bar, with: .color(Palette.window), lineWidth: 1)
+    }
+  }
+
   private func sessionLabel(_ gc: GraphicsContext, _ ss: ActivitySession, at p: CGPoint, maxWidth: Double) {
     var parts = Text(ss.app).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Palette.text)
     if !ss.title.isEmpty, ss.title != ss.app {
@@ -650,6 +698,81 @@ struct CalendarDay: View {
 
   // MARK: Hover hit test (content coordinates)
 
+  /// A Doing block in content coordinates: its lane's column, from start to end.
+  private func doingRect(_ k: Int, _ st: DoingStint, _ layout: CalendarLayout, _ s: (ax: Double, aw: Double, dx: Double, dw: Double), _ day: Date) -> CGRect {
+    let y0 = y(st.start, day), y1 = y(st.end, day)
+    let w = (s.dw + 2) / Double(layout.lanes[k])
+    return CGRect(x: s.dx + Double(layout.lane[k]) * w, y: y0, width: max(1, w - 2), height: max(2, y1 - y0 - 1))
+  }
+
+  /// Stints with a note and an entry stamp can be retimed and deleted (`kb.editStint`).
+  private func editable(_ st: DoingStint) -> Bool { st.ref != nil && st.enter != nil }
+
+  /// The stint whose edge is dragged, else the one under the pointer: it shows its grab bars.
+  private var hotStint: (id: String, day: Date)? {
+    if let d = drag { return (d.stint.id, d.day) }
+    if let p = pointer, case .doing(let st, _, let day)? = item(at: p) ?? edge(at: p).map({ .doing($0.stint, others: 0, day: $0.day) }) { return (st.id, day) }
+    return nil
+  }
+
+  private func preview(_ st: DoingStint, _ day: Date) -> DoingStint {
+    guard let d = drag, d.stint.id == st.id, d.day == day else { return st }
+    return st.with(d.edge, at: d.time)
+  }
+
+  /// The editable Doing edge nearest `p` within 5 pt: start for any stint, end only once it has closed.
+  private func edge(at p: CGPoint) -> (stint: DoingStint, day: Date, edge: StintEdge)? {
+    let sl = slots(width: viewport.width)
+    guard let i = sl.indices.first(where: { p.x >= sl[$0].dx && p.x <= sl[$0].dx + sl[$0].dw + 2 }) else { return nil }
+    var best: (stint: DoingStint, day: Date, edge: StintEdge, d: Double)?
+    for (k, st) in layouts[i].stints.enumerated() where editable(st) {
+      let r = doingRect(k, st, layouts[i], sl[i], days[i])
+      guard p.x >= r.minX, p.x <= r.maxX + 2 else { continue }
+      let near = [(StintEdge.start, abs(p.y - r.minY))] + (st.open ? [] : [(StintEdge.end, abs(p.y - r.maxY))])
+      for (e, d) in near where d <= 5 && d < (best?.d ?? .infinity) { best = (st, days[i], e, d) }
+    }
+    return best.map { ($0.stint, $0.day, $0.edge) }
+  }
+
+  private func dragChanged(_ g: DragGesture.Value) {
+    pointer = g.location
+    if drag == nil || drag?.released == true {
+      guard let hit = edge(at: g.startLocation) else { return }
+      drag = EdgeDrag(stint: hit.stint, day: hit.day, edge: hit.edge, time: hit.edge == .start ? hit.stint.start : hit.stint.end)
+    }
+    guard var d = drag else { return }
+    d.time = d.stint.dragged(d.edge, to: d.day.addingTimeInterval(min(24 * hourHeight, max(0, g.location.y)) / hourHeight * 3600), now: Date())
+    drag = d
+  }
+
+  /// Writes the dragged edge; the preview stays until the stints reload (or 4 s, if the write fails).
+  private func dragEnded() {
+    guard let d = drag, !d.released else { return }
+    guard d.time != (d.edge == .start ? d.stint.start : d.stint.end) else { drag = nil; return }
+    drag?.released = true
+    edit(d.stint, d.edge, d.time)
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(4))
+      if drag?.released == true { drag = nil }
+    }
+  }
+
+  private func dragTip(_ d: EdgeDrag) -> String {
+    let st = d.stint.with(d.edge, at: d.time)
+    return "\(st.title)\n\(d.edge == .start ? "Start" : "End") \(TimelineRowView.clock(d.time)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))"
+  }
+
+  private func showMenu() {
+    guard let p = pointer, case .doing(let st, _, _)? = item(at: p), let ref = st.ref else { return }
+    let items = [
+      MenuItem(title: "Open in Obsidian", kind: .action { open(ref) }),
+      MenuItem(kind: .separator),
+      MenuItem(title: st.open ? "Delete Stint (running)" : "Delete Stint", disabled: st.open || !editable(st), destructive: true,
+               kind: .action { edit(st, nil, nil) }),
+    ]
+    menu.show(items, at: CGPoint(x: menuOrigin.x + p.x, y: menuOrigin.y + p.y - offsetY))
+  }
+
   private enum Item {
     case activity(ActivityBlock, day: Date)
     case doing(DoingStint, others: Int, day: Date)
@@ -668,9 +791,8 @@ struct CalendarDay: View {
     }
     if p.x >= s.dx {
       for (k, st) in layout.stints.enumerated() where st.start <= t && st.end >= t {
-        let w = (s.dw + 2) / Double(layout.lanes[k])
-        let x0 = s.dx + Double(layout.lane[k]) * w
-        if p.x >= x0, p.x <= x0 + w { return .doing(st, others: layout.lanes[k] - 1, day: days[i]) }
+        let r = doingRect(k, st, layout, s, days[i])
+        if p.x >= r.minX, p.x <= r.maxX + 2 { return .doing(st, others: layout.lanes[k] - 1, day: days[i]) }
       }
     }
     return nil
@@ -685,7 +807,8 @@ struct CalendarDay: View {
       let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
       return "\(st.title)\n\(when)\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
         + (others > 0 ? "\n\(others) other card\(others == 1 ? "" : "s") in Doing alongside" : "")
-        + (st.ref != nil ? "\nDouble-click to open" : "")
+        + (st.ref != nil ? "\nDouble-click to open · right-click to delete" : "")
+        + (editable(st) ? "\nDrag the top\(st.open ? "" : " or bottom") edge to retime" : "")
     }
   }
 

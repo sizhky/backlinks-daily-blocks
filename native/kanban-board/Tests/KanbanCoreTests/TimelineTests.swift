@@ -31,6 +31,7 @@ final class TimelineTests: XCTestCase {
     XCTAssertNil(out[0].ref)
     XCTAssertEqual(ActivityLog.stints("0930:1015\t45m\tFix API\t20261007-1045.md:7", day: day).first?.ref, "20261007-1045.md:7")
     XCTAssertEqual(ActivityLog.stints("0930:1015\t45m\tFix API\t20261007-1045.md:7\tKanban App", day: day).first?.project, "Kanban App")
+    XCTAssertEqual(ActivityLog.stints("0930:1015\t45m\tFix API\t20261007-1045.md:7\t\t202610070930", day: day).first?.enter, "202610070930")
   }
 
   func testUnionSecondsMergesOverlaps() {
@@ -79,5 +80,16 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(out["20261005"]?.map(\.title), ["A"])
     XCTAssertEqual(out["20261006"]?.count, 0)
     XCTAssertNil(out["total"])
+  }
+
+  func testDraggedEdgeSnapsToMinutesAndKeepsOrder() {
+    let t0 = Date(timeIntervalSince1970: 36000)
+    let st = DoingStint(start: t0, end: t0.addingTimeInterval(3600), title: "a", open: false)
+    let now = t0.addingTimeInterval(7200)
+    XCTAssertEqual(st.dragged(.end, to: t0.addingTimeInterval(20), now: now), t0.addingTimeInterval(60))
+    XCTAssertEqual(st.dragged(.start, to: t0.addingTimeInterval(5400), now: now), t0.addingTimeInterval(3540))
+    XCTAssertEqual(st.dragged(.end, to: t0.addingTimeInterval(10800), now: now), now)
+    XCTAssertEqual(st.dragged(.start, to: t0.addingTimeInterval(-89), now: now), t0.addingTimeInterval(-60))
+    XCTAssertEqual(st.with(.end, at: now).end, now)
   }
 }

@@ -7,7 +7,33 @@ public struct DoingStint: Equatable, Sendable, Identifiable {
   public var ref: String? = nil
   /// First project of the card's note (5th field with refs); nil when absent.
   public var project: String? = nil
+  /// Bare `yyyyMMddHHmm` stamp of the move into Doing (6th field with refs): the stint's key for `kb.editStint`.
+  public var enter: String? = nil
   public var id: String { "\(start.timeIntervalSince1970)|\(title)" }
+}
+
+/// Which end of a Doing stint a calendar drag moves.
+public enum StintEdge: Sendable { case start, end }
+
+extension DoingStint {
+  /// Where a dragged edge lands: a whole minute (note stamps are minute precision), at least a
+  /// minute from the other edge, never after `now`.
+  /// ```
+  /// 10:00-11:00: end to 10:00:20 -> 10:01;  start to 11:30 -> 10:59;  end to 13:00 at now 12:00 -> 12:00
+  /// ```
+  public func dragged(_ edge: StintEdge, to t: Date, now: Date) -> Date {
+    let m = Date(timeIntervalSince1970: (t.timeIntervalSince1970 / 60).rounded() * 60)
+    switch edge {
+    case .start: return min(m, end.addingTimeInterval(-60), now)
+    case .end: return min(max(m, start.addingTimeInterval(60)), now)
+    }
+  }
+
+  /// This stint with one edge moved (drag preview).
+  public func with(_ edge: StintEdge, at t: Date) -> DoingStint {
+    DoingStint(start: edge == .start ? t : start, end: edge == .end ? t : end, title: title, open: open,
+               ref: ref, project: project, enter: enter)
+  }
 }
 
 /// One row of the timeline list: a captured span, or a gap with no activity (away, asleep, app closed).
@@ -115,7 +141,7 @@ public enum ActivityLog {
             let a = calendar.date(bySettingHour: Int(m.1)!, minute: Int(m.2)!, second: 0, of: day),
             let b = calendar.date(bySettingHour: Int(m.3)!, minute: Int(m.4)!, second: 0, of: day) else { return nil }
       return DoingStint(start: a, end: b, title: String(f[2]), open: !m.5.isEmpty, ref: f.count > 3 && !f[3].isEmpty ? String(f[3]) : nil,
-                        project: f.count > 4 && !f[4].isEmpty ? String(f[4]) : nil)
+                        project: f.count > 4 && !f[4].isEmpty ? String(f[4]) : nil, enter: f.count > 5 && !f[5].isEmpty ? String(f[5]) : nil)
     }
   }
 }

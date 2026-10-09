@@ -82,6 +82,13 @@ struct ObsidianClient {
     return try await eval("kb.chronicle(\"\(f.string(from: from))\",\"\(f.string(from: to))\",{refs:true})")
   }
 
+  /// Retimes (`start`/`end`) or deletes one Doing stint of `ref` keyed by its entry stamp (`kb.editStint`).
+  func editStint(ref: String, enter: String, start: Date? = nil, end: Date? = nil, delete: Bool = false) async throws {
+    let iso = ISO8601DateFormatter()
+    let change = delete ? "'delete'" : "{start:\(try js(start.map(iso.string))),end:\(try js(end.map(iso.string)))}"
+    _ = try await eval("kb.editStint(\(try js(ref)),\(try js(enter)),\(change))")
+  }
+
   /// Adds active seconds to cards (`kb.addActive`), refs with whole seconds.
   func addActive(_ items: [(ref: String, seconds: Int)]) async throws {
     _ = try await eval("kb.addActive(\(try js(items.map { [$0.ref, String($0.seconds)] })))")

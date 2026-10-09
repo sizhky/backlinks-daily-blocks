@@ -1,10 +1,9 @@
 // report fence — daily task Gantt chart
 const { editLines, TASK_RE, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig, fmtDur, addTitleCopy } = require('./kanban');
 const { openFileAtLine } = require('./core/render');
-const { chrono } = require('./core/activity');
+const { chrono, HIST_RE } = require('./core/activity');
 const { MarkdownRenderChild, Modal, Notice, getFrontMatterInfo, parseYaml } = require('obsidian');
 
-const HIST_RE = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
 const COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
 const COL_PALETTE = {
   backlog: '#8a8f98', todo: '#d29922', doing: '#2d7ff9',

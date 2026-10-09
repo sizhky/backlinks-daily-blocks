@@ -301,6 +301,8 @@ struct MenuTrigger<Label: View>: View {
 extension View {
   /// Right-click (or control-click) opens `items` at the pointer.
   func rightClickMenu(_ items: @escaping () -> [MenuItem]) -> some View { modifier(RightClickMenu(items: items)) }
+  /// Right-click (or control-click) runs `action`; for views that place the menu themselves.
+  func onRightClick(_ action: @escaping () -> Void) -> some View { overlay(RightClickCatcher { _ in action() }) }
 }
 
 private struct RightClickMenu: ViewModifier {

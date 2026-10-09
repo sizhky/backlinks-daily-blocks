@@ -4,7 +4,7 @@
 
 const { MarkdownRenderChild, Menu, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
-const { desktopRef, chrono } = require('./core/activity');
+const { desktopRef, chrono, HIST_RE } = require('./core/activity');
 
 // Persisted marker for "no lanes selected". Kept distinct from a cleared
 // `lanes:` line (= all) and from the "(none)" no-frontmatter pool lane.
@@ -16,10 +16,6 @@ const STAMP_RE = /\s+\d{8}-?\d{4}\s*$/;
 const TASK_RE = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
 // A task's notes run until the next task or a `---` separator line.
 const TASK_END_RE = /^(\s*[-*]\s*\[.\]\s*.*|\s*---+\s*)$/;
-// Move history rides under the task as hidden comment lines:
-//     %% kb 20260611-1530 Todo > Doing %%
-// (regex tolerates the older no-space and unhyphenated forms)
-const HIST_RE = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
 // Eisenhower triage stamps (written by the ei block):
 //     %% ei 20260612-0850 sched %%
 const EI_HIST_RE = /^\s*%%\s?ei (\d{8}-?\d{4}) ([\w-]+)\s?%%\s*$/;

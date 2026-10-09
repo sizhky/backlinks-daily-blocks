@@ -96,3 +96,37 @@ test('columnSeconds sums closed stints per column and leaves the open one out', 
   ];
   assert.deepEqual({ ...columnSeconds(h) }, { Doing: 1800, Parked: 1800 });
 });
+
+const card = () => [
+  '- [x] a',
+  '  %% kb 20261008-1200 Parked > Done %%',
+  '  %% kb 20261008-1100 Doing > Parked %%',
+  '  %% kb 20261008-1000 Todo > Doing %%',
+  '- [ ] b',
+  '  %% kb 20261008-0900 Todo > Doing %%',
+];
+
+test('stintEdit retimes start and end, clamped between the neighbouring moves', () => {
+  const L = card();
+  A.stintEdit(L, 0, '202610081000', { start: '202610081015', end: '202610081300' });
+  assert.equal(L[3], '  %% kb 20261008-1015 Todo > Doing %%');
+  assert.equal(L[2], '  %% kb 20261008-1200 Doing > Parked %%');
+  assert.equal(L[5], '  %% kb 20261008-0900 Todo > Doing %%');
+});
+
+test('stintEdit delete drops the entry and starts the exit move from the entry column', () => {
+  const L = card();
+  A.stintEdit(L, 0, '202610081000', 'delete');
+  assert.deepEqual(L.slice(0, 3), ['- [x] a', '  %% kb 20261008-1200 Parked > Done %%', '  %% kb 20261008-1100 Todo > Parked %%']);
+  const M = ['- [ ] a', '  %% kb 20261008-1100 Doing > Parked %%', '  %% kb 20261008-1000 Parked > Doing %%'];
+  A.stintEdit(M, 0, '202610081000', 'delete');
+  assert.deepEqual(M, ['- [ ] a']);
+});
+
+test('stintEdit refuses an open stint end or delete and an unknown entry', () => {
+  assert.throws(() => A.stintEdit(card(), 4, '202610080900', 'delete'), /still open/);
+  assert.throws(() => A.stintEdit(card(), 0, '202610080900', { start: '202610080800' }), /no Doing stint/);
+  const L = card();
+  A.stintEdit(L, 4, '202610080900', { start: '202610080830' });
+  assert.equal(L[5], '  %% kb 20261008-0830 Todo > Doing %%');
+});

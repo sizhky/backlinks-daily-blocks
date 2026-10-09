@@ -147,6 +147,7 @@ Example:
 TOTAL	10h10m	42% elapsed
 ```
 `~` means the stint is still open now.
+With `opts.refs`, each row adds `<TAB>file:line<TAB>first project<TAB>entry stamp` (bare `yyyymmddhhmm` of the move into Doing).
 Chronicle appends `TOTAL<TAB>tracked<TAB>P% elapsed`.
 For today, `% elapsed` uses midnight -> now. For completed days, full day.
 `opts.refs: true` appends `<TAB>file:line` to each stint row (the Kanban Board Timeline opens cards from it).
@@ -217,6 +218,13 @@ Returns `ok file:line -> Col` on success.
 `refs` is an array of `file:line`. Same-file refs move bottom-up so line numbers stay valid.
 No open-children guard (same as `moveTask`). Returns `ok <moved>`.
 `opts.at` (ISO time) backdates the history stamp; a card whose latest move is after `at` is skipped. The Kanban Board app uses it for activity switch rules.
+
+### `kb.editStint(ref, enter, change)` — retime or delete one Doing stint
+`enter` is the stint's entry stamp (chronicle's 7th field with `refs`). `change = {start, end}` (ISO, either optional)
+rewrites the stamp of the move into Doing and/or the move out, clamped between the neighbouring moves.
+`change = 'delete'` drops the move into Doing and makes the move out start from the entry's column (`Todo > Doing`,
+`Doing > Done` becomes `Todo > Done`; `Parked > Doing`, `Doing > Parked` disappears). An open stint's end and delete throw.
+Returns `ok <ref> retimed|deleted`. The Kanban Board Timeline uses it for edge drags and right-click Delete Stint.
 
 ### `kb.parkAll(at)` — park every Doing card at a moment
 Moves every Doing card to Parked (habit cards to Idle), history stamped at ISO `at`; cards that moved after `at` are skipped.

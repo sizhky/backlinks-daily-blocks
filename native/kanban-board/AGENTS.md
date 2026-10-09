@@ -248,6 +248,12 @@ Before building or wording any UI, ask what Apple would do and do that.
   Double-click a Doing block opens its card: `kb.chronicle(..., {refs:true})` appends `file:line`
   (`DoingStint.ref`), opened with `ObsidianClient.open(ref:)`. Activity blocks have no note to open.
   The 5th field is the note's first project (`DoingStint.project`); Doing blocks take its `ProjectColor` light tint, indigo without one.
+  The 6th field is the stint's entry stamp (`DoingStint.enter`), its key for `kb.editStint`. Hovering a Doing block shows grab bars
+  on its start edge and, once closed, its end edge; dragging one (`DoingStint.dragged`: whole minutes, a minute from the other
+  edge, never after now) writes `kb.editStint(ref, enter, {start|end})` on release, and the preview stays until the stints reload.
+  Right-click a Doing block for Open in Obsidian / Delete Stint (running stints cannot be deleted). The Timeline window has its
+  own `MenuController` and `MenuHost`; `onRightClick` hands the click to the view, which places the menu at its hover pointer
+  (`show(atWindow:)` divides by the board's `kanban.zoom`, which the Timeline does not use).
   `TimelineModel.load` runs `ActivityLog.impute` once with `maxGap: ActivityMonitor.idleAfter` (300 s): a gap
   shorter than the idle threshold cannot be idle time (capture restarts, dropped sub-5 s visits), so the previous
   span carries forward; longer gaps stay empty and show as Away in the list (same threshold). 60 s left visible

@@ -58,7 +58,7 @@ function stints(history, want, lo, hi, openEnd, stillIn = true) {
     const s = stampMs(ordered[i].stamp);
     const raw = ordered[i + 1] ? stampMs(ordered[i + 1].stamp) : openEnd(s);
     const cs = Math.max(s, lo), ce = Math.min(raw, hi);
-    if (ce > cs) out.push({ s: cs, e: ce, open: !ordered[i + 1] });
+    if (ce > cs) out.push({ s: cs, e: ce, open: !ordered[i + 1], enter: ordered[i].stamp });
   }
   return out;
 }
@@ -159,4 +159,55 @@ function columnSeconds(history) {
   return out;
 }
 
-module.exports = { birthMs, chrono, columnSeconds, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };
+// Move history rides under the task as hidden comment lines: %% kb 20260611-1530 Todo > Doing %%
+// (regex tolerates the older no-space and unhyphenated forms)
+const HIST_RE = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
+const NOTE_END_RE = /^\s*[-*]\s*\[.\]|^\s*---+\s*$/;
+
+/** The move lines of the task at `taskLine`: its notes run until the next task, a `---`, or a
+ * line indented no deeper than the task. Returns [{stamp, from, to, seq, line}].
+ * >>> taskMoves(['- [ ] a', '  %% kb 20261008-1030 Doing > Done %%', '- [ ] b'], 0).map(h => h.line)  // -> [1]
+ */
+function taskMoves(lines, taskLine) {
+  const base = (lines[taskLine] || '').match(/^\s*/)[0].length;
+  const out = [];
+  for (let i = taskLine + 1; i < lines.length; i++) {
+    const t = lines[i];
+    if (NOTE_END_RE.test(t) || (t.trim() && t.match(/^\s*/)[0].length <= base)) break;
+    const h = t.match(HIST_RE);
+    if (h) out.push({ stamp: h[1].replace(/\D/g, ''), from: h[2], to: h[3], seq: out.length, line: i });
+  }
+  return out;
+}
+
+/** Rewrites the Doing stint that entered at `enter` (bare stamp) in the task's move lines; mutates `lines`.
+ * change = {start, end} (bare stamps, either optional) moves the entry or exit move, clamped between
+ * the neighbouring moves so the order of moves never changes; change = 'delete' drops the entry move
+ * and makes the exit move start from the entry's column (dropped too when that leaves X > X).
+ * An open stint has no exit: its end and delete are refused.
+ * >>> const L = ['- [ ] a', '  %% kb 20261008-1100 Doing > Done %%', '  %% kb 20261008-1000 Todo > Doing %%'];
+ * >>> stintEdit(L, 0, '202610081000', 'delete'); L  // -> ['- [ ] a', '  %% kb 20261008-1100 Todo > Done %%']
+ */
+function stintEdit(lines, taskLine, enter, change) {
+  const ev = chrono(taskMoves(lines, taskLine));
+  const i = ev.findIndex(h => h.to.toLowerCase() === 'doing' && h.stamp === String(enter));
+  if (i < 0) throw new Error('no Doing stint entered at ' + enter);
+  const into = ev[i], exit = ev[i + 1];
+  if (!exit && (change === 'delete' || change.end != null)) throw new Error('stint is still open');
+  const write = (h, stamp, from) => {
+    lines[h.line] = lines[h.line].replace(/kb \d{8}-?\d{4} (.+?) > /, (_, f) => `kb ${stamp.slice(0, 8)}-${stamp.slice(8, 12)} ${from ?? f} > `);
+  };
+  if (change === 'delete') {
+    const drop = exit.to === into.from ? [into.line, exit.line] : [into.line];
+    if (drop.length === 1) write(exit, exit.stamp, into.from);
+    for (const l of drop.sort((a, b) => b - a)) lines.splice(l, 1);
+    return;
+  }
+  const clamp = (v, lo, hi) => (lo && v < lo ? lo : hi && v > hi ? hi : v);
+  const start = change.start == null ? into.stamp : clamp(String(change.start), ev[i - 1]?.stamp, exit?.stamp);
+  const end = change.end == null ? exit?.stamp : clamp(String(change.end), start, ev[i + 2]?.stamp);
+  write(into, start);
+  if (exit) write(exit, end);
+}
+
+module.exports = { HIST_RE, taskMoves, stintEdit, birthMs, chrono, columnSeconds, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };

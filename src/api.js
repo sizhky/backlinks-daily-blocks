@@ -2,7 +2,7 @@
 const { scanKanbanTasks, editLines, moveCard, sweepColumn, setRankLine, setDesktopLine, setEstLine, addActiveLine, noteText, setNoteLines, taskColumn, parseKanbanConfig, stampToDate, cleanText,
   stampNow, stampWrite, TASK_RE, TASK_END_RE, TAGLINE_RE, COLOR_RE, HIST_RE, EI_HIST_RE } = require('./kanban');
 const { collectDayTasks } = require('./report');
-const { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS, columnSeconds } = require('./core/activity');
+const { backdateOk, stintEdit, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS, columnSeconds } = require('./core/activity');
 const { activitySummary } = require('./activity');
 const { saveTemplate } = require('./templates');
 const { parkAll } = require('./sleep');
@@ -592,7 +592,7 @@ function buildApi(plugin) {
     },
 
     // Chronicle of time spent in a column (default Doing), sorted by stint start.
-    // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body[<TAB>file:line<TAB>first project with opts.refs]
+    // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body[<TAB>file:line<TAB>first project<TAB>entry stamp with opts.refs]
     async chronicle(a, b, c) {
       const { dates, opts } = resolveDates(a, b, c);
       const want = String(opts.col || 'Doing').toLowerCase();
@@ -618,7 +618,7 @@ function buildApi(plugin) {
         grandTracked += tracked;
         grandElapsed += elapsed;
         const rows = segs.sort((a, b) => a.s - b.s)
-          .map(x => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? '~' : ''}\t${durCompact(x.e - x.s)}\t${x.body}${opts.refs ? `\t${x.ref}\t${x.project}` : ''}`);
+          .map(x => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? '~' : ''}\t${durCompact(x.e - x.s)}\t${x.body}${opts.refs ? `\t${x.ref}\t${x.project}\t${x.enter}` : ''}`);
         const footer = `TOTAL\t${dur(tracked)}\t${pct(tracked, elapsed)} elapsed`;
         if (multi) out.push(`== ${dateStr} ==`, ...(rows.length ? rows : ['(none)']), footer);
         else out.push(...rows, footer);
@@ -783,6 +783,7 @@ function buildApi(plugin) {
         'reportCards(from,to,opts) Reports input: cards with Doing stints or done in range; opts.mull minutes',
         'activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)',
         'moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped',
+        'editStint(ref,enter,ch)  ch={start,end} ISO retimes a Doing stint (clamped to neighbour moves); ch="delete" removes it',
         'parkAll(at)              park every Doing card (habits to Idle) stamped at ISO at; returns ok <moved>',
         'setDesktop(ref,d)        set (1-9 or a desktop name) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it',
         'sweep(from,to,refs?)     bulk-move a column (refs = file:line list)',
@@ -901,6 +902,21 @@ function buildApi(plugin) {
         if (await moveCard(plugin.app, file, line, col, config, { at })) moved++;
       }
       return `ok ${moved}`;
+    },
+
+    // Retimes or deletes the Doing stint of `ref` that entered at `enter` (bare stamp, chronicle's 7th field).
+    // change = {start, end} as ISO times (either optional) or 'delete'. Rules: core/activity.js stintEdit.
+    async editStint(ref, enter, change) {
+      const i = ref.lastIndexOf(':'), path = ref.slice(0, i), line = +ref.slice(i + 1);
+      const file = plugin.app.vault.getAbstractFileByPath(path);
+      if (!file) throw new Error('no file: ' + path);
+      const bare = v => { if (v == null) return null; const d = new Date(v); if (Number.isNaN(d.getTime())) throw new Error('bad time: ' + v); return stampNow(d); };
+      const ch = change === 'delete' ? change : { start: bare(change?.start), end: bare(change?.end) };
+      await editLines(plugin.app, file, lines => {
+        if (!TASK_RE.test(lines[line] || '')) throw new Error('not a task: ' + ref);
+        stintEdit(lines, line, String(enter), ch);
+      });
+      return `ok ${ref} ${change === 'delete' ? 'deleted' : 'retimed'}`;
     },
 
     // Sleep park (sleep.js 1.2) on demand: Kanban Board calls it on wake with the sleep moment.

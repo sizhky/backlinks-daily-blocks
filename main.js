@@ -283,7 +283,7 @@ var require_activity = __commonJS({
         const s = stampMs(ordered[i].stamp);
         const raw = ordered[i + 1] ? stampMs(ordered[i + 1].stamp) : openEnd(s);
         const cs = Math.max(s, lo), ce = Math.min(raw, hi);
-        if (ce > cs) out.push({ s: cs, e: ce, open: !ordered[i + 1] });
+        if (ce > cs) out.push({ s: cs, e: ce, open: !ordered[i + 1], enter: ordered[i].stamp });
       }
       return out;
     }
@@ -353,7 +353,41 @@ var require_activity = __commonJS({
       }
       return out;
     }
-    module2.exports = { birthMs, chrono, columnSeconds, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };
+    var HIST_RE2 = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
+    var NOTE_END_RE = /^\s*[-*]\s*\[.\]|^\s*---+\s*$/;
+    function taskMoves(lines, taskLine) {
+      const base = (lines[taskLine] || "").match(/^\s*/)[0].length;
+      const out = [];
+      for (let i = taskLine + 1; i < lines.length; i++) {
+        const t = lines[i];
+        if (NOTE_END_RE.test(t) || t.trim() && t.match(/^\s*/)[0].length <= base) break;
+        const h = t.match(HIST_RE2);
+        if (h) out.push({ stamp: h[1].replace(/\D/g, ""), from: h[2], to: h[3], seq: out.length, line: i });
+      }
+      return out;
+    }
+    function stintEdit(lines, taskLine, enter, change) {
+      const ev = chrono(taskMoves(lines, taskLine));
+      const i = ev.findIndex((h) => h.to.toLowerCase() === "doing" && h.stamp === String(enter));
+      if (i < 0) throw new Error("no Doing stint entered at " + enter);
+      const into = ev[i], exit = ev[i + 1];
+      if (!exit && (change === "delete" || change.end != null)) throw new Error("stint is still open");
+      const write = (h, stamp, from) => {
+        lines[h.line] = lines[h.line].replace(/kb \d{8}-?\d{4} (.+?) > /, (_, f) => `kb ${stamp.slice(0, 8)}-${stamp.slice(8, 12)} ${from ?? f} > `);
+      };
+      if (change === "delete") {
+        const drop = exit.to === into.from ? [into.line, exit.line] : [into.line];
+        if (drop.length === 1) write(exit, exit.stamp, into.from);
+        for (const l of drop.sort((a, b) => b - a)) lines.splice(l, 1);
+        return;
+      }
+      const clamp = (v, lo, hi) => lo && v < lo ? lo : hi && v > hi ? hi : v;
+      const start = change.start == null ? into.stamp : clamp(String(change.start), ev[i - 1]?.stamp, exit?.stamp);
+      const end = change.end == null ? exit?.stamp : clamp(String(change.end), start, ev[i + 2]?.stamp);
+      write(into, start);
+      if (exit) write(exit, end);
+    }
+    module2.exports = { HIST_RE: HIST_RE2, taskMoves, stintEdit, birthMs, chrono, columnSeconds, desktopRef, GAP_MS, MULL_MS, sleepGap, stampMs, backdateOk, stints, adhoc, planned, parseActivity, overlapMs, union };
   }
 });
 
@@ -760,14 +794,13 @@ var require_kanban = __commonJS({
   "src/kanban.js"(exports2, module2) {
     var { MarkdownRenderChild, Menu, Notice: Notice2, Platform, setIcon } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
-    var { desktopRef, chrono } = require_activity();
+    var { desktopRef, chrono, HIST_RE: HIST_RE2 } = require_activity();
     var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
     var KB_TAG_RE = /#kb\/([\w-]+)/;
     var STAMP_RE = /\s+\d{8}-?\d{4}\s*$/;
     var TASK_RE2 = /^(\s*[-*]\s*\[)(.)(\]\s*)(.*)$/;
     var TASK_END_RE2 = /^(\s*[-*]\s*\[.\]\s*.*|\s*---+\s*)$/;
-    var HIST_RE2 = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
     var EI_HIST_RE = /^\s*%%\s?ei (\d{8}-?\d{4}) ([\w-]+)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
     var ICON_RE = /^\s*%%\s?kbicon ([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*)\s?%%\s*$/i;
@@ -2134,9 +2167,8 @@ var require_report = __commonJS({
   "src/report.js"(exports2, module2) {
     var { editLines, TASK_RE: TASK_RE2, STAMP_RE, stampToDate, stampDigits, stampWrite, parseKanbanConfig: parseKanbanConfig2, fmtDur, addTitleCopy } = require_kanban();
     var { openFileAtLine } = require_render();
-    var { chrono } = require_activity();
+    var { chrono, HIST_RE: HIST_RE2 } = require_activity();
     var { MarkdownRenderChild, Modal, Notice: Notice2, getFrontMatterInfo, parseYaml } = require("obsidian");
-    var HIST_RE2 = /^\s*%%\s?kb (\d{8}-?\d{4}) (.+?) > (.+?)\s?%%\s*$/;
     var COLOR_RE = /^\s*%%\s?kbcolor (#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s?%%\s*$/;
     var COL_PALETTE = {
       backlog: "#8a8f98",
@@ -3371,7 +3403,7 @@ var require_api = __commonJS({
       EI_HIST_RE
     } = require_kanban();
     var { collectDayTasks } = require_report();
-    var { backdateOk, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS, columnSeconds } = require_activity();
+    var { backdateOk, stintEdit, stints, planned, adhoc, birthMs, desktopRef, chrono, stampMs, MULL_MS, columnSeconds } = require_activity();
     var { activitySummary } = require_activity2();
     var { saveTemplate } = require_templates();
     var { parkAll } = require_sleep();
@@ -3898,7 +3930,7 @@ projects:
 ` + rows.join("\n");
         },
         // Chronicle of time spent in a column (default Doing), sorted by stint start.
-        // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body[<TAB>file:line<TAB>first project with opts.refs]
+        // Lines: HHMM:HHMM[~]<TAB>dur<TAB>body[<TAB>file:line<TAB>first project<TAB>entry stamp with opts.refs]
         async chronicle(a, b, c) {
           const { dates, opts } = resolveDates(a, b, c);
           const want = String(opts.col || "Doing").toLowerCase();
@@ -3923,7 +3955,7 @@ projects:
             const tracked = segs.reduce((sum, x) => sum + (x.e - x.s), 0);
             grandTracked += tracked;
             grandElapsed += elapsed;
-            const rows = segs.sort((a2, b2) => a2.s - b2.s).map((x) => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? "~" : ""}	${durCompact(x.e - x.s)}	${x.body}${opts.refs ? `	${x.ref}	${x.project}` : ""}`);
+            const rows = segs.sort((a2, b2) => a2.s - b2.s).map((x) => `${hhmmBare(x.s)}:${hhmmBare(x.e)}${x.open ? "~" : ""}	${durCompact(x.e - x.s)}	${x.body}${opts.refs ? `	${x.ref}	${x.project}	${x.enter}` : ""}`);
             const footer = `TOTAL	${dur(tracked)}	${pct(tracked, elapsed)} elapsed`;
             if (multi) out.push(`== ${dateStr} ==`, ...rows.length ? rows : ["(none)"], footer);
             else out.push(...rows, footer);
@@ -4087,6 +4119,7 @@ projects:
             "reportCards(from,to,opts) Reports input: cards with Doing stints or done in range; opts.mull minutes",
             "activity(date?)          captured Mac activity vs Doing stints for one day (.activity/YYYYMMDD.jsonl)",
             "moveTasks(refs,col,{at}) at=ISO backdates the move; cards that moved later are skipped",
+            'editStint(ref,enter,ch)  ch={start,end} ISO retimes a Doing stint (clamped to neighbour moves); ch="delete" removes it',
             "parkAll(at)              park every Doing card (habits to Idle) stamped at ISO at; returns ok <moved>",
             "setDesktop(ref,d)        set (1-9 or a desktop name) or clear (null) the macOS desktop of a card; active({desktop:true}) lists it",
             "sweep(from,to,refs?)     bulk-move a column (refs = file:line list)",
@@ -4201,6 +4234,25 @@ projects:
             if (await moveCard2(plugin.app, file, line, col, config, { at })) moved++;
           }
           return `ok ${moved}`;
+        },
+        // Retimes or deletes the Doing stint of `ref` that entered at `enter` (bare stamp, chronicle's 7th field).
+        // change = {start, end} as ISO times (either optional) or 'delete'. Rules: core/activity.js stintEdit.
+        async editStint(ref, enter, change) {
+          const i = ref.lastIndexOf(":"), path = ref.slice(0, i), line = +ref.slice(i + 1);
+          const file = plugin.app.vault.getAbstractFileByPath(path);
+          if (!file) throw new Error("no file: " + path);
+          const bare = (v) => {
+            if (v == null) return null;
+            const d = new Date(v);
+            if (Number.isNaN(d.getTime())) throw new Error("bad time: " + v);
+            return stampNow(d);
+          };
+          const ch = change === "delete" ? change : { start: bare(change?.start), end: bare(change?.end) };
+          await editLines(plugin.app, file, (lines) => {
+            if (!TASK_RE2.test(lines[line] || "")) throw new Error("not a task: " + ref);
+            stintEdit(lines, line, String(enter), ch);
+          });
+          return `ok ${ref} ${change === "delete" ? "deleted" : "retimed"}`;
         },
         // Sleep park (sleep.js 1.2) on demand: Kanban Board calls it on wake with the sleep moment.
         async parkAll(at) {
