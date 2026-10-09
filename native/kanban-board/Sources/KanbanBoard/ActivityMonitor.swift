@@ -71,7 +71,13 @@ final class ActivityMonitor: ObservableObject {
       write(builder.close(at: since))
       return
     }
-    guard let sample = Probe.sample() else { return }
+    guard let (sample, incognito) = Probe.sample() else { return }
+    // Incognito windows are never logged: the open span ends, and switch rules see the app without its title or URL.
+    if incognito {
+      setContext(Sample(app: sample.app, bundle: sample.bundle, title: "", space: sample.space, desktop: sample.desktop, uuid: sample.uuid), since: now)
+      write(builder.close(at: now))
+      return
+    }
     setContext(sample, since: now)
     write(builder.add(sample, at: now))
   }
@@ -114,25 +120,38 @@ final class ActivityMonitor: ObservableObject {
 }
 
 /// Reads the frontmost app, its focused window title (Accessibility), the browser tab URL
-/// (Automation), and the active desktop from `DesktopStore`.
+/// (Automation), and the active desktop from `DesktopStore`. Chromium browsers and Arc report an
+/// incognito front window (`mode`) as `incognito` instead of a URL; Safari has no scripting property for private windows.
 enum Probe {
+  static let incognito = "kb:incognito"
   static let browsers: [String: String] = [
     "com.apple.Safari": #"tell application id "com.apple.Safari" to return URL of front document"#,
-    "com.google.Chrome": #"tell application id "com.google.Chrome" to return URL of active tab of front window"#,
-    "company.thebrowser.Browser": #"tell application id "company.thebrowser.Browser" to return URL of active tab of front window"#,
-    "com.brave.Browser": #"tell application id "com.brave.Browser" to return URL of active tab of front window"#,
-    "com.microsoft.edgemac": #"tell application id "com.microsoft.edgemac" to return URL of active tab of front window"#,
+    "com.google.Chrome": chromium("com.google.Chrome"),
+    "company.thebrowser.Browser": chromium("company.thebrowser.Browser"),
+    "com.brave.Browser": chromium("com.brave.Browser"),
+    "com.microsoft.edgemac": chromium("com.microsoft.edgemac"),
   ]
 
+  private static func chromium(_ id: String) -> String {
+    """
+    tell application id "\(id)"
+    if mode of front window is "incognito" then return "\(incognito)"
+    return URL of active tab of front window
+    end tell
+    """
+  }
+
   @MainActor
-  static func sample() -> Sample? {
+  static func sample() -> (Sample, incognito: Bool)? {
     guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
     let bundle = app.bundleIdentifier ?? ""
     let desktops = DesktopStore.shared
     desktops.refresh()
-    return Sample(app: app.localizedName ?? bundle, bundle: bundle, title: title(pid: app.processIdentifier),
-                  url: browsers[bundle].flatMap(url), space: desktops.current?.number, desktop: desktops.current?.label,
-                  uuid: desktops.current?.uuid)
+    let link = browsers[bundle].flatMap(url)
+    let sample = Sample(app: app.localizedName ?? bundle, bundle: bundle, title: link == incognito ? "" : title(pid: app.processIdentifier),
+                        url: link == incognito ? nil : link, space: desktops.current?.number, desktop: desktops.current?.label,
+                        uuid: desktops.current?.uuid)
+    return (sample, link == incognito)
   }
 
   static func title(pid: pid_t) -> String {

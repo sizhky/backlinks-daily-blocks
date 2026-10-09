@@ -234,6 +234,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   never against `columns`, because optimistic moves change `columns` first. One diff covers drags,
   switch rules, and the plugin's sleep auto-park. Widget settings live under `widget.*` defaults.
 
+- Incognito windows are never logged: `Probe` asks Chrome, Arc, Brave and Edge for `mode of front window` and gets
+  `kb:incognito` instead of a URL; `tick` then closes the open span and sets a context with the app but no title or URL.
+  Safari has no scripting property for private windows, so its private windows are still logged.
+  The one-line `tell ... to if ... then ... else` form is an AppleScript syntax error; the script is a `tell` block.
 - Timeline window reads the app's own `<vault>/.activity/YYYYMMDD.jsonl` (plus `ActivityMonitor.openSpan`
   for the live span) and Doing stints from `kb.chronicle(date)`. Doing totals use `ActivityLog.unionSeconds`:
   parallel Doing cards overlap, and a plain sum read 536h for one day. Today reloads every 5 s.
