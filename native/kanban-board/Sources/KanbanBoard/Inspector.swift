@@ -40,7 +40,7 @@ struct Inspector: View {
               }
             }
             prop("Desktop") {
-              MenuTrigger(items: { store.desktopItems(card) }) { Text(card.desktop.map(store.desktops.name) ?? "None") }
+              MenuTrigger(items: { store.desktopItems(card) }) { Text(store.desktop(card).map(store.desktops.name) ?? "None") }
             }
             prop("Estimate") {
               Button { store.estimating = card } label: { Text(card.est.map { Age.label(minutes: $0) } ?? "None") }

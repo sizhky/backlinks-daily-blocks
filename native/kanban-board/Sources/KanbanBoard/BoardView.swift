@@ -626,7 +626,7 @@ struct IssueCard: View {
           Button { store.estimating = card } label: { Pill(text: Age.label(minutes: est)) { Image(systemName: "hourglass").imageScale(.small) } }
             .buttonStyle(.pointing).pointerStyle(.link).help("Edit time estimate")
         }
-        if let d = card.desktop {
+        if let d = store.desktop(card) {
         Button { store.switchDesktop(ref: d) } label: { Pill(text: store.desktops.name(d)) { Image(systemName: "rectangle.3.group").imageScale(.small) } }
           .buttonStyle(.pointing).pointerStyle(.link).help("Switch to \(store.desktops.name(d))")
       }
@@ -786,7 +786,7 @@ struct IssueRow: View {
       Text(card.title.isEmpty ? AttributedString("(untitled)") : renderTitle(card.title))
         .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.text).tint(Palette.link).lineLimit(1)
       Spacer(minLength: 12)
-      if let d = card.desktop {
+      if let d = store.desktop(card) {
         Button { store.switchDesktop(ref: d) } label: { Pill(text: store.desktops.name(d)) { Image(systemName: "rectangle.3.group").imageScale(.small) } }
           .buttonStyle(.pointing).pointerStyle(.link).help("Switch to \(store.desktops.name(d))")
       }

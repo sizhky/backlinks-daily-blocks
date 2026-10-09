@@ -76,6 +76,15 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(SwitchEngine.owns(desktop: nil, orgs: ["Divami"], projects: ["Q"], Sample(app: "a", bundle: "a", title: "", space: 4), rules), true)
   }
 
+  func testCardDesktopFallsBackToProjectThenOrgPin() {
+    var rules = DesktopPin.setting([], kind: .org, name: "O", desktop: "4")
+    XCTAssertEqual(DesktopPin.desktop(own: nil, orgs: ["o"], projects: ["P"], rules), "4")
+    rules = DesktopPin.setting(rules, kind: .project, name: "P", desktop: "3")
+    XCTAssertEqual(DesktopPin.desktop(own: nil, orgs: ["O"], projects: ["p"], rules), "3")
+    XCTAssertEqual(DesktopPin.desktop(own: "2", orgs: ["O"], projects: ["P"], rules), "2")
+    XCTAssertNil(DesktopPin.desktop(own: nil, orgs: ["X"], projects: ["Y"], rules))
+  }
+
   func testDesktopPinsRoundTripAndKeepOtherRules() {
     let url = ActivityRule(url: "jira", org: "Divami")
     var rules = DesktopPin.setting([url], kind: .project, name: "P", desktop: "2")

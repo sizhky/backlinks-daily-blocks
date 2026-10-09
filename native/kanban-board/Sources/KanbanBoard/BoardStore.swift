@@ -94,6 +94,7 @@ final class BoardStore: ObservableObject {
 
   func openTimeline() { timeline.show() }
   private var desktopSink: Any?
+  private var rulesSink: Any?
   let desktops = DesktopStore.shared
   /// 4.2 Rule moves; persisted so a relaunch can still resume what it parked.
   private var switches: SwitchEngine = UserDefaults.standard.data(forKey: "kanban.switches")
@@ -312,6 +313,7 @@ final class BoardStore: ObservableObject {
     desktopMenu = DesktopMenu(store: self)
     widget = TrackerWidget(store: self)
     desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
+    rulesSink = activity.$rules.sink { [weak self] _ in MainActor.assumeIsolated { self?.objectWillChange.send() } }
     // @Published fires before the value changes; the hop to the main queue reads the new context.
     contextSink = activity.$context.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
       MainActor.assumeIsolated { self?.trackActive() }
@@ -508,6 +510,11 @@ final class BoardStore: ObservableObject {
   /// The desktop a project is pinned to (Settings > Tracking, sidebar menu); nil = none.
   func projectDesktop(_ project: String) -> String? {
     DesktopPin.pins(activity.rules).first { $0.kind == .project && $0.name.caseInsensitiveCompare(project) == .orderedSame }?.desktop
+  }
+
+  /// The desktop a card shows and switches to: its own, else its project's or org's pin.
+  func desktop(_ card: Card) -> String? {
+    DesktopPin.desktop(own: card.desktop, orgs: card.orgs, projects: card.projects, activity.rules)
   }
 
   func setDesktop(_ ref: String?, project: String) {

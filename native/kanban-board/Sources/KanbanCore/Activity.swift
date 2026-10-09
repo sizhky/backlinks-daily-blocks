@@ -162,6 +162,22 @@ public struct DesktopPin: Equatable, Sendable, Identifiable {
 
   public static func pins(_ rules: [ActivityRule]) -> [DesktopPin] { rules.compactMap(DesktopPin.init) }
 
+  /// The desktop a card lands on: its own `kbdesktop`, else its project's pin, else its org's pin
+  /// (the precedence of `ActivityRule.applying`).
+  /// ```
+  /// own 2,   pins [project P -> 3]               -> 2
+  /// own nil, pins [org O -> 4, project P -> 3]   -> 3
+  /// own nil, pins [org O -> 4]                   -> 4
+  /// ```
+  public static func desktop(own: String?, orgs: [String], projects: [String], _ rules: [ActivityRule]) -> String? {
+    if let own { return own }
+    let all = pins(rules)
+    func pinned(_ kind: Kind, _ names: [String]) -> String? {
+      names.lazy.compactMap { n in all.first { $0.kind == kind && $0.name.caseInsensitiveCompare(n) == .orderedSame }?.desktop }.first
+    }
+    return pinned(.project, projects) ?? pinned(.org, orgs)
+  }
+
   /// `rules` with the pin for `kind`/`name` set to `desktop`, or removed when `desktop` is nil.
   /// ```
   /// [url rule, pin(project P -> 2)] setting P -> 3 -> [url rule, pin(project P -> 3)]

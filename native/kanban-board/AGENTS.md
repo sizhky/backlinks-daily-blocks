@@ -318,6 +318,8 @@ Before building or wording any UI, ask what Apple would do and do that.
   `<vault>/.activity/rules.json`, written by `ActivityMonitor.saveRules`; other rules in the file are kept.
   `renameDesktop` rewrites pins on the old name as it does cards. A pin gives every card of that scope desktop affinity, so `Focus` and `SwitchEngine` treat them as owned by that desktop.
   Precedence lives in `ActivityRule.applying`: card `kbdesktop` beats project desktop beats org desktop.
+  Cards show the pin: the card pill, list row and inspector read `store.desktop(card)` (`DesktopPin.desktop`), which falls
+  back to the project pin, then the org pin, when the card has no `kbdesktop`. Nothing is written to notes; the card menu's None clears only the card's own value.
 - Reports tab (`timeline.mode` = `reports`): `kb.reportCards(from, to, {mull})` gives cards with stints;
   `Report.attribute` splits each active minute (day logs, `impute` at the idle threshold): owners of the
   context (`SwitchEngine.owns`) split it, else cards with no affinity, else a matching rule's scope gets
