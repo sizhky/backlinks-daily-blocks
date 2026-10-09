@@ -331,7 +331,8 @@ Before building or wording any UI, ask what Apple would do and do that.
   time in the range stays in the breakdown, with "N in Doing" beside its attributed time when they differ.
 - One active task (`Focus.pick`): among Doing cards, owners of the current context win, else cards with no
   affinity, ties to the latest into Doing; away = none. The widget shows that card as the hero with its active
-  time running and the other Doing cards as dimmed paused rows. Reports use the same pick per moment.
+  time running, its time in Doing over every stint (`Card.seconds(in:)`) in parentheses at half size after it
+  (`23:14 (45:11)`), and the other Doing cards as dimmed paused rows. Reports use the same pick per moment.
   `ActiveClock` (persisted in `kanban.activeClock`) credits ticks (refresh and every context change, capped at
   15 s), takes back time after the idle start when going away, and `BoardStore.flushActive` writes whole seconds
   with `kb.addActive` on a switch and every 300 s. The board adds flushed seconds locally so the timer never dips.

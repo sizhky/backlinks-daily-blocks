@@ -245,14 +245,14 @@ struct WidgetView: View {
     }
   }
 
-  /// What is being tracked. The active card: its active time as the one glanceable number, the task
-  /// under it. Other Doing cards follow as quiet rows with their paused totals.
+  /// What is being tracked. The active card: its active time as the one glanceable number, its time in
+  /// Doing beside it in parentheses, the task under it. Other Doing cards follow as quiet rows with their paused totals.
   @ViewBuilder private var hero: some View {
     if let card = active {
       VStack(spacing: 3) {
         if prefs.shown(.timer) {
           TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            part(.timer) { Text(Self.clock(store.activeTime(card, at: ctx.date))).monospacedDigit() }
+            part(.timer) { heroClock(card, at: ctx.date) }
               .minimumScaleFactor(0.6)
               .contentTransition(.numericText())
           }
@@ -273,6 +273,15 @@ struct WidgetView: View {
       }
       .opacity(0.7)
     }
+  }
+
+  /// Active time, then the card's time in Doing over every stint (`Card.seconds(in:)`) in parentheses at
+  /// half size and dimmed: `23:14 (45:11)`. The timer part's font sets the first number only.
+  private func heroClock(_ card: Card, at now: Date) -> Text {
+    let doing = Text(" (\(Self.clock(card.seconds(in: "Doing", at: now))))")
+      .font(WidgetStyle.font(family, prefs.size(.timer) * 0.5, .medium, design: .rounded))
+      .foregroundStyle(tint(card).opacity(0.7))
+    return (Text(Self.clock(store.activeTime(card, at: now))) + doing).monospacedDigit()
   }
 
   /// The card's project colour (the light end of its `Monogram` gradient); the Text color setting without a
