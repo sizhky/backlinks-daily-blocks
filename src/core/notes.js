@@ -4,6 +4,13 @@ function stripFrontmatter(text) {
   return text.replace(/^---\n[\s\S]*?\n---\n/, '');
 }
 
+// Obsidian hides `%% … %%` but keeps the line, so kb metadata renders as blank rows.
+// Keeps `%% more %%`: truncateContent cuts there.
+//   stripCommentLines('- [x] a\n  %% kbrank 1 %%\n%% more %%') === '- [x] a\n%% more %%'
+function stripCommentLines(text) {
+  return text.replace(/^[ \t]*%%(?! more %%)[^\n]*%%[ \t]*(?:\n|$)/gm, '');
+}
+
 function truncateContent(text, limit) {
   let output = text;
   const moreIndex = output.indexOf('%% more %%');
@@ -43,6 +50,7 @@ async function prepareNote(app, file, { strip = true, truncate = 0 } = {}) {
 
   const lines = raw.split(/\r?\n/);
   let content = strip ? stripFrontmatter(raw || '') : raw;
+  content = stripCommentLines(content);
   content = truncateContent(content, truncate);
 
   if (!content.trim()) {
@@ -51,4 +59,4 @@ async function prepareNote(app, file, { strip = true, truncate = 0 } = {}) {
   return { kind: 'markdown', content, lines };
 }
 
-module.exports = { stripFrontmatter, truncateContent, isExcalidraw, displayName, prepareNote };
+module.exports = { stripFrontmatter, stripCommentLines, truncateContent, isExcalidraw, displayName, prepareNote };

@@ -9,6 +9,9 @@ var require_notes = __commonJS({
     function stripFrontmatter(text) {
       return text.replace(/^---\n[\s\S]*?\n---\n/, "");
     }
+    function stripCommentLines(text) {
+      return text.replace(/^[ \t]*%%(?! more %%)[^\n]*%%[ \t]*(?:\n|$)/gm, "");
+    }
     function truncateContent(text, limit) {
       let output = text;
       const moreIndex = output.indexOf("%% more %%");
@@ -38,13 +41,14 @@ var require_notes = __commonJS({
       }
       const lines = raw.split(/\r?\n/);
       let content = strip ? stripFrontmatter(raw || "") : raw;
+      content = stripCommentLines(content);
       content = truncateContent(content, truncate);
       if (!content.trim()) {
         return { kind: "empty", content: "", lines };
       }
       return { kind: "markdown", content, lines };
     }
-    module2.exports = { stripFrontmatter, truncateContent, isExcalidraw, displayName, prepareNote };
+    module2.exports = { stripFrontmatter, stripCommentLines, truncateContent, isExcalidraw, displayName, prepareNote };
   }
 });
 
