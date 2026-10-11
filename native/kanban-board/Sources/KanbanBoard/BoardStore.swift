@@ -260,10 +260,7 @@ final class BoardStore: ObservableObject {
 
   /// Cards in the order the screen shows them, so arrow keys follow the eye.
   func ordered(_ column: Column) -> [Card] {
-    if column.done { return Logbook.newestFirst(column.cards) }
-    let rest = column.cards.filter { $0.rank == nil }
-    return Ranking.ordered(column.cards.filter { $0.rank != nil })
-      + (mode == .board ? Grouping.byProject(rest).flatMap(\.cards) : rest)
+    Ranking.ordered(column.cards)
   }
 
   func select(_ ref: String?) {

@@ -3,7 +3,20 @@
 public enum Ranking {
   /// Display order: ranked ascending, then the unranked in their given order.
   public static func ordered(_ cards: [Card]) -> [Card] {
-    cards.filter { $0.rank != nil }.sorted { $0.rank! < $1.rank! } + cards.filter { $0.rank == nil }
+    cards.filter { $0.rank != nil }.sorted { $0.rank! < $1.rank! } + newestFirst(cards.filter { $0.rank == nil })
+  }
+
+  /// Latest created first (`Card.created`, then the later line of one note); cards without a
+  /// created time last, in their given order.
+  /// ```
+  /// 20261010-0900.md:3, 20261011-0800.md:1, 20261011-0800.md:4, Notes.md:2
+  ///   -> 20261011-0800.md:4, 20261011-0800.md:1, 20261010-0900.md:3, Notes.md:2
+  /// ```
+  public static func newestFirst(_ cards: [Card]) -> [Card] {
+    let timed = cards.filter { $0.created != nil }.sorted {
+      $0.created! == $1.created! ? ($0.file, $0.line) > ($1.file, $1.line) : $0.created! > $1.created!
+    }
+    return timed + cards.filter { $0.created == nil }
   }
 
   /// Ranks to write when `moving` refs land before `before` (nil = end) in `shown`

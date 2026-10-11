@@ -12,6 +12,18 @@ final class RankingTests: XCTestCase {
     XCTAssertEqual(Ranking.ordered([card("a", nil), card("b", 2), card("c", 1)]).map(\.ref), ["c", "b", "a"])
   }
 
+  func testUnrankedLatestCreatedFirst() {
+    func at(_ file: String, _ line: Int, _ rank: Double? = nil) -> Card {
+      var c = Card(ref: "\(file):\(line)", file: file, line: line, col: "Todo", title: "", age: "1h", tags: [], orgs: [], projects: [])
+      c.rank = rank
+      return c
+    }
+    let out = Ranking.ordered([at("20261010-0900.md", 3), at("Notes.md", 2), at("20261011-0800.md", 1),
+                               at("20261009-0700.md", 5, 1), at("20261011-0800.md", 4)])
+    XCTAssertEqual(out.map(\.ref), ["20261009-0700.md:5", "20261011-0800.md:4", "20261011-0800.md:1",
+                                     "20261010-0900.md:3", "Notes.md:2"])
+  }
+
   func testBetweenRanked() {
     let out = Ranking.place(["c"], before: "b", in: [card("a", 1), card("b", 2), card("c", nil)])
     XCTAssertEqual(out.map(\.ref), ["c"]); XCTAssertEqual(out[0].rank, 1.5)
