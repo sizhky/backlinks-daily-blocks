@@ -36,11 +36,13 @@ public struct Span: Codable, Equatable, Sendable {
   }
 
   /// Log file name of the day the span starts, local time.
-  public var fileName: String {
+  public var fileName: String { Self.fileName(start) }
+
+  public static func fileName(_ day: Date) -> String {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyyMMdd"
-    return f.string(from: start) + ".jsonl"
+    return f.string(from: day) + ".jsonl"
   }
 }
 

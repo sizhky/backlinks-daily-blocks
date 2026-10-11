@@ -275,6 +275,11 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Gotchas
 
+- A Swift property's `didSet` does not run for assignments made inside `init`, so a value saved through
+  `didSet` stays unsaved when it is set there. The work/break share once read 100% for that reason: its day base
+  fell back to `workStart`, which moves at every break end. The base is now derived from today's first
+  activity span, not saved.
+
 - `make run` (pkill) and crashes skip `willTerminate`. State that must reach a log on quit is also saved in
   UserDefaults and written at the next launch: the running active stretch (`kanban.activeStretch`, ended at
   the saved `ActiveClock.last`) and the running break (`kanban.breakStart`).
