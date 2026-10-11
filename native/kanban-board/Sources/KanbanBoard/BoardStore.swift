@@ -385,7 +385,7 @@ final class BoardStore: ObservableObject {
   /// Makes a Doing card active by hand until the desktop changes (`FocusPin`).
   func activate(_ id: String) {
     pin = FocusPin(id: id, context: activity.context)
-    trackActive()
+    withAnimation(.spring(duration: 0.4, bounce: 0.15)) { trackActive() }
   }
 
   /// 6.1 Credits the time since the last tick to the active card and flushes on a switch, on going

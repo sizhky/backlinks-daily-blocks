@@ -170,6 +170,8 @@ struct WidgetView: View {
   @AppStorage(WidgetKey.font) private var family = ""
   @AppStorage(WidgetKey.desktopNumber) private var desktopNumber = true
   @State private var toast: [DoingChange] = []
+  /// One identity per card across the hero and the paused rows, so a switch slides it between them.
+  @Namespace private var slots
 
   /// Doing cards, most recently started first.
   private var doing: [Card] {
@@ -265,7 +267,7 @@ struct WidgetView: View {
           }
           part(.title, lines: 2) { Text(WidgetStyle.title(card.title)) }.foregroundStyle(tint(card))
         }
-        .widgetTarget(card.id, grip)
+        .widgetTarget(card.id, grip, slots, dim: 1)
         pausedRows.padding(.top, 4)
       }
     } else if !doing.isEmpty {
@@ -317,7 +319,6 @@ struct WidgetView: View {
           ForEach(paused) { card in pausedRow(card, at: ctx.date) }
         }
       }
-      .opacity(0.5)
     }
   }
 
@@ -339,7 +340,7 @@ struct WidgetView: View {
       }
     }
     .foregroundStyle(tint(card))
-    .widgetTarget(card.id, grip)
+    .widgetTarget(card.id, grip, slots, dim: 0.5)
     .accessibilityLabel("\(card.title), paused")
   }
 
@@ -447,21 +448,28 @@ final class WidgetGrip: ObservableObject {
   }
 }
 
-/// Registers a task's frame so an Fn-click on it picks the card instead of moving the widget,
-/// and highlights the task while the pointer is over it.
+/// Registers a task's frame so an Fn-click on it picks the card instead of moving the widget.
+/// The task shows at `dim` opacity, at full opacity and brighter while the pointer is over it.
 private struct WidgetTarget: ViewModifier {
   let id: String
   @ObservedObject var grip: WidgetGrip
+  let slots: Namespace.ID
+  let dim: Double
 
   func body(content: Content) -> some View {
+    let hovered = grip.hovered == id
     content
-      .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
-        .fill(Color.white.opacity(grip.hovered == id ? 0.16 : 0)).padding(-4))
+      .opacity(hovered ? 1 : dim)
+      .brightness(hovered ? 0.25 : 0)
+      .animation(.easeOut(duration: 0.12), value: hovered)
+      .matchedGeometryEffect(id: id, in: slots)
       .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { grip.targets[id] = $0 }
       .onDisappear { grip.targets[id] = nil }
   }
 }
 
 extension View {
-  func widgetTarget(_ id: String, _ grip: WidgetGrip) -> some View { modifier(WidgetTarget(id: id, grip: grip)) }
+  func widgetTarget(_ id: String, _ grip: WidgetGrip, _ slots: Namespace.ID, dim: Double) -> some View {
+    modifier(WidgetTarget(id: id, grip: grip, slots: slots, dim: dim))
+  }
 }
