@@ -76,11 +76,13 @@ final class TrackerWidget {
       .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops))
     host.sizingOptions = []
     host.grip = grip
-    // Option opens the task in Obsidian, Command copies its task ID; a plain click makes it active.
+    // Option opens the task in Obsidian, Command copies its task ID, Shift shows it on the board;
+    // a plain click makes it active.
     grip.onPick = { [weak store] id, flags in
       guard let store, let card = store.columns.lazy.flatMap(\.cards).first(where: { $0.id == id }) else { return }
       if flags.contains(.option) { store.open(card) }
       else if flags.contains(.command) { store.copyID(card) }
+      else if flags.contains(.shift) { store.reveal(card) }
       else { store.activate(id) }
     }
     panel.contentView = host

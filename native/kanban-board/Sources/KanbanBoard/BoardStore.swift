@@ -581,6 +581,22 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  /// Selects `card` and brings the board window forward. Launch Services activation, like
+  /// `ObsidianClient.bringForward`: a widget click never makes this app active. With no board
+  /// window open, the reopen event makes SwiftUI create one.
+  func reveal(_ card: Card) {
+    select(card.ref)
+    let config = NSWorkspace.OpenConfiguration()
+    config.activates = true
+    NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
+      DispatchQueue.main.async {
+        guard let board = NSApp.windows.first(where: { $0.title == "Kanban Board" }) else { return }
+        if board.isMiniaturized { board.deminiaturize(nil) }
+        board.makeKeyAndOrderFront(nil)
+      }
+    }
+  }
+
   func open(_ card: Card) {
     Task { do { try await client.open(card) } catch { self.error = error.localizedDescription } }
   }
