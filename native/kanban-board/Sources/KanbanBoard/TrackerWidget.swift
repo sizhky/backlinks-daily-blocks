@@ -131,6 +131,8 @@ final class TrackerWidget {
       NSAnimationContext.runAnimationGroup { $0.duration = 0.25; panel.animator().alphaValue = alpha }
     }
     let armed = panel.isVisible && flags.contains(.function) && over
+    let hovered = armed ? grip.target(at: panel.convertPoint(fromScreen: NSEvent.mouseLocation), height: panel.frame.height) : nil
+    if hovered != grip.hovered { grip.hovered = hovered }
     guard armed != grip.armed else { return }
     grip.armed = armed
     panel.ignoresMouseEvents = !armed
@@ -423,9 +425,7 @@ final class DragHostingView<Content: View>: NSHostingView<Content> {
   override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
   override func mouseDown(with event: NSEvent) {
-    // SwiftUI `.global` frames have a top-left origin in the window.
-    let p = CGPoint(x: event.locationInWindow.x, y: bounds.height - event.locationInWindow.y)
-    if let grip, let id = grip.targets.first(where: { $0.value.contains(p) })?.key { grip.onPick?(id) }
+    if let grip, let id = grip.target(at: event.locationInWindow, height: bounds.height) { grip.onPick?(id) }
     else { window?.performDrag(with: event) }
   }
 }
@@ -434,15 +434,34 @@ final class DragHostingView<Content: View>: NSHostingView<Content> {
 @MainActor
 final class WidgetGrip: ObservableObject {
   @Published var armed = false
+  /// The task under the pointer while armed.
+  @Published var hovered: String?
   /// Task frames by `Card.id` in window coordinates; not observed.
   var targets: [String: CGRect] = [:]
   var onPick: ((String) -> Void)?
+
+  /// The task at `p`, a bottom-left window point; SwiftUI `.global` frames have a top-left origin.
+  func target(at p: CGPoint, height: CGFloat) -> String? {
+    let q = CGPoint(x: p.x, y: height - p.y)
+    return targets.first { $0.value.contains(q) }?.key
+  }
+}
+
+/// Registers a task's frame so an Fn-click on it picks the card instead of moving the widget,
+/// and highlights the task while the pointer is over it.
+private struct WidgetTarget: ViewModifier {
+  let id: String
+  @ObservedObject var grip: WidgetGrip
+
+  func body(content: Content) -> some View {
+    content
+      .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .fill(Color.white.opacity(grip.hovered == id ? 0.16 : 0)).padding(-4))
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { grip.targets[id] = $0 }
+      .onDisappear { grip.targets[id] = nil }
+  }
 }
 
 extension View {
-  /// Registers this task's frame so an Fn-click on it picks the card instead of moving the widget.
-  func widgetTarget(_ id: String, _ grip: WidgetGrip) -> some View {
-    onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { grip.targets[id] = $0 }
-      .onDisappear { grip.targets[id] = nil }
-  }
+  func widgetTarget(_ id: String, _ grip: WidgetGrip) -> some View { modifier(WidgetTarget(id: id, grip: grip)) }
 }
