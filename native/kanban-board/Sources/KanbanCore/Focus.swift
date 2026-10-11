@@ -17,15 +17,38 @@ public enum Focus {
     return pool.max { $0.since < $1.since }?.index
   }
 
-  /// The active card among live cards in `doing`; nil while away (`context` nil).
-  public static func active(_ cards: [Card], context: Sample?, rules: [ActivityRule], doing: String = "Doing") -> Card? {
+  /// The active card among live cards in `doing`; nil while away (`context` nil). A `pin` that
+  /// holds for `context` beats the rules while its card is in `doing`.
+  public static func active(_ cards: [Card], context: Sample?, rules: [ActivityRule], pin: FocusPin? = nil,
+                            doing: String = "Doing") -> Card? {
     guard let context else { return nil }
     let live = cards.filter { $0.col.caseInsensitiveCompare(doing) == .orderedSame }
+    if let pin, pin.holds(context), let card = live.first(where: { $0.id == pin.id }) { return card }
     let i = pick(live.indices.map { i in
       (i, live[i].since ?? .distantPast, SwitchEngine.owns(live[i], context, rules))
     })
     return i.map { live[$0] }
   }
+}
+
+/// A card made active by hand (Fn-click in the widget). It holds on the desktop it was made on;
+/// changing desktop or going away hands the choice back to the rules.
+/// ```
+/// pin(a, on desktop U1): context on U1 -> holds; on U2 -> no; away (nil) -> no
+/// ```
+public struct FocusPin: Equatable, Sendable {
+  public let id: String
+  public let desktop: String?
+
+  public init(id: String, context: Sample?) {
+    self.id = id
+    desktop = context.flatMap(Self.desktop)
+  }
+
+  public func holds(_ context: Sample?) -> Bool { context.map { Self.desktop($0) == desktop } ?? false }
+
+  /// Space UUID, which survives desktop renumbering; the number when the UUID is unknown.
+  static func desktop(_ s: Sample) -> String? { s.uuid ?? s.space.map(String.init) }
 }
 
 /// Active seconds per card id (`Card.id`), counted between ticks and not yet written to the note.

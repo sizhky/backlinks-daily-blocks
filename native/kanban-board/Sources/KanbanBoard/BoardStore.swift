@@ -106,6 +106,7 @@ final class BoardStore: ObservableObject {
   private var clock: ActiveClock = UserDefaults.standard.data(forKey: "kanban.activeClock")
     .flatMap { try? JSONDecoder().decode(ActiveClock.self, from: $0) } ?? ActiveClock()
   private var lastFlush = Date()
+  private var pin: FocusPin?
   private var contextSink: Any?
   static let flushEvery: TimeInterval = 300
   /// When the Mac went to sleep (lid closed); screen lock and display sleep do not set it.
@@ -381,11 +382,18 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  /// Makes a Doing card active by hand until the desktop changes (`FocusPin`).
+  func activate(_ id: String) {
+    pin = FocusPin(id: id, context: activity.context)
+    trackActive()
+  }
+
   /// 6.1 Credits the time since the last tick to the active card and flushes on a switch, on going
   /// away, and every `flushEvery` seconds.
   private func trackActive() {
     let cards = columns.flatMap(\.cards)
-    let active = Focus.active(cards, context: activity.context, rules: activity.rules)
+    let active = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
+    if pin != nil, active?.id != pin?.id { pin = nil }
     let before = clock.current
     clock.tick(now: Date(), active: active?.id, awaySince: activity.context == nil ? activity.contextSince : nil)
     if !cards.isEmpty { clock.keep(Set(cards.map(\.id))) }

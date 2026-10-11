@@ -28,6 +28,22 @@ final class ReportTests: XCTestCase {
     XCTAssertNil(Focus.pick([(0, at(0), false)]))
   }
 
+  func testPinBeatsRulesOnItsDesktopOnly() {
+    func card(_ ref: String, _ since: Double) -> Card {
+      var c = Card(ref: ref, file: "f.md", line: 0, col: "Doing", title: ref, age: "1h", tags: [], orgs: [], projects: [])
+      c.since = at(since)
+      return c
+    }
+    let cards = [card("a", 0), card("b", 30)]
+    let u1 = Sample(app: "X", bundle: "x", title: "", uuid: "U1"), u2 = Sample(app: "X", bundle: "x", title: "", uuid: "U2")
+    let pin = FocusPin(id: "a", context: u1)
+    XCTAssertEqual(Focus.active(cards, context: u1, rules: [])?.id, "b")
+    XCTAssertEqual(Focus.active(cards, context: u1, rules: [], pin: pin)?.id, "a")
+    XCTAssertEqual(Focus.active(cards, context: u2, rules: [], pin: pin)?.id, "b")
+    XCTAssertNil(Focus.active(cards, context: nil, rules: [], pin: pin))
+    XCTAssertEqual(Focus.active([card("b", 30)], context: u1, rules: [], pin: pin)?.id, "b")
+  }
+
   func testActiveClockCreditsTicksCapsGapsAndRetractsIdle() {
     var c = ActiveClock()
     c.tick(now: at(0), active: "a")

@@ -75,6 +75,8 @@ final class TrackerWidget {
     let host = DragHostingView(rootView: WidgetView(grip: grip, onHeight: { reportHeight($0) })
       .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops))
     host.sizingOptions = []
+    host.grip = grip
+    grip.onPick = { [weak store] in store?.activate($0) }
     panel.contentView = host
     // Position: the bottom-left corner (the edge that stays put when the widget grows), saved after
     // every move; used again only if it is still on a screen, else top centre of the main screen.
@@ -251,14 +253,17 @@ struct WidgetView: View {
   @ViewBuilder private var hero: some View {
     if let card = active {
       VStack(spacing: 3) {
-        if prefs.shown(.timer) {
-          TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            clockStack(card, at: ctx.date, size: prefs.size(.timer), captionScale: 0.4, captionOpacity: 0.5, align: prefs.align(.timer))
-              .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
+        VStack(spacing: 3) {
+          if prefs.shown(.timer) {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+              clockStack(card, at: ctx.date, size: prefs.size(.timer), captionScale: 0.4, captionOpacity: 0.5, align: prefs.align(.timer))
+                .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
+            }
+            .foregroundStyle(tint(card))
           }
-          .foregroundStyle(tint(card))
+          part(.title, lines: 2) { Text(WidgetStyle.title(card.title)) }.foregroundStyle(tint(card))
         }
-        part(.title, lines: 2) { Text(WidgetStyle.title(card.title)) }.foregroundStyle(tint(card))
+        .widgetTarget(card.id, grip)
         pausedRows.padding(.top, 4)
       }
     } else if !doing.isEmpty {
@@ -332,6 +337,7 @@ struct WidgetView: View {
       }
     }
     .foregroundStyle(tint(card))
+    .widgetTarget(card.id, grip)
     .accessibilityLabel("\(card.title), paused")
   }
 
@@ -408,18 +414,35 @@ struct ToastCover: View {
   }
 }
 
-/// Hosting view that drags the panel from a mouse-down anywhere on the content.
-/// `isMovableByWindowBackground` with `mouseDownCanMoveWindow` did not move a non-activating
-/// panel; `performDrag(with:)` starts the window-server move directly. The widget has no
-/// controls, so taking every hit is safe.
+/// Hosting view that drags the panel from a mouse-down anywhere on the content, except on a
+/// task (`WidgetGrip.targets`), which a click makes active. `isMovableByWindowBackground` with
+/// `mouseDownCanMoveWindow` did not move a non-activating panel; `performDrag(with:)` starts the
+/// window-server move directly.
 final class DragHostingView<Content: View>: NSHostingView<Content> {
+  var grip: WidgetGrip?
   override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-  override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+  override func mouseDown(with event: NSEvent) {
+    // SwiftUI `.global` frames have a top-left origin in the window.
+    let p = CGPoint(x: event.locationInWindow.x, y: bounds.height - event.locationInWindow.y)
+    if let grip, let id = grip.targets.first(where: { $0.value.contains(p) })?.key { grip.onPick?(id) }
+    else { window?.performDrag(with: event) }
+  }
 }
 
-/// Whether the widget currently takes the mouse (Fn held over it).
+/// Whether the widget currently takes the mouse (Fn held over it), and where its tasks are.
 @MainActor
 final class WidgetGrip: ObservableObject {
   @Published var armed = false
+  /// Task frames by `Card.id` in window coordinates; not observed.
+  var targets: [String: CGRect] = [:]
+  var onPick: ((String) -> Void)?
+}
+
+extension View {
+  /// Registers this task's frame so an Fn-click on it picks the card instead of moving the widget.
+  func widgetTarget(_ id: String, _ grip: WidgetGrip) -> some View {
+    onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { grip.targets[id] = $0 }
+      .onDisappear { grip.targets[id] = nil }
+  }
 }
