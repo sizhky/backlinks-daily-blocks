@@ -90,9 +90,14 @@ final class BoardStore: ObservableObject {
   let activity = ActivityMonitor()
   private var desktopMenu: DesktopMenu?
   private(set) var widget: TrackerWidget?
-  private lazy var timeline = TimelineWindow(activity: activity) { [weak self] in
+  private lazy var timeline = TimelineWindow(activity: activity, live: { [weak self] in
     (self?.stretch, self?.breakStart.map { BreakSpan(start: $0, end: .distantFuture) })
-  }
+  }, moveItems: { [weak self] st in
+    // A stint's ref can be stale after lines move; the title still names the card.
+    guard let self, let card = columns.lazy.flatMap(\.cards).first(where: { $0.ref == st.ref })
+      ?? columns.lazy.flatMap(\.cards).first(where: { $0.title == st.title }) else { return [] }
+    return statusItems(card)
+  })
 
   func openTimeline() { timeline.show() }
   private var desktopSink: Any?

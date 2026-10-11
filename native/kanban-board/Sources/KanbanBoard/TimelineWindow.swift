@@ -13,8 +13,9 @@ final class TimelineWindow {
   private var zoomMonitor: Any?
   private let menu = MenuController()
 
-  init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?)) {
-    model = TimelineModel(activity: activity, live: live)
+  init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
+       moveItems: @escaping @MainActor (DoingStint) -> [MenuItem]) {
+    model = TimelineModel(activity: activity, live: live, moveItems: moveItems)
     reports = ReportsModel(activity: activity)
   }
 
@@ -86,9 +87,14 @@ final class TimelineModel: ObservableObject {
   private var marks = DayMarks()
   private var weekMarks: [DayMarks] = []
 
-  init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?)) {
+  /// "Move to" rows for a stint's card (`BoardStore.statusItems`); empty when the card is not on the board.
+  let moveItems: @MainActor (DoingStint) -> [MenuItem]
+
+  init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
+       moveItems: @escaping @MainActor (DoingStint) -> [MenuItem]) {
     self.activity = activity
     self.live = live
+    self.moveItems = moveItems
   }
 
   var isToday: Bool { Calendar.current.isDateInToday(day) }
@@ -246,7 +252,7 @@ struct TimelineScreen: View {
       } else {
         header
         Divider().overlay(Palette.hairline)
-        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:),
+        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:), moveItems: model.moveItems,
                     edit: { model.editStint($0, $1, to: $2) })
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
@@ -466,6 +472,7 @@ struct CalendarDay: View {
   let zoom: PassthroughSubject<ZoomRequest, Never>
   /// Opens a Doing card (`file:line`) in Obsidian; double-click on its block.
   let open: (String) -> Void
+  let moveItems: @MainActor (DoingStint) -> [MenuItem]
   /// Retimes a Doing stint (edge dragged to a time) or deletes it (nil edge); right-click and edge drags.
   let edit: (DoingStint, StintEdge?, Date?) -> Void
   static let gutter = 64.0
@@ -820,8 +827,11 @@ struct CalendarDay: View {
 
   private func showMenu() {
     guard let p = pointer, case .doing(let st, _, _)? = item(at: p), let ref = st.ref else { return }
-    let items = [
+    let moves = moveItems(st)
+    let items: [MenuItem] = [
       MenuItem(title: "Open in Obsidian", kind: .action { open(ref) }),
+      MenuItem(kind: .separator),
+      .submenu("Move to", symbol: "arrow.right", disabled: moves.isEmpty, moves),
       MenuItem(kind: .separator),
       MenuItem(title: st.open ? "Delete Stint (running)" : "Delete Stint", disabled: st.open || !editable(st), destructive: true,
                kind: .action { edit(st, nil, nil) }),
