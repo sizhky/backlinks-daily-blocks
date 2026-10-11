@@ -89,9 +89,19 @@ final class ActivityMonitor: ObservableObject {
   }
 
   private func write(_ span: Span?) {
-    guard let span, let dir else { return }
-    let url = dir.appendingPathComponent(span.fileName)
-    let line = Data((span.jsonLine + "\n").utf8)
+    guard let span else { return }
+    append(span.jsonLine, to: span.fileName)
+  }
+
+  /// Logs a finished active stretch, one line per local day it touches.
+  func record(_ stretch: ActiveStretch) {
+    for piece in ActivityLog.splitByDay(stretch) { append(piece.jsonLine, to: piece.fileName) }
+  }
+
+  private func append(_ text: String, to fileName: String) {
+    guard let dir else { return }
+    let url = dir.appendingPathComponent(fileName)
+    let line = Data((text + "\n").utf8)
     if let handle = try? FileHandle(forWritingTo: url) {
       defer { try? handle.close() }
       _ = try? handle.seekToEnd()

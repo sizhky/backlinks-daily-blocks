@@ -21,6 +21,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   DoingChange.swift    diff of live cards between two refreshes (widget toast)
   Hex.swift            #RRGGBB[AA] parse and format (widget colour setting)
   Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
+                       ActiveStretch (when a card was active; <vault>/.activity/YYYYMMDD-active.jsonl), parseActive/splitByDay/activeParts
   Report.swift         ReportCard.parse, Report.attribute/series/tree, Allocation, ReportNode (Reports tab)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)

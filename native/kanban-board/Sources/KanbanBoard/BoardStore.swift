@@ -90,9 +90,9 @@ final class BoardStore: ObservableObject {
   let activity = ActivityMonitor()
   private var desktopMenu: DesktopMenu?
   private(set) var widget: TrackerWidget?
-  private lazy var timeline = TimelineWindow(activity: activity, active: $activeID.map { [weak self] id in
-    id.flatMap { id in self?.columns.lazy.flatMap(\.cards).first { $0.id == id }?.ref }
-  }.eraseToAnyPublisher())
+  // `activeID` publishes after `stretch` is set (`trackActive`), so the map reads the new stretch.
+  private lazy var timeline = TimelineWindow(activity: activity, running: $activeID.map { [weak self] _ in self?.stretch }
+    .eraseToAnyPublisher())
 
   func openTimeline() { timeline.show() }
   private var desktopSink: Any?
@@ -109,6 +109,9 @@ final class BoardStore: ObservableObject {
     .flatMap { try? JSONDecoder().decode(ActiveClock.self, from: $0) } ?? ActiveClock()
   private var lastFlush = Date()
   private var pin: FocusPin?
+  /// The active card's stretch so far (`end` is `distantFuture`); logged when the active card changes.
+  private(set) var stretch: ActiveStretch?
+  private var stretchID: String?
   private var contextSink: Any?
   static let flushEvery: TimeInterval = 300
   /// When the Mac went to sleep (lid closed); screen lock and display sleep do not set it.
@@ -124,6 +127,9 @@ final class BoardStore: ObservableObject {
     }
     ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.parkSlept() }
+    }
+    NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { self?.closeStretch(at: Date()) }
     }
   }
 
@@ -385,6 +391,14 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  /// Logs the running stretch as ended at `end`; going away ends it at the idle start.
+  private func closeStretch(at end: Date) {
+    guard var s = stretch else { return }
+    (stretch, stretchID) = (nil, nil)
+    s.end = max(s.start, end)
+    if s.end > s.start { activity.record(s) }
+  }
+
   /// Makes a Doing card active by hand until the desktop changes (`FocusPin`).
   func activate(_ id: String) {
     pin = FocusPin(id: id, context: activity.context)
@@ -397,8 +411,14 @@ final class BoardStore: ObservableObject {
     let cards = columns.flatMap(\.cards)
     let active = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
     if pin != nil, active?.id != pin?.id { pin = nil }
+    let awaySince = activity.context == nil ? activity.contextSince : nil
+    if stretchID != active?.id {
+      closeStretch(at: awaySince ?? Date())
+      stretch = active.map { ActiveStretch(ref: $0.ref, title: $0.title, start: Date(), end: .distantFuture) }
+      stretchID = active?.id
+    }
     let before = clock.current
-    clock.tick(now: Date(), active: active?.id, awaySince: activity.context == nil ? activity.contextSince : nil)
+    clock.tick(now: Date(), active: active?.id, awaySince: awaySince)
     if !cards.isEmpty { clock.keep(Set(cards.map(\.id))) }
     if activeID != active?.id { activeID = active?.id }
     if before != active?.id || Date().timeIntervalSince(lastFlush) >= Self.flushEvery { flushActive() }

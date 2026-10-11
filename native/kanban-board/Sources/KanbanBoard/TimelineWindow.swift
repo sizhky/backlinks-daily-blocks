@@ -13,8 +13,8 @@ final class TimelineWindow {
   private var zoomMonitor: Any?
   private let menu = MenuController()
 
-  init(activity: ActivityMonitor, active: AnyPublisher<String?, Never>) {
-    model = TimelineModel(activity: activity, active: active)
+  init(activity: ActivityMonitor, running: AnyPublisher<ActiveStretch?, Never>) {
+    model = TimelineModel(activity: activity, running: running)
     reports = ReportsModel(activity: activity)
   }
 
@@ -80,13 +80,18 @@ final class TimelineModel: ObservableObject {
   private var timer: Timer?
   private var ticks = 0
 
-  /// `file:line` of the active card (`BoardStore.activeID`); its open Doing block draws stronger.
-  @Published private(set) var activeRef: String?
-  private var activeSink: AnyCancellable?
+  /// The active card's stretch so far (`BoardStore.stretch`); logged stretches come from the day files.
+  private var running: ActiveStretch?
+  private var runningSink: AnyCancellable?
+  private var actives: [ActiveStretch] = []
+  private var weekActives: [[ActiveStretch]] = []
 
-  init(activity: ActivityMonitor, active: AnyPublisher<String?, Never>) {
+  init(activity: ActivityMonitor, running: AnyPublisher<ActiveStretch?, Never>) {
     self.activity = activity
-    activeSink = active.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] in self?.activeRef = $0 }
+    runningSink = running.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] in
+      self?.running = $0
+      self?.load(chronicle: false)
+    }
   }
 
   var isToday: Bool { Calendar.current.isDateInToday(day) }
@@ -171,27 +176,37 @@ final class TimelineModel: ObservableObject {
     return ActivityLog.impute(fresh, maxGap: ActivityMonitor.idleAfter)
   }
 
+  /// One day's logged active stretches plus the running one, which `activeParts` clips to the day's stints.
+  private func actives(for day: Date, in dir: URL) -> [ActiveStretch] {
+    let url = dir.appendingPathComponent(ActiveStretch.fileName(day))
+    return ((try? Data(contentsOf: url)).map(ActivityLog.parseActive) ?? []) + (running.map { [$0] } ?? [])
+  }
+
   private func load(chronicle: Bool) {
     guard let dir = activity.dir else { error = "Activity capture has not started"; return }
     if week { return loadWeek(dir: dir, chronicle: chronicle) }
-    let fresh = spans(for: day, in: dir)
-    if fresh != spans { spans = fresh; layout = CalendarLayout(spans: spans, stints: stints) }
+    let fresh = spans(for: day, in: dir), freshActive = actives(for: day, in: dir)
+    if fresh != spans || freshActive != actives {
+      (spans, actives) = (fresh, freshActive)
+      layout = CalendarLayout(spans: spans, stints: stints, active: actives)
+    }
     error = nil
     guard chronicle else { return }
     let day = self.day
     Task {
       let text = (try? await client.chronicle(day)) ?? ""
       let fresh = ActivityLog.stints(text, day: day)
-      if day == self.day, fresh != stints { stints = fresh; layout = CalendarLayout(spans: spans, stints: stints) }
+      if day == self.day, fresh != stints { stints = fresh; layout = CalendarLayout(spans: spans, stints: stints, active: actives) }
     }
   }
 
   private func loadWeek(dir: URL, chronicle: Bool) {
     let days = Self.weekDays(containing: day)
-    let fresh = days.map { spans(for: $0, in: dir) }
-    let changed = days != weekDays || fresh != weekSpans
+    let fresh = days.map { spans(for: $0, in: dir) }, freshActive = days.map { actives(for: $0, in: dir) }
+    let changed = days != weekDays || fresh != weekSpans || freshActive != weekActives
     weekDays = days
     weekSpans = fresh
+    weekActives = freshActive
     if changed { rebuildWeek() }
     error = nil
     guard chronicle, let first = days.first, let last = days.last else { return }
@@ -205,7 +220,10 @@ final class TimelineModel: ObservableObject {
   }
 
   private func rebuildWeek() {
-    weekLayouts = zip(weekDays, weekSpans).map { CalendarLayout(spans: $1, stints: weekStints[Self.ymd.string(from: $0)] ?? []) }
+    weekLayouts = weekDays.indices.map { i in
+      CalendarLayout(spans: weekSpans[i], stints: weekStints[Self.ymd.string(from: weekDays[i])] ?? [],
+                     active: weekActives.indices.contains(i) ? weekActives[i] : [])
+    }
     weekActive = weekSpans.joined().reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
   }
 }
@@ -227,7 +245,7 @@ struct TimelineScreen: View {
       } else {
         header
         Divider().overlay(Palette.hairline)
-        CalendarDay(days: model.days, layouts: model.layouts, activeRef: model.activeRef, zoom: model.zoom, open: model.open(ref:),
+        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:),
                     edit: { model.editStint($0, $1, to: $2) })
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
@@ -416,9 +434,12 @@ struct CalendarLayout {
   var sessions: [ActivitySession] = []
   var stints: [DoingStint] = []
   var lane: [Int] = [], lanes: [Int] = []
+  /// Stretches when a card was the active task; shaded inside its Doing blocks.
+  var active: [ActiveStretch] = []
 
   init() {}
-  init(spans: [Span], stints: [DoingStint]) {
+  init(spans: [Span], stints: [DoingStint], active: [ActiveStretch]) {
+    self.active = active
     blocks = ActivityLog.blocks(spans)
     tints = blocks.map { Color(ProjectHues.pair($0.app).light) }
     sessions = ActivityLog.sessions(blocks).filter { s in !blocks.contains { $0.start == s.start && $0.end == s.end } }
@@ -435,14 +456,13 @@ struct CalendarLayout {
 struct CalendarDay: View {
   let days: [Date]
   let layouts: [CalendarLayout]
-  /// The active card's open Doing block fills at `activeFill` instead of the usual 0.28.
-  let activeRef: String?
   let zoom: PassthroughSubject<ZoomRequest, Never>
   /// Opens a Doing card (`file:line`) in Obsidian; double-click on its block.
   let open: (String) -> Void
   /// Retimes a Doing stint (edge dragged to a time) or deletes it (nil edge); right-click and edge drags.
   let edit: (DoingStint, StintEdge?, Date?) -> Void
   static let gutter = 64.0
+  /// Fill of the parts of a Doing block when its card was the active task; the rest fills at 0.28.
   static let activeFill = 0.6
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
   static let zoomRange = 24.0...3600.0
@@ -639,9 +659,11 @@ struct CalendarDay: View {
         guard visible(c.minY, c.maxY) else { continue }
         let r = c.offsetBy(dx: 0, dy: -top)
         let tint = st.project.map { Color(ProjectHues.pair($0).light) } ?? Palette.indigo
-        let active = st.open && st.ref != nil && st.ref == activeRef
+        let strong = ActivityLog.activeParts(of: st, in: layout.active, now: now).map { p in
+          CGRect(x: r.minX, y: y(p.start, day) - top, width: r.width, height: y(p.end, day) - y(p.start, day))
+        }
         block(gc, r, tint: tint, title: r.width >= 60 ? st.title : nil, icon: nil,
-              dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: active ? Self.activeFill : 0.28)
+              dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: 0.28, strong: strong)
         if editable(base), hot?.id == base.id, hot?.day == day { handles(gc, r, tint: tint, end: !st.open) }
       }
       // Now
@@ -657,9 +679,15 @@ struct CalendarDay: View {
     }
   }
 
-  private func block(_ gc: GraphicsContext, _ r: CGRect, tint: Color, title: String?, icon: String?, dur: String, fill: Double = 0.22) {
+  private func block(_ gc: GraphicsContext, _ r: CGRect, tint: Color, title: String?, icon: String?, dur: String, fill: Double = 0.22,
+                     strong: [CGRect] = []) {
     let shape = Path(roundedRect: r, cornerRadius: min(4, r.height / 2), style: .continuous)
     gc.fill(shape, with: .color(tint.opacity(fill)))
+    if !strong.isEmpty {
+      var marks = gc
+      marks.clip(to: shape)
+      for m in strong { marks.fill(Path(m), with: .color(tint.opacity(Self.activeFill - fill))) }
+    }
     gc.fill(Path(CGRect(x: r.minX, y: r.minY, width: min(3, r.width), height: r.height)), with: .color(tint))
     guard let title, r.height >= 18 else { return }
     var inner = gc

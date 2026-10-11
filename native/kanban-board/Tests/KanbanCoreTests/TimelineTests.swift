@@ -92,4 +92,20 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(st.dragged(.start, to: t0.addingTimeInterval(-89), now: now), t0.addingTimeInterval(-60))
     XCTAssertEqual(st.with(.end, at: now).end, now)
   }
+
+  func testActiveStretchesSplitAtMidnightAndClipToTheirStint() {
+    var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+    let t0 = Date(timeIntervalSince1970: 1_760_140_800)  // 2025-10-11 00:00 UTC
+    func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
+    let night = ActiveStretch(ref: "a.md:1", title: "A", start: at(-10), end: at(10))
+    XCTAssertEqual(ActivityLog.splitByDay(night, calendar: cal).map { [$0.start, $0.end] }, [[at(-10), at(0)], [at(0), at(10)]])
+    let line = ActivityLog.parseActive(Data((night.jsonLine + "\nbad\n").utf8))
+    XCTAssertEqual(line, [night])
+    let stint = DoingStint(start: at(600), end: at(660), title: "A", open: false, ref: "a.md:3")
+    let stretches = [ActiveStretch(ref: "a.md:1", title: "A", start: at(590), end: at(620)),
+                     ActiveStretch(ref: "b.md:1", title: "B", start: at(625), end: at(630)),
+                     ActiveStretch(ref: "a.md:3", title: "renamed", start: at(640), end: .distantFuture)]
+    let parts = ActivityLog.activeParts(of: stint, in: stretches, now: at(650))
+    XCTAssertEqual(parts.map { [$0.start, $0.end] }, [[at(600), at(620)], [at(640), at(650)]])
+  }
 }
