@@ -115,7 +115,9 @@ final class TimelineTests: XCTestCase {
     let t0 = Date(timeIntervalSince1970: 1_760_000_000)
     func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
     let breaks = [BreakSpan(start: at(-10), end: at(10)), BreakSpan(start: at(60), end: .distantFuture)]
-    XCTAssertEqual(ActivityLog.breakShare(breaks, from: at(0), now: at(120)), 70.0 / 120, accuracy: 1e-9)
-    XCTAssertEqual(ActivityLog.breakShare([], from: at(0), now: at(0)), 0)
+    let day = ActivityLog.dayTotals(breaks, from: at(0), now: at(120))
+    XCTAssertEqual(day.work, 50 * 60, accuracy: 1e-6)
+    XCTAssertEqual(day.pause, 70 * 60, accuracy: 1e-6)
+    XCTAssertEqual(ActivityLog.dayTotals([], from: at(0), now: at(0)).work, 0)
   }
 }

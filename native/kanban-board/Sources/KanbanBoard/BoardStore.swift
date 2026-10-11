@@ -200,11 +200,11 @@ final class BoardStore: ObservableObject {
     parkAll(at: Date())
   }
 
-  /// Share of today since first presence spent on breaks (0...1), the running break included.
-  func breakShare(at now: Date) -> Double {
-    guard let first = dayStart ?? workStart ?? breakStart else { return 0 }
+  /// Today's work and break seconds since the first activity, the running break included.
+  func dayTotals(at now: Date) -> (work: TimeInterval, pause: TimeInterval) {
+    guard let first = dayStart ?? workStart ?? breakStart else { return (0, 0) }
     let running = breakStart.map { [BreakSpan(start: $0, end: .distantFuture)] } ?? []
-    return ActivityLog.breakShare(dayBreaks + running, from: max(first, Calendar.current.startOfDay(for: now)), now: now)
+    return ActivityLog.dayTotals(dayBreaks + running, from: max(first, Calendar.current.startOfDay(for: now)), now: now)
   }
 
   /// Logs the running break. It ends on the resume press, or when any card is back in Doing.
