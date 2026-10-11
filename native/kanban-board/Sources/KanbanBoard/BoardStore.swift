@@ -90,7 +90,9 @@ final class BoardStore: ObservableObject {
   let activity = ActivityMonitor()
   private var desktopMenu: DesktopMenu?
   private(set) var widget: TrackerWidget?
-  private lazy var timeline = TimelineWindow(activity: activity)
+  private lazy var timeline = TimelineWindow(activity: activity, active: $activeID.map { [weak self] id in
+    id.flatMap { id in self?.columns.lazy.flatMap(\.cards).first { $0.id == id }?.ref }
+  }.eraseToAnyPublisher())
 
   func openTimeline() { timeline.show() }
   private var desktopSink: Any?

@@ -13,8 +13,8 @@ final class TimelineWindow {
   private var zoomMonitor: Any?
   private let menu = MenuController()
 
-  init(activity: ActivityMonitor) {
-    model = TimelineModel(activity: activity)
+  init(activity: ActivityMonitor, active: AnyPublisher<String?, Never>) {
+    model = TimelineModel(activity: activity, active: active)
     reports = ReportsModel(activity: activity)
   }
 
@@ -80,7 +80,14 @@ final class TimelineModel: ObservableObject {
   private var timer: Timer?
   private var ticks = 0
 
-  init(activity: ActivityMonitor) { self.activity = activity }
+  /// `file:line` of the active card (`BoardStore.activeID`); its open Doing block draws stronger.
+  @Published private(set) var activeRef: String?
+  private var activeSink: AnyCancellable?
+
+  init(activity: ActivityMonitor, active: AnyPublisher<String?, Never>) {
+    self.activity = activity
+    activeSink = active.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] in self?.activeRef = $0 }
+  }
 
   var isToday: Bool { Calendar.current.isDateInToday(day) }
 
@@ -220,7 +227,7 @@ struct TimelineScreen: View {
       } else {
         header
         Divider().overlay(Palette.hairline)
-        CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:),
+        CalendarDay(days: model.days, layouts: model.layouts, activeRef: model.activeRef, zoom: model.zoom, open: model.open(ref:),
                     edit: { model.editStint($0, $1, to: $2) })
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
@@ -428,12 +435,15 @@ struct CalendarLayout {
 struct CalendarDay: View {
   let days: [Date]
   let layouts: [CalendarLayout]
+  /// The active card's open Doing block fills at `activeFill` instead of the usual 0.28.
+  let activeRef: String?
   let zoom: PassthroughSubject<ZoomRequest, Never>
   /// Opens a Doing card (`file:line`) in Obsidian; double-click on its block.
   let open: (String) -> Void
   /// Retimes a Doing stint (edge dragged to a time) or deletes it (nil edge); right-click and edge drags.
   let edit: (DoingStint, StintEdge?, Date?) -> Void
   static let gutter = 64.0
+  static let activeFill = 0.6
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
   static let zoomRange = 24.0...3600.0
   static let hourKey = "timeline.hour"
@@ -629,8 +639,9 @@ struct CalendarDay: View {
         guard visible(c.minY, c.maxY) else { continue }
         let r = c.offsetBy(dx: 0, dy: -top)
         let tint = st.project.map { Color(ProjectHues.pair($0).light) } ?? Palette.indigo
+        let active = st.open && st.ref != nil && st.ref == activeRef
         block(gc, r, tint: tint, title: r.width >= 60 ? st.title : nil, icon: nil,
-              dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: 0.28)
+              dur: TimelineScreen.dur(st.end.timeIntervalSince(st.start)) + (st.open ? "+" : ""), fill: active ? Self.activeFill : 0.28)
         if editable(base), hot?.id == base.id, hot?.day == day { handles(gc, r, tint: tint, end: !st.open) }
       }
       // Now
