@@ -14,8 +14,9 @@ final class TimelineWindow {
   private let menu = MenuController()
 
   init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
-       moveItems: @escaping @MainActor (DoingStint) -> [MenuItem]) {
-    model = TimelineModel(activity: activity, live: live, moveItems: moveItems)
+       moveItems: @escaping @MainActor (DoingStint) -> [MenuItem],
+       facts: @escaping @MainActor (String?, String) -> TimelineFacts?) {
+    model = TimelineModel(activity: activity, live: live, moveItems: moveItems, facts: facts)
     reports = ReportsModel(activity: activity)
   }
 
@@ -64,7 +65,8 @@ final class TimelineModel: ObservableObject {
   @Published private(set) var stints: [DoingStint] = []
   /// Calendar geometry inputs, rebuilt only when spans or stints change.
   @Published private(set) var layout = CalendarLayout()
-  @Published var filter = ""
+  /// Board query syntax plus `and`, `or` and parentheses over `org:`, `project:`, `desktop:` and text.
+  @Published var filter = "" { didSet { if filter != oldValue { rebuild() } } }
   /// Week view: the 7 days of the week containing `day`, one layout each.
   @Published private(set) var week = false
   @Published private(set) var weekDays: [Date] = []
@@ -90,11 +92,46 @@ final class TimelineModel: ObservableObject {
   /// "Move to" rows for a stint's card (`BoardStore.statusItems`); empty when the card is not on the board.
   let moveItems: @MainActor (DoingStint) -> [MenuItem]
 
+  /// Org, project and desktop of the card behind a stint or stretch (by ref, else title), for the filter.
+  private let facts: @MainActor (String?, String) -> TimelineFacts?
+
   init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
-       moveItems: @escaping @MainActor (DoingStint) -> [MenuItem]) {
+       moveItems: @escaping @MainActor (DoingStint) -> [MenuItem],
+       facts: @escaping @MainActor (String?, String) -> TimelineFacts?) {
     self.activity = activity
     self.live = live
     self.moveItems = moveItems
+    self.facts = facts
+  }
+
+  /// A layout with only what the filter keeps (`Query.expression`): Doing stints by their card's org,
+  /// project and desktop; activity by its own desktop and text, and by the org and project of the card
+  /// active at that moment (spans are cut at active-stretch edges). No filter keeps everything.
+  private func makeLayout(spans: [Span], stints: [DoingStint], marks: DayMarks) -> CalendarLayout {
+    CalendarLayout(spans: visible(spans, marks), stints: visible(stints), marks: marks)
+  }
+
+  private func visible(_ spans: [Span], _ marks: DayMarks) -> [Span] {
+    guard let e = Query.expression(filter) else { return spans }
+    var memo: [String: TimelineFacts?] = [:]
+    let now = Date()
+    return ActivityLog.segments(spans, by: marks.active, now: now).compactMap { seg in
+      let f = seg.stretch.flatMap { s in memo[s.ref] ?? { let v = facts(s.ref, s.title); memo[s.ref] = v; return v }() }
+      let s = seg.span
+      let keep = e.eval { Filter.timeline($0, orgs: f?.orgs ?? [], projects: f?.projects ?? [],
+                                          desktops: [s.desktop, s.space.map(String.init)].compactMap { $0 },
+                                          text: [s.app, s.title, s.url ?? ""]) }
+      return keep ? s : nil
+    }
+  }
+
+  private func visible(_ stints: [DoingStint]) -> [DoingStint] {
+    guard let e = Query.expression(filter) else { return stints }
+    return stints.filter { st in
+      let f = facts(st.ref, st.title)
+      return e.eval { Filter.timeline($0, orgs: f?.orgs ?? [], projects: f?.projects ?? (st.project.map { [$0] } ?? []),
+                                      desktops: f?.desktops ?? [], text: [st.title]) }
+    }
   }
 
   var isToday: Bool { Calendar.current.isDateInToday(day) }
@@ -133,10 +170,8 @@ final class TimelineModel: ObservableObject {
   }
 
   var rows: [TimelineRow] {
-    let q = filter.trimmingCharacters(in: .whitespaces)
-    guard !q.isEmpty else { return ActivityLog.rows(spans, gap: ActivityMonitor.idleAfter) }
-    return spans.filter { s in [s.app, s.title, s.url ?? "", s.desktop ?? ""].contains { $0.localizedCaseInsensitiveContains(q) } }
-      .map(TimelineRow.span)
+    guard Query.expression(filter) != nil else { return ActivityLog.rows(spans, gap: ActivityMonitor.idleAfter) }
+    return visible(spans, marks).map(TimelineRow.span)
   }
 
   func start() {
@@ -195,7 +230,7 @@ final class TimelineModel: ObservableObject {
     let fresh = spans(for: day, in: dir), freshMarks = marks(for: day, in: dir)
     if fresh != spans || freshMarks != marks {
       (spans, marks) = (fresh, freshMarks)
-      layout = CalendarLayout(spans: spans, stints: stints, marks: marks)
+      layout = makeLayout(spans: spans, stints: stints, marks: marks)
     }
     error = nil
     guard chronicle else { return }
@@ -203,7 +238,7 @@ final class TimelineModel: ObservableObject {
     Task {
       let text = (try? await client.chronicle(day)) ?? ""
       let fresh = ActivityLog.stints(text, day: day)
-      if day == self.day, fresh != stints { stints = fresh; layout = CalendarLayout(spans: spans, stints: stints, marks: marks) }
+      if day == self.day, fresh != stints { stints = fresh; layout = makeLayout(spans: spans, stints: stints, marks: marks) }
     }
   }
 
@@ -226,9 +261,14 @@ final class TimelineModel: ObservableObject {
     }
   }
 
+  /// Applies a changed filter to what is already loaded.
+  private func rebuild() {
+    if week { rebuildWeek() } else { layout = makeLayout(spans: spans, stints: stints, marks: marks) }
+  }
+
   private func rebuildWeek() {
     weekLayouts = weekDays.indices.map { i in
-      CalendarLayout(spans: weekSpans[i], stints: weekStints[Self.ymd.string(from: weekDays[i])] ?? [],
+      makeLayout(spans: weekSpans[i], stints: weekStints[Self.ymd.string(from: weekDays[i])] ?? [],
                      marks: weekMarks.indices.contains(i) ? weekMarks[i] : DayMarks())
     }
     weekActive = weekSpans.joined().reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
@@ -275,9 +315,10 @@ struct TimelineScreen: View {
       }
       Spacer()
       TimelineModePicker(mode: $mode)
-      TextField("Filter", text: $model.filter)
+      TextField("Filter", text: $model.filter, prompt: Text("org:A desktop:2 or project:B,C"))
         .textFieldStyle(.plain)
-        .padding(.horizontal, 10).frame(width: 200, height: 28)
+        .help("org:, project:, desktop: and text. Commas mean or; side by side means and; also and, or, ( ). -key: negates.")
+        .padding(.horizontal, 10).frame(width: 280, height: 28)
         .background(RoundedRectangle(cornerRadius: 6).fill(Palette.card))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
       HStack(spacing: 2) {
@@ -432,6 +473,11 @@ struct TimelineRowView: View {
     f.dateFormat = "HH:mm:ss"
     return f
   }()
+}
+
+/// What the Timeline filter knows about the card behind a stint or stretch (`BoardStore.card`).
+struct TimelineFacts {
+  var orgs: [String], projects: [String], desktops: [String]
 }
 
 /// A day's active stretches and breaks; a running one ends at `distantFuture` and is drawn up to now.

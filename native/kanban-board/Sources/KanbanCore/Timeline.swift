@@ -317,6 +317,32 @@ extension ActivityLog {
     return out + [piece]
   }
 
+  /// Spans cut where the active card changes, each piece with the stretch active over it (nil: none),
+  /// so a filter on the active card's org or project can keep part of a span.
+  /// ```
+  /// span 10:00-10:30, stretch A 10:10-10:20 -> [10:00-10:10 nil, 10:10-10:20 A, 10:20-10:30 nil]
+  /// ```
+  public static func segments(_ spans: [Span], by stretches: [ActiveStretch], now: Date) -> [(span: Span, stretch: ActiveStretch?)] {
+    spans.flatMap { span -> [(span: Span, stretch: ActiveStretch?)] in
+      let inside = stretches.filter { $0.start < span.end && min($0.end, now) > span.start }.sorted { $0.start < $1.start }
+      var out: [(span: Span, stretch: ActiveStretch?)] = [], cursor = span.start
+      func piece(_ a: Date, _ b: Date, _ s: ActiveStretch?) {
+        guard b > a else { return }
+        var p = span
+        (p.start, p.end) = (a, b)
+        out.append((p, s))
+      }
+      for s in inside {
+        let a = max(s.start, cursor), b = min(s.end, now, span.end)
+        piece(cursor, a, nil)
+        piece(a, b, s)
+        cursor = max(cursor, b)
+      }
+      piece(cursor, span.end, nil)
+      return out
+    }
+  }
+
   /// Logged seconds per desktop (`Desktops.key`); spans without a desktop are left out.
   /// ```
   /// [U1 10 min, U2 5 min, U1 5 min] -> [U1: 15 min, U2: 5 min]

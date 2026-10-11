@@ -77,4 +77,16 @@ final class OrderingTests: XCTestCase {
     XCTAssertEqual(Ordering.moving(["a", "b", "c"], "c", onto: "a"), ["c", "a", "b"])
     XCTAssertEqual(Ordering.moving(["a", "b"], "a", onto: "zz"), ["a", "b"])
   }
+
+  func testExpressionAndOrParentheses() {
+    let e = Query.expression("(org:Divami desktop:2) or project:Vyasa,Arka")
+    let holds = { (facts: [String: String]) in { (t: QueryTerm) in facts[t.key ?? ""]?.lowercased() == t.value.lowercased() } }
+    XCTAssertEqual(e?.eval(holds(["org": "Divami", "desktop": "2"])), true)
+    XCTAssertEqual(e?.eval(holds(["org": "Divami", "desktop": "1"])), false)
+    XCTAssertEqual(e?.eval(holds(["project": "Arka"])), true)
+    XCTAssertEqual(Query.expression("org:A and -project:B")?.eval(holds(["org": "A", "project": "B"])), false)
+    XCTAssertEqual(Query.expression("org:A or org:B project:C")?.eval(holds(["org": "B"])), false)
+    XCTAssertNil(Query.expression("  "))
+    XCTAssertEqual(Query.expression("org:A)")?.eval(holds(["org": "A"])), true)
+  }
 }

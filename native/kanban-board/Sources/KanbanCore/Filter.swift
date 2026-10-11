@@ -67,6 +67,23 @@ public enum Filter {
     return columns.map { var c = $0; c.cards = c.cards.filter { matches($0, terms, now: now) }; return c }
   }
 
+  /// One Timeline term against a block's facts: `org:`, `project:` (`proj:`, `p:`), `desktop:` (`d:`) match by
+  /// substring, case-insensitive; bare text matches the block's text (title, app, URL). Other keys never match.
+  /// ```
+  /// timeline(org:div, orgs [Divami]) -> true;  timeline(desktop:2, desktops [Personal, 2]) -> true
+  /// ```
+  public static func timeline(_ t: QueryTerm, orgs: [String], projects: [String], desktops: [String], text: [String]) -> Bool {
+    let v = t.value.lowercased()
+    let any: ([String]) -> Bool = { $0.contains { $0.lowercased().contains(v) } }
+    switch t.key.map(Query.canonical) {
+    case nil: return any(text)
+    case "org": return any(orgs)
+    case "project": return any(projects)
+    case "desktop", "d": return any(desktops)
+    default: return false
+    }
+  }
+
   /// Scope value that selects cards with no org.
   public static let noOrg = ""
 

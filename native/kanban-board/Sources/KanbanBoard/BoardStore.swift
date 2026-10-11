@@ -93,11 +93,26 @@ final class BoardStore: ObservableObject {
   private lazy var timeline = TimelineWindow(activity: activity, live: { [weak self] in
     (self?.stretch, self?.breakStart.map { BreakSpan(start: $0, end: .distantFuture) })
   }, moveItems: { [weak self] st in
-    // A stint's ref can be stale after lines move; the title still names the card.
-    guard let self, let card = columns.lazy.flatMap(\.cards).first(where: { $0.ref == st.ref })
-      ?? columns.lazy.flatMap(\.cards).first(where: { $0.title == st.title }) else { return [] }
+    guard let self, let card = card(ref: st.ref, title: st.title) else { return [] }
     return statusItems(card)
+  }, facts: { [weak self] ref, title in
+    guard let self, let card = card(ref: ref, title: title) else { return nil }
+    return TimelineFacts(orgs: card.orgs, projects: card.projects, desktops: desktopNames(desktop(card)))
   })
+
+  /// The card behind a Timeline stint or stretch: by ref, else by title, since refs go stale when lines move.
+  func card(ref: String?, title: String) -> Card? {
+    let cards = columns.lazy.flatMap(\.cards)
+    return cards.first { $0.ref == ref } ?? cards.first { $0.title == title }
+  }
+
+  /// Every way to name a desktop (`Card.desktop` holds a name or a number): the ref, its name and its number.
+  func desktopNames(_ ref: String?) -> [String] {
+    guard let ref else { return [] }
+    guard let s = desktops.spaces.first(where: { $0.ref.caseInsensitiveCompare(ref) == .orderedSame || String($0.number) == ref })
+    else { return [ref] }
+    return [ref, s.name, String(s.number)]
+  }
 
   func openTimeline() { timeline.show() }
   private var desktopSink: Any?

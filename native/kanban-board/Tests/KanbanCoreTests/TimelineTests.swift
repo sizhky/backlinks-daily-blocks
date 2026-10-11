@@ -146,4 +146,15 @@ final class TimelineTests: XCTestCase {
                                           span(15, 20, uuid: "U1", space: 3), span(20, 21, uuid: nil, space: nil)])
     XCTAssertEqual(out, ["U1": 15 * 60, "2": 5 * 60])
   }
+
+  func testSegmentsCutSpansAtActiveStretches() {
+    let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+    func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
+    var span = ActivityLog.parse(Data(#"{"app":"X","bundle":"x","title":"","start":"2025-10-09T09:00:00Z","end":"2025-10-09T09:01:00Z"}"#.utf8))[0]
+    (span.start, span.end) = (at(0), at(30))
+    let a = ActiveStretch(ref: "a.md:1", title: "A", start: at(10), end: at(20))
+    let out = ActivityLog.segments([span], by: [a], now: at(60))
+    XCTAssertEqual(out.map { [$0.span.start, $0.span.end] }, [[at(0), at(10)], [at(10), at(20)], [at(20), at(30)]])
+    XCTAssertEqual(out.map { $0.stretch?.title }, [nil, "A", nil])
+  }
 }
