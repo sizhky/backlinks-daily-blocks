@@ -220,6 +220,16 @@ final class BoardStore: ObservableObject {
     parkAll(at: Date())
   }
 
+  /// The session the widget's clock counts: a break (the break key, or away: idle counts as break) since it
+  /// began, else work since the later of `workStart` and the return from the last idle stretch.
+  func session(at now: Date) -> (onBreak: Bool, since: Date)? {
+    if let b = breakStart { return (true, b) }
+    if activity.context == nil { return (true, activity.contextSince) }
+    let back = activity.idleToday(from: Calendar.current.startOfDay(for: now), now: now).last?.1
+    guard let since = [workStart, back].compactMap({ $0 }).max() else { return nil }
+    return (false, since)
+  }
+
   /// Today's work and break seconds since the first activity; idle time (no activity for `idleAfter`) counts as break.
   func dayTotals(at now: Date) -> (work: TimeInterval, pause: TimeInterval) {
     guard let first = dayStart ?? workStart ?? breakStart else { return (0, 0) }

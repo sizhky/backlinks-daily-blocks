@@ -310,28 +310,31 @@ struct WidgetView: View {
     }
   }
 
-  /// One row for the session clock, in the same place on and off a break: a cup and the time on break
-  /// (`BoardStore.breakStart`), else a laptop and the time worked since the last break (`workStart`).
+  /// One row for the session clock, in the same place on and off a break (`BoardStore.session`): a cup and the
+  /// time on break or away, else a laptop and the time worked since the last break or return from idle.
   @ViewBuilder private var session: some View {
-    if prefs.shown(.timer), let since = store.breakStart ?? store.workStart {
-      let symbol = store.breakStart != nil ? "cup.and.saucer.fill" : "laptopcomputer"
+    if prefs.shown(.timer) {
       TimelineView(.periodic(from: .now, by: 1)) { ctx in
-        // Under the clock: this mode's share of today since the first activity and its total (`BoardStore.dayTotals`).
-        let day = store.dayTotals(at: ctx.date), spent = store.breakStart != nil ? day.pause : day.work
-        let mode = day.work + day.pause > 0 ? spent / (day.work + day.pause) : 0
-        VStack(alignment: prefs.align(.timer).horizontal, spacing: 0) {
-          (Text(Image(systemName: symbol)) + Text("  ") + Text(Self.clock(ctx.date.timeIntervalSince(since))))
-            .font(WidgetStyle.font(family, prefs.size(.title), .medium, design: .rounded).monospacedDigit())
-            .lineLimit(1)
-          Text("(\(Int((mode * 100).rounded()))% · \(Self.clock(spent)))")
-            .font(WidgetStyle.font(family, prefs.size(.title) * 0.7, .medium, design: .rounded).monospacedDigit())
-            .opacity(0.6)
-            .accessibilityLabel("\(Int((mode * 100).rounded())) percent of today, \(Self.clock(spent))")
-        }
-        .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
+        if let s = store.session(at: ctx.date) { sessionClock(onBreak: s.onBreak, since: s.since, at: ctx.date) }
       }
       .opacity(0.8)
     }
+  }
+
+  /// The clock, and under it this mode's share of today since the first activity and its total (`BoardStore.dayTotals`).
+  private func sessionClock(onBreak: Bool, since: Date, at now: Date) -> some View {
+    let day = store.dayTotals(at: now), spent = onBreak ? day.pause : day.work
+    let pct = Int(((day.work + day.pause > 0 ? spent / (day.work + day.pause) : 0) * 100).rounded())
+    return VStack(alignment: prefs.align(.timer).horizontal, spacing: 0) {
+      (Text(Image(systemName: onBreak ? "cup.and.saucer.fill" : "laptopcomputer")) + Text("  ") + Text(Self.clock(now.timeIntervalSince(since))))
+        .font(WidgetStyle.font(family, prefs.size(.title), .medium, design: .rounded).monospacedDigit())
+        .lineLimit(1)
+      Text("(\(pct)% · \(Self.clock(spent)))")
+        .font(WidgetStyle.font(family, prefs.size(.title) * 0.7, .medium, design: .rounded).monospacedDigit())
+        .opacity(0.6)
+        .accessibilityLabel("\(pct) percent of today, \(Self.clock(spent))")
+    }
+    .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
   }
 
   /// The pair: active time at `size`, and under it the card's time in Doing over every stint
