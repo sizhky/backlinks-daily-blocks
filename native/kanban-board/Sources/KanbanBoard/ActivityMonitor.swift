@@ -23,12 +23,17 @@ final class ActivityMonitor: ObservableObject {
   /// `<vault>/.activity`, set by `start`.
   private(set) var dir: URL?
   private var asleepSince: Date?
+  /// Today's logged seconds per desktop (`ActivityLog.desktopSeconds`) and the log file they cover.
+  private var dayDesktops: [String: TimeInterval] = [:]
+  private var dayFile = ""
   private var rulesStamp: Date?
 
   func start(vault: URL) {
     guard timer == nil else { return }
     dir = vault.appendingPathComponent(".activity", isDirectory: true)
     try? FileManager.default.createDirectory(at: dir!, withIntermediateDirectories: true)
+    dayFile = Span.fileName(Date())
+    dayDesktops = (try? Data(contentsOf: dir!.appendingPathComponent(dayFile))).map { ActivityLog.desktopSeconds(ActivityLog.parse($0)) } ?? [:]
     let ws = NSWorkspace.shared.notificationCenter
     for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
       ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.away(Date()) } }
@@ -53,6 +58,16 @@ final class ActivityMonitor: ObservableObject {
 
   /// The span still being recorded (not yet in the log file), for live views.
   var openSpan: Span? { builder.open }
+
+  /// Today's seconds on the current desktop and on all desktops, the open span included; nil while away.
+  func desktopToday(at now: Date) -> (here: TimeInterval, all: TimeInterval)? {
+    guard let c = context, let key = Desktops.key(uuid: c.uuid, space: c.space) else { return nil }
+    var totals = Span.fileName(now) == dayFile ? dayDesktops : [:]
+    if let open = openSpan, let k = Desktops.key(uuid: open.uuid, space: open.space) {
+      totals[k, default: 0] += max(0, now.timeIntervalSince(max(open.start, Calendar.current.startOfDay(for: now))))
+    }
+    return (totals[key] ?? 0, totals.values.reduce(0, +))
+  }
 
   private func away(_ since: Date) {
     if asleepSince == nil { asleepSince = since }
@@ -91,6 +106,8 @@ final class ActivityMonitor: ObservableObject {
   private func write(_ span: Span?) {
     guard let span else { return }
     append(span.jsonLine, to: span.fileName)
+    if span.fileName != dayFile { (dayFile, dayDesktops) = (span.fileName, [:]) }
+    for (k, v) in ActivityLog.desktopSeconds([span]) { dayDesktops[k, default: 0] += v }
   }
 
   /// Logs a finished stretch or break, one line per local day it touches.

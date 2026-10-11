@@ -317,6 +317,16 @@ extension ActivityLog {
     return out + [piece]
   }
 
+  /// Logged seconds per desktop (`Desktops.key`); spans without a desktop are left out.
+  /// ```
+  /// [U1 10 min, U2 5 min, U1 5 min] -> [U1: 15 min, U2: 5 min]
+  /// ```
+  public static func desktopSeconds(_ spans: [Span]) -> [String: TimeInterval] {
+    spans.reduce(into: [:]) { out, s in
+      if let k = Desktops.key(uuid: s.uuid, space: s.space) { out[k, default: 0] += s.end.timeIntervalSince(s.start) }
+    }
+  }
+
   /// Seconds of `from...now` on `breaks` and the rest (work); a running break (`distantFuture`) counts until now.
   /// ```
   /// from 9:00, now 11:00, breaks 8:50-9:10 and 10:00-running -> work 50 min, pause 70 min

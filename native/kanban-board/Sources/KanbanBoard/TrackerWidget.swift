@@ -254,6 +254,14 @@ struct WidgetView: View {
         if desktopNumber, c.desktop != nil, let n = c.space {
           part(.desktop, scale: 0.8) { Text("Desktop \(n)") }.opacity(0.5).padding(.top, -prefs.size(.desktop) * 0.25)
         }
+        // Today on this desktop: share of all logged activity and the total (`ActivityMonitor.desktopToday`).
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+          if let d = activity.desktopToday(at: ctx.date), d.all > 0 {
+            part(.desktop, scale: 0.8) { Text("(\(Int((d.here / d.all * 100).rounded()))% · \(Self.clock(d.here)))").monospacedDigit() }
+              .opacity(0.5)
+              .accessibilityLabel("\(Int((d.here / d.all * 100).rounded())) percent of today on this desktop, \(Self.clock(d.here))")
+          }
+        }
       }
     } else {
       part(.desktop) { Text(Image(systemName: "moon.fill")) + Text(" Away") }.opacity(0.75)

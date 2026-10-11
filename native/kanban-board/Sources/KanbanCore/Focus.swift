@@ -47,8 +47,7 @@ public struct FocusPin: Equatable, Sendable {
 
   public func holds(_ context: Sample?) -> Bool { context.map { Self.desktop($0) == desktop } ?? false }
 
-  /// Space UUID, which survives desktop renumbering; the number when the UUID is unknown.
-  static func desktop(_ s: Sample) -> String? { s.uuid ?? s.space.map(String.init) }
+  static func desktop(_ s: Sample) -> String? { Desktops.key(uuid: s.uuid, space: s.space) }
 }
 
 /// Active seconds per card id (`Card.id`), counted between ticks and not yet written to the note.

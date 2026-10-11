@@ -120,4 +120,16 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(day.pause, 70 * 60, accuracy: 1e-6)
     XCTAssertEqual(ActivityLog.dayTotals([], from: at(0), now: at(0)).work, 0)
   }
+
+  func testDesktopSecondsByUUIDElseNumber() {
+    let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+    func span(_ a: Double, _ b: Double, uuid: String?, space: Int?) -> Span {
+      var s = ActivityLog.parse(Data(#"{"app":"X","bundle":"x","title":"","start":"2025-10-09T09:00:00Z","end":"2025-10-09T09:01:00Z"}"#.utf8))[0]
+      (s.start, s.end, s.uuid, s.space) = (t0.addingTimeInterval(a * 60), t0.addingTimeInterval(b * 60), uuid, space)
+      return s
+    }
+    let out = ActivityLog.desktopSeconds([span(0, 10, uuid: "U1", space: 1), span(10, 15, uuid: nil, space: 2),
+                                          span(15, 20, uuid: "U1", space: 3), span(20, 21, uuid: nil, space: nil)])
+    XCTAssertEqual(out, ["U1": 15 * 60, "2": 5 * 60])
+  }
 }

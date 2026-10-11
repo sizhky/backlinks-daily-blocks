@@ -18,6 +18,9 @@ public struct DesktopSpace: Equatable, Sendable, Identifiable {
 }
 
 public enum Desktops {
+  /// Identity of a desktop in samples and spans: the Space UUID, which survives renumbering; the number without it.
+  public static func key(uuid: String?, space: Int?) -> String? { uuid ?? space.map(String.init) }
+
   /// User desktops from `CGSCopyManagedDisplaySpaces` output; full-screen apps (type 4) are skipped.
   /// ```
   /// [{Spaces: [{id64 5, uuid "A", type 0}, {id64 9, type 4}, {id64 7, uuid "B", type 0}]}], labels ["B": "PenguinAI"]
