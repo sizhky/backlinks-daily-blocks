@@ -114,7 +114,13 @@ final class TimelineModel: ObservableObject {
   /// project and desktop; activity by its own desktop and text, and by the org and project of the card
   /// active at that moment (spans are cut at active-stretch edges). No filter keeps everything.
   private func makeLayout(spans: [Span], stints: [DoingStint], marks: DayMarks) -> CalendarLayout {
-    CalendarLayout(spans: visible(spans, marks), stints: visible(stints), marks: marks)
+    var layout = CalendarLayout(spans: visible(spans, marks), stints: visible(stints), marks: marks)
+    // Idle comes from every span, not the filtered ones: a filter hides activity, it does not make you idle.
+    if let first = spans.first?.start, let last = spans.map(\.end).max() {
+      let end = Calendar.current.isDateInToday(first) ? Date() : last
+      layout.idle = ActivityLog.idle(spans, from: first, now: end, minGap: ActivityMonitor.idleAfter).map { DateInterval(start: $0.0, end: $0.1) }
+    }
+    return layout
   }
 
   private func visible(_ spans: [Span], _ marks: DayMarks) -> [Span] {
@@ -498,6 +504,8 @@ struct CalendarLayout {
   var lane: [Int] = [], lanes: [Int] = []
   /// Active stretches (shaded inside their Doing blocks) and breaks (bands across the Doing lane).
   var marks = DayMarks()
+  /// Gaps of at least `ActivityMonitor.idleAfter` without activity; bands like breaks.
+  var idle: [DateInterval] = []
 
   init() {}
   init(spans: [Span], stints: [DoingStint], marks: DayMarks) {
@@ -527,8 +535,8 @@ struct CalendarDay: View {
   static let gutter = 64.0
   /// Fill of the parts of a Doing block when its card was the active task; the rest fills at 0.28.
   static let activeFill = 0.6
-  /// Coffee brown for breaks; not a project colour.
-  static let breakTint = Color(red: 0.72, green: 0.52, blue: 0.34)
+  /// Near-black for breaks and idle: time off, darker than the window behind it; not a project colour.
+  static let breakTint = Color(white: 0.01)
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
   static let zoomRange = 24.0...3600.0
   static let hourKey = "timeline.hour"
@@ -717,13 +725,15 @@ struct CalendarDay: View {
           sessionLabel(gc, ss, at: CGPoint(x: s.ax + 8, y: ly), maxWidth: s.aw - 16)
         }
       }
-      // Breaks: bands across the Doing lane, behind the stints
-      for b in layout.marks.breaks {
+      // Idle, then breaks: near-black bands across the Doing lane, behind the stints
+      let bands = layout.idle.map { (start: $0.start, end: $0.end, title: "Idle") }
+        + layout.marks.breaks.map { (start: $0.start, end: $0.end, title: "Break") }
+      for b in bands {
         let end = min(b.end, now), y0 = y(b.start, day), y1 = y(end, day)
         guard end > b.start, visible(y0, y1) else { continue }
         let r = CGRect(x: s.dx, y: y0 - top, width: s.dw, height: max(1, y1 - y0))
-        block(gc, r, tint: Self.breakTint, title: r.width >= 60 ? "Break" : nil, icon: nil,
-              dur: TimelineScreen.dur(end.timeIntervalSince(b.start)) + (b.end > now ? "+" : ""), fill: 0.18)
+        block(gc, r, tint: Self.breakTint, title: r.width >= 60 ? b.title : nil, icon: nil,
+              dur: TimelineScreen.dur(end.timeIntervalSince(b.start)) + (b.end > now ? "+" : ""), fill: 0.7)
       }
       // Doing
       for (k, base) in layout.stints.enumerated() {
