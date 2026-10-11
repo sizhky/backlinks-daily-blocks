@@ -76,7 +76,12 @@ final class TrackerWidget {
       .environmentObject(store).environmentObject(store.activity).environmentObject(store.desktops))
     host.sizingOptions = []
     host.grip = grip
-    grip.onPick = { [weak store] in store?.activate($0) }
+    // Option opens the task in Obsidian; a plain click makes it active.
+    grip.onPick = { [weak store] id, flags in
+      guard let store else { return }
+      guard flags.contains(.option) else { return store.activate(id) }
+      store.columns.lazy.flatMap(\.cards).first { $0.id == id }.map(store.open)
+    }
     panel.contentView = host
     // Position: the bottom-left corner (the edge that stays put when the widget grows), saved after
     // every move; used again only if it is still on a screen, else top centre of the main screen.
@@ -426,7 +431,7 @@ final class DragHostingView<Content: View>: NSHostingView<Content> {
   override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
   override func mouseDown(with event: NSEvent) {
-    if let grip, let id = grip.target(at: event.locationInWindow, height: bounds.height) { grip.onPick?(id) }
+    if let grip, let id = grip.target(at: event.locationInWindow, height: bounds.height) { grip.onPick?(id, event.modifierFlags) }
     else { window?.performDrag(with: event) }
   }
 }
@@ -439,7 +444,7 @@ final class WidgetGrip: ObservableObject {
   @Published var hovered: String?
   /// Task frames by `Card.id` in window coordinates; not observed.
   var targets: [String: CGRect] = [:]
-  var onPick: ((String) -> Void)?
+  var onPick: ((String, NSEvent.ModifierFlags) -> Void)?
 
   /// The task at `p`, a bottom-left window point; SwiftUI `.global` frames have a top-left origin.
   func target(at p: CGPoint, height: CGFloat) -> String? {
