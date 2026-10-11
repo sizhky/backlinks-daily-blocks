@@ -29,8 +29,11 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var id: String
   public var ageHours: Double? { Age.hours(age) }
 
-  /// Creation time from the daily-note file name `YYYYMMDD-HHmm[...].md`.
-  public var created: Date? {
+  /// Creation time from the daily-note file name `YYYYMMDD-HHmm[...].md`. Parsed once in `init`:
+  /// sorting and filtering read it per comparison, and a `DateFormatter` parse each time stalled scrolling.
+  public let created: Date?
+
+  static func created(from file: String) -> Date? {
     let parts = file.split(separator: "-")
     guard parts.count >= 2, parts[0].count == 8, parts[1].count >= 4 else { return nil }
     return Self.stamp.date(from: String(parts[0]) + String(parts[1].prefix(4)))
@@ -116,6 +119,7 @@ public struct Card: Identifiable, Equatable, Sendable {
        tags: [String], orgs: [String], projects: [String]) {
     (self.ref, self.file, self.line, self.col, self.title, self.age) = (ref, file, line, col, title, age)
     id = ref
+    created = Self.created(from: file)
     (self.tags, self.orgs, self.projects) = (tags, orgs, projects)
   }
 

@@ -353,7 +353,8 @@ final class BoardStore: ObservableObject {
         if !changes.isEmpty { widgetToast = ((widgetToast?.gen ?? 0) + 1, changes) }
       }
       lastLive = live
-      withAnimation(DragController.spring) { columns = fresh }
+      // An unchanged board would still redraw every card each refresh.
+      if fresh != columns { withAnimation(DragController.spring) { columns = fresh } }
       picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
       error = nil
       switchTasks()
