@@ -367,6 +367,23 @@ extension ActivityLog {
     return out
   }
 
+  /// `ivals` with every part covered by `cut` removed.
+  /// ```
+  /// [10:00-11:00] minus [10:20-10:30, 10:50-12:00] -> [10:00-10:20, 10:30-10:50]
+  /// ```
+  public static func subtract(_ ivals: [(Date, Date)], _ cut: [(Date, Date)]) -> [(Date, Date)] {
+    let cuts = cut.sorted { $0.0 < $1.0 }
+    return ivals.flatMap { a, b -> [(Date, Date)] in
+      var out: [(Date, Date)] = [], cursor = a
+      for (c, d) in cuts where d > cursor && c < b {
+        if c > cursor { out.append((cursor, c)) }
+        cursor = max(cursor, d)
+      }
+      if b > cursor { out.append((cursor, b)) }
+      return out
+    }
+  }
+
   /// Seconds of `from...now` off work (breaks and idle, overlaps counted once) and the rest (work);
   /// a running break (`distantFuture`) counts until now.
   /// ```

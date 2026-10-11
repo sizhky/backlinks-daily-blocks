@@ -118,7 +118,10 @@ final class TimelineModel: ObservableObject {
     // Idle comes from every span, not the filtered ones: a filter hides activity, it does not make you idle.
     if let first = spans.first?.start, let last = spans.map(\.end).max() {
       let end = Calendar.current.isDateInToday(first) ? Date() : last
-      layout.idle = ActivityLog.idle(spans, from: first, now: end, minGap: ActivityMonitor.idleAfter).map { DateInterval(start: $0.0, end: $0.1) }
+      // A break that was also idle shows as the break only.
+      let idle = ActivityLog.idle(spans, from: first, now: end, minGap: ActivityMonitor.idleAfter)
+      layout.idle = ActivityLog.subtract(idle, marks.breaks.map { ($0.start, min($0.end, end)) })
+        .map { DateInterval(start: $0.0, end: $0.1) }
     }
     return layout
   }

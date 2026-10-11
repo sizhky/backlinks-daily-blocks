@@ -157,4 +157,12 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(out.map { [$0.span.start, $0.span.end] }, [[at(0), at(10)], [at(10), at(20)], [at(20), at(30)]])
     XCTAssertEqual(out.map { $0.stretch?.title }, [nil, "A", nil])
   }
+
+  func testSubtractRemovesCoveredParts() {
+    let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+    func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
+    let out = ActivityLog.subtract([(at(0), at(60))], [(at(50), at(120)), (at(20), at(30))])
+    XCTAssertEqual(out.map { [$0.0, $0.1] }, [[at(0), at(20)], [at(30), at(50)]])
+    XCTAssertTrue(ActivityLog.subtract([(at(0), at(10))], [(at(-5), at(15))]).isEmpty)
+  }
 }
