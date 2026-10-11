@@ -273,6 +273,10 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Gotchas
 
+- `NSRunningApplication.activate` is ignored while this app is not active (macOS cooperative activation), and a
+  widget click never makes it active. `ObsidianClient.bringForward` uses `NSWorkspace.openApplication` with
+  `activates`, which worked from a background process on 2026-10-11; an `obsidian://` URL did not.
+
 - Board columns hold hundreds of cards (2026-10-11: Backlog 185, Done 180 over 14 days). Card stacks stay
   `LazyVStack`: an eager `VStack` built and measured every card on each store change, so drag and scroll stalled.
   Lazy columns measure only cards near the viewport; `Ranking.slot` skips unmeasured cards.

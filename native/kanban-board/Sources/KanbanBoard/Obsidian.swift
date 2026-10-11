@@ -146,14 +146,21 @@ struct ObsidianClient {
   func open(ref: String) async throws {
     guard let colon = ref.lastIndex(of: ":"), let line = Int(ref[ref.index(after: colon)...]) else { return }
     _ = try await eval("kb.openTask(\(try js(String(ref[..<colon]))),\(line))")
-    NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").first?
-      .activate(options: [.activateAllWindows])
+    Self.bringForward()
   }
 
   func open(_ card: Card) async throws {
     _ = try await eval("kb.openTask(\(try js(card.file)),\(card.line))")
-    NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").first?
-      .activate(options: [.activateAllWindows])
+    Self.bringForward()
+  }
+
+  /// Launch Services activation: `NSRunningApplication.activate` is ignored while this app is not
+  /// active, which is always the case for a click on the non-activating widget.
+  static func bringForward() {
+    guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "md.obsidian") else { return }
+    let config = NSWorkspace.OpenConfiguration()
+    config.activates = true
+    NSWorkspace.shared.openApplication(at: url, configuration: config)
   }
 
   private func js(_ s: some Encodable) throws -> String {
