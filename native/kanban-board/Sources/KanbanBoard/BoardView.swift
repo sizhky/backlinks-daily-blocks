@@ -135,71 +135,24 @@ struct BoardHeader: View {
     }
   }
 
-  private var suggestions: [Suggestion] { focused ? Array(store.catalog.suggest(store.query).prefix(8)) : [] }
-
-  /// The text field takes Tab for focus traversal before onKeyPress sees it, so catch it at the window.
+  /// The palette takes Tab while open; the filter field's own monitor (`QueryField`) handles completion.
   private func installTabMonitor() {
     guard tabMonitor == nil else { return }
     let store = store
     tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
       guard event.keyCode == 48, event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty,
-            NSApp.keyWindow?.firstResponder is NSTextView else { return event }
-      if store.paletteOpen { return store.paletteTab() ? nil : event }
-      guard let s = Array(store.catalog.suggest(store.query).prefix(8))[safe: store.pick] else { return event }
-      Self.complete(s, store)
-      return nil
+            store.paletteOpen, NSApp.keyWindow?.firstResponder is NSTextView else { return event }
+      return store.paletteTab() ? nil : event
     }
-  }
-
-  private func complete(_ s: Suggestion) { Self.complete(s, store) }
-
-  @MainActor private static func complete(_ s: Suggestion, _ store: BoardStore) {
-    if !s.isKey, s.term.lowercased().hasPrefix("view:") { store.accept(s.term); return }
-    store.query = Catalog.replacing(store.query, with: s)
   }
 
   private var filterField: some View {
-    let shown = suggestions
-    return HStack(spacing: 7) {
-      Image(systemName: "line.3.horizontal.decrease").font(.system(size: 11)).foregroundStyle(Palette.muted)
-      TextField("Filter", text: $store.query)
-        .textFieldStyle(.plain).font(.system(size: 12.5)).focused($focused)
-        .foregroundStyle(focused || terms.isEmpty ? Palette.text : .clear)
-        .overlay(alignment: .leading) {
-          if !focused && !terms.isEmpty {
-            Text("Filter").font(.system(size: 12.5)).foregroundStyle(Palette.muted).allowsHitTesting(false)
-          }
-        }
-        .onKeyPress(.escape) { focused = false; return .handled }
-        .onKeyPress(.downArrow) { guard !shown.isEmpty else { return .ignored }; store.pick = min(shown.count - 1, store.pick + 1); return .handled }
-        .onKeyPress(.upArrow) { guard !shown.isEmpty else { return .ignored }; store.pick = max(0, store.pick - 1); return .handled }
-        .onSubmit { if shown.indices.contains(store.pick) { complete(shown[store.pick]); focused = true } }
-        .onChange(of: store.query) { store.pick = 0 }
+    let store = store
+    return QueryField(text: $store.query, focused: $focused, suggest: { store.catalog.suggest($0) },
+                      masked: !terms.isEmpty) { s in
+      if !s.isKey, s.term.lowercased().hasPrefix("view:") { store.accept(s.term) }
+      else { store.query = Catalog.replacing(store.query, with: s) }
     }
-    .padding(.horizontal, 10).padding(.vertical, 5).frame(width: 280)
-    .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 7))
-    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(focused ? Palette.indigo : Palette.hairline))
-    .overlay(alignment: .topLeading) { if !shown.isEmpty { suggestionList(shown).offset(y: 32) } }
-    .zIndex(1)
-  }
-
-  private func suggestionList(_ shown: [Suggestion]) -> some View {
-    VStack(spacing: 1) {
-      ForEach(Array(shown.enumerated()), id: \.offset) { i, s in
-        HStack(spacing: 8) {
-          Image(systemName: s.isKey ? "number" : "text.append").font(.system(size: 10)).foregroundStyle(Palette.muted).frame(width: 14)
-          Text(s.label).lineLimit(1).font(.system(size: 12.5, design: s.isKey ? .monospaced : .default))
-          Spacer()
-        }
-        .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(i == store.pick ? Palette.selected : .clear, in: .rect(cornerRadius: 6))
-        .contentShape(Rectangle())
-        .onTapGesture { complete(s); focused = true }.pointerStyle(.link)
-      }
-    }
-    .padding(4).frame(width: 280)
-    .background(Palette.base, in: .rect(cornerRadius: 9))
-    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.hairline))
   }
 
   private var chips: some View {
@@ -238,6 +191,106 @@ struct BoardHeader: View {
     .frame(height: 24)
     .background(Color.white.opacity(0.03), in: .rect(cornerRadius: 6))
     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
+  }
+}
+
+/// A filter field with key and value completion (`Catalog.suggest`): arrows pick, Return or Tab completes,
+/// Esc leaves. Used by the board header and the Timeline. With `masked`, the text hides while unfocused
+/// (the board shows its terms as chips instead).
+struct QueryField: View {
+  @Binding var text: String
+  var focused: FocusState<Bool>.Binding
+  let suggest: (String) -> [Suggestion]
+  var prompt = "Filter"
+  var width: CGFloat = 280
+  var masked = false
+  /// Applies a picked suggestion; the default replaces the term being typed.
+  var accept: ((Suggestion) -> Void)? = nil
+  @StateObject private var tab = QueryTab()
+
+  private var shown: [Suggestion] { focused.wrappedValue ? Array(suggest(text).prefix(8)) : [] }
+
+  private func complete(_ s: Suggestion) {
+    if let accept { accept(s) } else { text = Catalog.replacing(text, with: s) }
+  }
+
+  var body: some View {
+    let shown = shown
+    return HStack(spacing: 7) {
+      Image(systemName: "line.3.horizontal.decrease").font(.system(size: 11)).foregroundStyle(Palette.muted)
+      TextField("Filter", text: $text, prompt: Text(prompt))
+        .textFieldStyle(.plain).font(.system(size: 12.5)).focused(focused)
+        .foregroundStyle(focused.wrappedValue || !masked ? Palette.text : .clear)
+        .overlay(alignment: .leading) {
+          if !focused.wrappedValue && masked {
+            Text("Filter").font(.system(size: 12.5)).foregroundStyle(Palette.muted).allowsHitTesting(false)
+          }
+        }
+        .onKeyPress(.escape) { focused.wrappedValue = false; return .handled }
+        .onKeyPress(.downArrow) { guard !shown.isEmpty else { return .ignored }; tab.pick = min(shown.count - 1, tab.pick + 1); return .handled }
+        .onKeyPress(.upArrow) { guard !shown.isEmpty else { return .ignored }; tab.pick = max(0, tab.pick - 1); return .handled }
+        .onSubmit { if shown.indices.contains(tab.pick) { complete(shown[tab.pick]); focused.wrappedValue = true } }
+        .onChange(of: text) { tab.pick = 0 }
+    }
+    .padding(.horizontal, 10).padding(.vertical, 5).frame(width: width)
+    .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 7))
+    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(focused.wrappedValue ? Palette.indigo : Palette.hairline))
+    .overlay(alignment: .topLeading) { if !shown.isEmpty { suggestionList(shown).offset(y: 32) } }
+    .zIndex(1)
+    .onAppear {
+      // Tab reaches the text field's focus traversal before onKeyPress, so it is caught at the window.
+      tab.complete = { [suggest, text = $text] in
+        guard let s = Array(suggest(text.wrappedValue).prefix(8))[safe: tab.pick] else { return false }
+        complete(s)
+        return true
+      }
+      tab.install()
+    }
+    .onChange(of: focused.wrappedValue) { tab.active = focused.wrappedValue }
+    .onDisappear { tab.remove() }
+  }
+
+  private func suggestionList(_ shown: [Suggestion]) -> some View {
+    VStack(spacing: 1) {
+      ForEach(Array(shown.enumerated()), id: \.offset) { i, s in
+        HStack(spacing: 8) {
+          Image(systemName: s.isKey ? "number" : "text.append").font(.system(size: 10)).foregroundStyle(Palette.muted).frame(width: 14)
+          Text(s.label).lineLimit(1).font(.system(size: 12.5, design: s.isKey ? .monospaced : .default))
+          Spacer()
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(i == tab.pick ? Palette.selected : .clear, in: .rect(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onTapGesture { complete(s); focused.wrappedValue = true }.pointerStyle(.link)
+      }
+    }
+    .padding(4).frame(width: width)
+    .background(Palette.base, in: .rect(cornerRadius: 9))
+    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.hairline))
+  }
+}
+
+/// A `QueryField`'s highlighted suggestion and its Tab key monitor, which acts only while that field is focused.
+@MainActor
+final class QueryTab: ObservableObject {
+  @Published var pick = 0
+  var active = false
+  var complete: (() -> Bool)?
+  private var monitor: Any?
+
+  func install() {
+    guard monitor == nil else { return }
+    monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+      guard let self, self.active, event.keyCode == 48,
+            event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty,
+            NSApp.keyWindow?.firstResponder is NSTextView else { return event }
+      return MainActor.assumeIsolated { self.complete?() == true } ? nil : event
+    }
+  }
+
+  func remove() {
+    monitor.map(NSEvent.removeMonitor)
+    monitor = nil
   }
 }
 

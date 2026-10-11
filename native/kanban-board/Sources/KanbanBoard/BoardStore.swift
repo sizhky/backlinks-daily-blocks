@@ -74,7 +74,6 @@ final class BoardStore: ObservableObject {
   @Published var paletteOpen = false
   @Published var focusFilter = 0
   @Published var filterFocused = false
-  @Published var pick = 0
   @Published var paletteText = ""
   @Published var paletteIndex = 0
   @Published var editing: ViewDraft?
@@ -98,6 +97,12 @@ final class BoardStore: ObservableObject {
   }, facts: { [weak self] ref, title in
     guard let self, let card = card(ref: ref, title: title) else { return nil }
     return TimelineFacts(orgs: card.orgs, projects: card.projects, desktops: desktopNames(desktop(card)))
+  }, suggest: { [weak self] text in
+    guard let self else { return [] }
+    let names = desktops.spaces.flatMap { [$0.name] + ($0.label == nil ? [] : [String($0.number)]) }
+    // Every card, not `facets`: those follow the board's own filter.
+    let projects = Set(columns.flatMap(\.cards).flatMap(\.projects)).sorted()
+    return Catalog.timeline(projects: projects, orgs: orgs.map(\.name), desktops: names).suggest(text)
   })
 
   /// The card behind a Timeline stint or stretch: by ref, else by title, since refs go stale when lines move.

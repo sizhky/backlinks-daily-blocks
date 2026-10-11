@@ -89,4 +89,11 @@ final class OrderingTests: XCTestCase {
     XCTAssertNil(Query.expression("  "))
     XCTAssertEqual(Query.expression("org:A)")?.eval(holds(["org": "A"])), true)
   }
+
+  func testTimelineCatalogCompletesInsideParentheses() {
+    let c = Catalog.timeline(projects: ["Vyasa"], orgs: ["Divami"], desktops: ["Personal", "2"])
+    XCTAssertEqual(c.suggest("(org:Div").map(\.term), ["(org:Divami"])
+    XCTAssertEqual(c.suggest("de").map(\.term), ["desktop:"])
+    XCTAssertEqual(c.suggest("org:A or (-desktop:Pers").map(\.term), ["(-desktop:Personal"])
+  }
 }

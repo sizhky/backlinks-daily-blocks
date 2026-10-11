@@ -15,8 +15,9 @@ final class TimelineWindow {
 
   init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
        moveItems: @escaping @MainActor (DoingStint) -> [MenuItem],
-       facts: @escaping @MainActor (String?, String) -> TimelineFacts?) {
-    model = TimelineModel(activity: activity, live: live, moveItems: moveItems, facts: facts)
+       facts: @escaping @MainActor (String?, String) -> TimelineFacts?,
+       suggest: @escaping @MainActor (String) -> [Suggestion]) {
+    model = TimelineModel(activity: activity, live: live, moveItems: moveItems, facts: facts, suggest: suggest)
     reports = ReportsModel(activity: activity)
   }
 
@@ -97,12 +98,17 @@ final class TimelineModel: ObservableObject {
 
   init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
        moveItems: @escaping @MainActor (DoingStint) -> [MenuItem],
-       facts: @escaping @MainActor (String?, String) -> TimelineFacts?) {
+       facts: @escaping @MainActor (String?, String) -> TimelineFacts?,
+       suggest: @escaping @MainActor (String) -> [Suggestion]) {
     self.activity = activity
     self.live = live
     self.moveItems = moveItems
     self.facts = facts
+    self.suggest = suggest
   }
+
+  /// Completions for the filter field (`Catalog.timeline`, board orgs and projects, current desktops).
+  let suggest: @MainActor (String) -> [Suggestion]
 
   /// A layout with only what the filter keeps (`Query.expression`): Doing stints by their card's org,
   /// project and desktop; activity by its own desktop and text, and by the org and project of the card
@@ -280,17 +286,18 @@ final class TimelineModel: ObservableObject {
 struct TimelineScreen: View {
   @EnvironmentObject var model: TimelineModel
   @AppStorage("timeline.mode") private var mode = "calendar"
+  @FocusState private var filterFocused: Bool
 
   var body: some View {
     VStack(spacing: 0) {
       if mode == "reports" {
         ReportsView(mode: $mode)
       } else if mode == "list" {
-        header
+        header.zIndex(1)  // the filter's suggestion list draws over the content below
         Divider().overlay(Palette.hairline)
         list
       } else {
-        header
+        header.zIndex(1)
         Divider().overlay(Palette.hairline)
         CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:), moveItems: model.moveItems,
                     edit: { model.editStint($0, $1, to: $2) })
@@ -315,12 +322,8 @@ struct TimelineScreen: View {
       }
       Spacer()
       TimelineModePicker(mode: $mode)
-      TextField("Filter", text: $model.filter, prompt: Text("org:A desktop:2 or project:B,C"))
-        .textFieldStyle(.plain)
+      QueryField(text: $model.filter, focused: $filterFocused, suggest: model.suggest, prompt: "org:A desktop:2 or project:B,C")
         .help("org:, project:, desktop: and text. Commas mean or; side by side means and; also and, or, ( ). -key: negates.")
-        .padding(.horizontal, 10).frame(width: 280, height: 28)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Palette.card))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
       HStack(spacing: 2) {
         Button { model.shift(-1) } label: { Image(systemName: "chevron.left") }.help(model.week ? "Previous week" : "Previous day")
         Button("Today") { model.today() }.disabled(model.week ? model.showsToday : model.isToday)

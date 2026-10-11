@@ -34,7 +34,7 @@ Sources/KanbanBoard/   SwiftUI app
   TimelineWindow.swift Timeline window (Shift-Cmd-T, toolbar icon, menu bar): Day / Week calendar, per-second list, Reports
   ReportsView.swift    Reports tab: ReportsModel (range, drill), tiles, stacked Swift Charts bars, org > project > card rows
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
-  BoardView.swift      header, filter chips, board, list, cards, rows
+  BoardView.swift      header, filter chips, board, list, cards, rows; QueryField (filter + completion, also in Timeline)
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
   Menu.swift           custom Linear-style menus: MenuItem, MenuController, MenuHost, MenuTrigger, rightClickMenu
   SettingsView.swift   Settings window (Cmd-,); Density metrics; Tracking tab (desktop squares holding draggable project pills, mulling time)

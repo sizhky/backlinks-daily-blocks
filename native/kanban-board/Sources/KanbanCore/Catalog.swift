@@ -35,6 +35,15 @@ public struct Catalog: Sendable {
     ])
   }
 
+  /// The Timeline filter's keys (`Filter.timeline`).
+  public static func timeline(projects: [String], orgs: [String], desktops: [String]) -> Catalog {
+    Catalog(keys: [
+      CatalogKey(name: "org", aliases: ["o"], values: orgs),
+      CatalogKey(name: "project", aliases: ["proj", "p"], values: projects),
+      CatalogKey(name: "desktop", aliases: ["d"], values: desktops),
+    ])
+  }
+
   /// Splits at the last space outside quotes: everything before, and the term being typed.
   public static func split(_ text: String) -> (head: String, token: String) {
     var quoted = false, cut = text.startIndex
@@ -51,10 +60,13 @@ public struct Catalog: Sendable {
   /// suggest("crea")       -> created:
   /// suggest("created:to") -> created:today
   /// suggest("-col:do")    -> -col:Doing, -col:Done
+  /// suggest("(org:Div")   -> (org:Divami
   /// ```
   public func suggest(_ text: String) -> [Suggestion] {
-    let token = Self.split(text).token
-    let negated = token.hasPrefix("-"), sign = negated ? "-" : ""
+    let whole = Self.split(text).token
+    // Opening parentheses of an and/or filter stay in front of the term.
+    let lead = String(whole.prefix { $0 == "(" }), token = String(whole.dropFirst(lead.count))
+    let negated = token.hasPrefix("-"), sign = lead + (negated ? "-" : "")
     let body = negated ? String(token.dropFirst()) : token
     guard !body.isEmpty else { return [] }
     guard let colon = body.firstIndex(of: ":"), colon != body.startIndex else {
