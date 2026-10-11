@@ -346,7 +346,7 @@ struct ColumnView: View {
       .padding(.horizontal, 8).padding(.top, 6)
       ScrollViewReader { proxy in
         ScrollView {
-          VStack(alignment: .leading, spacing: density.cardGap) {
+          LazyVStack(alignment: .leading, spacing: density.cardGap) {
             ForEach(drag.rows(column, store)) { row in
               if let card = row.card {
                 IssueCard(card: card).dragFrame(card.id, in: \.cards, drag.frames)

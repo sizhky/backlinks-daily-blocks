@@ -273,6 +273,12 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Gotchas
 
+- Board columns hold hundreds of cards (2026-10-11: Backlog 185, Done 180 over 14 days). Card stacks stay
+  `LazyVStack`: an eager `VStack` built and measured every card on each store change, so drag and scroll stalled.
+  Lazy columns measure only cards near the viewport; `Ranking.slot` skips unmeasured cards.
+- SwiftUI drops a cancelled `DragGesture` without calling `onEnded`. `DragController.changed` treats a new
+  `startLocation` as a new gesture and clears `ignoring` and any stale session; otherwise the next drag did nothing.
+
 - Ghost frames are keyed by column (`FrameRegistry.ghosts`, through `dragFrame`). A ghost leaving a column fades out
   and keeps reporting its frame; with one shared slot the drop flew back to the home column first.
 - Board shortcuts (`BoardView.board`) fire for any focused descendant, including the Inspector note editor. They return

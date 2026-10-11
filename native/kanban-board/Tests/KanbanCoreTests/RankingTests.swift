@@ -43,6 +43,15 @@ final class RankingTests: XCTestCase {
     XCTAssertEqual(Ranking.slot(order: ["a", "c"], dragging: ["c"], grabbed: "c", midY: mid, y: 99), "c")
   }
 
+  /// A lazy column measures only the cards near the viewport.
+  func testSlotSkipsUnmeasuredCards() {
+    let mid = ["c": 30.0, "d": 50]
+    func at(_ y: Double) -> String? { Ranking.slot(order: ["a", "b", "c", "d", "e"], dragging: [], grabbed: nil, midY: mid, y: y) }
+    XCTAssertEqual(at(10), "c")
+    XCTAssertEqual(at(40), "d")
+    XCTAssertEqual(at(60), "e")
+  }
+
   func testDragLayout() {
     func items(_ target: Bool, _ before: String?) -> [DragLayout.Item] {
       DragLayout.items(order: ["a", "b", "c"], carried: ["b"], target: target, before: before)

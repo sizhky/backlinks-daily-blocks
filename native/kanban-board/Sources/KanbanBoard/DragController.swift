@@ -58,11 +58,18 @@ final class DragController: ObservableObject {
   let frames = FrameRegistry()
   weak var store: BoardStore?
   private var location: CGPoint = .zero
+  private var start: CGPoint?
   private var ignoring = false
   private var settling = false
   private var monitor: Any?
 
   func changed(_ value: DragGesture.Value) {
+    // A gesture SwiftUI cancels never calls `ended`; a new start point clears what it left behind.
+    if value.startLocation != start {
+      start = value.startLocation
+      ignoring = false
+      if session != nil, !settling { cancel() }
+    }
     guard !settling else { return }
     if session == nil {
       guard !ignoring else { return }
@@ -148,10 +155,14 @@ final class DragController: ObservableObject {
         session = nil
         self.slot = nil
       }
-    } else {
-      session = nil
-      slot = nil
     }
+    cancel()
+  }
+
+  /// Ends a session without writing a move.
+  private func cancel() {
+    session = nil
+    slot = nil
     store?.dragActive = false
     settling = false
     if let monitor { NSEvent.removeMonitor(monitor) }

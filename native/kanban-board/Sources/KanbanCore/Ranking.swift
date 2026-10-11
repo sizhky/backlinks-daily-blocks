@@ -47,10 +47,16 @@ public enum Ranking {
   /// ```
   /// order a b c, midY a=10 b=30 c=50, dragging b: y=5 -> "a", y=40 -> "b" (home), y=60 -> nil
   /// ```
+  /// Cards with no `midY` (not laid out by a lazy column) are skipped; below the last measured
+  /// card the slot is the next unmeasured card, not the end.
+  /// ```
+  /// order a b c d e, midY c=30 d=50: y=10 -> "c", y=60 -> "e"
+  /// ```
   public static func slot(order: [String], dragging: Set<String>, grabbed: String?,
                           midY: [String: Double], y: Double) -> String? {
     let others = order.filter { !dragging.contains($0) }
-    let hit = others.first { (midY[$0] ?? .infinity) > y }
+    let hit = others.first { (midY[$0] ?? -.infinity) > y }
+      ?? others.lastIndex { midY[$0] != nil }.flatMap { i in others[(i + 1)...].first }
     guard let g = grabbed, let i = order.firstIndex(of: g) else { return hit }
     let home = order[(i + 1)...].first { !dragging.contains($0) }
     return hit == home ? g : hit
