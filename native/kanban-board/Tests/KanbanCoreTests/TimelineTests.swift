@@ -110,4 +110,12 @@ final class TimelineTests: XCTestCase {
     let parts = ActivityLog.activeParts(of: stint, in: stretches, now: at(650))
     XCTAssertEqual(parts.map { [$0.start, $0.end] }, [[at(600), at(620)], [at(640), at(650)]])
   }
+
+  func testBreakShareClipsToTheDayAndCountsTheRunningBreak() {
+    let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+    func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
+    let breaks = [BreakSpan(start: at(-10), end: at(10)), BreakSpan(start: at(60), end: .distantFuture)]
+    XCTAssertEqual(ActivityLog.breakShare(breaks, from: at(0), now: at(120)), 70.0 / 120, accuracy: 1e-9)
+    XCTAssertEqual(ActivityLog.breakShare([], from: at(0), now: at(0)), 0)
+  }
 }

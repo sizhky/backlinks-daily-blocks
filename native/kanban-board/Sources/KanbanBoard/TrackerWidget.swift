@@ -305,10 +305,18 @@ struct WidgetView: View {
     if prefs.shown(.timer), let since = store.breakStart ?? store.workStart {
       let symbol = store.breakStart != nil ? "cup.and.saucer.fill" : "laptopcomputer"
       TimelineView(.periodic(from: .now, by: 1)) { ctx in
-        (Text(Image(systemName: symbol)) + Text("  ") + Text(Self.clock(ctx.date.timeIntervalSince(since))))
-          .font(WidgetStyle.font(family, prefs.size(.title), .medium, design: .rounded).monospacedDigit())
-          .lineLimit(1)
-          .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
+        // Under the clock: this mode's share of today since first presence (`BoardStore.breakShare`).
+        let share = store.breakShare(at: ctx.date), mode = store.breakStart != nil ? share : 1 - share
+        VStack(alignment: prefs.align(.timer).horizontal, spacing: 0) {
+          (Text(Image(systemName: symbol)) + Text("  ") + Text(Self.clock(ctx.date.timeIntervalSince(since))))
+            .font(WidgetStyle.font(family, prefs.size(.title), .medium, design: .rounded).monospacedDigit())
+            .lineLimit(1)
+          Text("(\(Int((mode * 100).rounded()))%)")
+            .font(WidgetStyle.font(family, prefs.size(.title) * 0.7, .medium, design: .rounded).monospacedDigit())
+            .opacity(0.6)
+            .accessibilityLabel("\(Int((mode * 100).rounded())) percent of today")
+        }
+        .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
       }
       .opacity(0.8)
     }

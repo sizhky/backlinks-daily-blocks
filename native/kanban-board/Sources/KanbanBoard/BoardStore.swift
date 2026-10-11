@@ -128,6 +128,12 @@ final class BoardStore: ObservableObject {
   @Published private(set) var workStart: Date? = UserDefaults.standard.object(forKey: "kanban.workStart") as? Date {
     didSet { UserDefaults.standard.set(workStart, forKey: "kanban.workStart") }
   }
+  /// First presence today (when `workStart` was set for a new day); the base of the day's work/break share.
+  private var dayStart: Date? = UserDefaults.standard.object(forKey: "kanban.dayStart") as? Date {
+    didSet { UserDefaults.standard.set(dayStart, forKey: "kanban.dayStart") }
+  }
+  /// Today's finished breaks, from the day log at launch plus each one that ends.
+  private var dayBreaks: [BreakSpan] = []
   @Published private(set) var breakStart: Date? = UserDefaults.standard.object(forKey: "kanban.breakStart") as? Date {
     didSet { UserDefaults.standard.set(breakStart, forKey: "kanban.breakStart") }
   }
@@ -140,6 +146,8 @@ final class BoardStore: ObservableObject {
     query = UserDefaults.standard.string(forKey: "kanban.query") ?? ""
     saved = UserDefaults.standard.data(forKey: "kanban.saved")
       .flatMap { try? JSONDecoder().decode([SavedFilter].self, from: $0) } ?? SavedFilter.defaults
+    // Builds before dayStart existed set only workStart; a later break end moves workStart, not the day base.
+    if dayStart == nil { dayStart = workStart }
     if var s = UserDefaults.standard.data(forKey: Self.stretchKey).flatMap({ try? JSONDecoder().decode(ActiveStretch.self, from: $0) }),
        let last = clock.last {
       s.end = last
@@ -195,13 +203,23 @@ final class BoardStore: ObservableObject {
     parkAll(at: Date())
   }
 
+  /// Share of today since first presence spent on breaks (0...1), the running break included.
+  func breakShare(at now: Date) -> Double {
+    guard let first = dayStart ?? workStart ?? breakStart else { return 0 }
+    let running = breakStart.map { [BreakSpan(start: $0, end: .distantFuture)] } ?? []
+    return ActivityLog.breakShare(dayBreaks + running, from: max(first, Calendar.current.startOfDay(for: now)), now: now)
+  }
+
   /// Logs the running break. It ends on the resume press, or when any card is back in Doing.
   private func endBreak() {
     guard let start = breakStart else { return }
     breakStart = nil
     let end = Date()
     workStart = end
-    if end > start { activity.record(BreakSpan(start: start, end: end)) }
+    if end > start {
+      activity.record(BreakSpan(start: start, end: end))
+      dayBreaks.append(BreakSpan(start: start, end: end))
+    }
   }
 
   private func parkAll(at: Date) {
@@ -367,6 +385,10 @@ final class BoardStore: ObservableObject {
           desktops.start(dir: vault.appendingPathComponent(".activity", isDirectory: true))
           activity.start(vault: vault)
           if let o = orphan, o.end > o.start { activity.record(o) }
+          if let dir = activity.dir {
+            let url = dir.appendingPathComponent(BreakSpan.fileName(Date()))
+            dayBreaks = (try? Data(contentsOf: url)).map { ActivityLog.parseLines($0) } ?? []
+          }
           orphan = nil
           return
         } catch { self.error = error.localizedDescription }
@@ -449,7 +471,9 @@ final class BoardStore: ObservableObject {
     let cards = columns.flatMap(\.cards)
     let active = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
     if pin != nil, active?.id != pin?.id { pin = nil }
-    if activity.context != nil, breakStart == nil, !(workStart.map(Calendar.current.isDateInToday) ?? false) { workStart = Date() }
+    if activity.context != nil, breakStart == nil, !(workStart.map(Calendar.current.isDateInToday) ?? false) {
+      (workStart, dayStart) = (Date(), Date())
+    }
     let awaySince = activity.context == nil ? activity.contextSince : nil
     if stretchID != active?.id {
       closeStretch(at: awaySince ?? Date())

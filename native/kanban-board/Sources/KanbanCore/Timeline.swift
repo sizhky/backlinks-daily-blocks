@@ -317,6 +317,17 @@ extension ActivityLog {
     return out + [piece]
   }
 
+  /// Share of `from...now` spent on `breaks` (0...1); a running break (`distantFuture`) counts until now.
+  /// ```
+  /// from 9:00, now 11:00, breaks 8:50-9:10 and 10:00-running -> (10 + 60) / 120 min = 0.583
+  /// ```
+  public static func breakShare(_ breaks: [BreakSpan], from: Date, now: Date) -> Double {
+    let total = now.timeIntervalSince(from)
+    guard total > 0 else { return 0 }
+    let off = breaks.reduce(0.0) { $0 + max(0, min($1.end, now).timeIntervalSince(max($1.start, from))) }
+    return min(1, off / total)
+  }
+
   /// Parts of `stretches` inside `stint`: the same card (ref, else title, since refs shift when
   /// lines move), clipped to the stint. A stretch whose end is `distantFuture` runs until `now`.
   /// ```
