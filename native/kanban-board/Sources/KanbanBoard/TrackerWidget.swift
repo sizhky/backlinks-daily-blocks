@@ -198,6 +198,7 @@ struct WidgetView: View {
     // height (measured) sets how far the panel grows when it needs more than the square.
     VStack(spacing: width * 0.04) {
       header
+      session
       hero
       footer
     }
@@ -263,18 +264,9 @@ struct WidgetView: View {
   /// Doing as a small caption under it, the task under that. Other Doing cards follow as smaller quiet
   /// rows with the same pair.
   @ViewBuilder private var hero: some View {
-    if let since = store.breakStart {
-      // A break holds the hero until it ends (`BoardStore.endBreak`): cup, time on break, then the parked cards.
+    if store.breakStart != nil {
+      // During a break the session row shows the cup; the hero lists the parked cards.
       VStack(spacing: 3) {
-        if prefs.shown(.timer) {
-          TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            (Text(Image(systemName: "cup.and.saucer.fill")) + Text(" ") + Text(Self.clock(ctx.date.timeIntervalSince(since))))
-              .font(WidgetStyle.font(family, prefs.size(.timer), WidgetPart.timer.weight, design: .rounded).monospacedDigit())
-              .lineLimit(1)
-              .minimumScaleFactor(0.6)
-              .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
-          }
-        }
         part(.title) { Text("Break") }.opacity(0.7)
         pausedRows.padding(.top, 4)
       }
@@ -304,6 +296,21 @@ struct WidgetView: View {
         part(.title) { Text("Not tracking") }
       }
       .opacity(0.7)
+    }
+  }
+
+  /// One row for the session clock, in the same place on and off a break: a cup and the time on break
+  /// (`BoardStore.breakStart`), else a laptop and the time worked since the last break (`workStart`).
+  @ViewBuilder private var session: some View {
+    if prefs.shown(.timer), let since = store.breakStart ?? store.workStart {
+      let symbol = store.breakStart != nil ? "cup.and.saucer.fill" : "laptopcomputer"
+      TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        (Text(Image(systemName: symbol)) + Text("  ") + Text(Self.clock(ctx.date.timeIntervalSince(since))))
+          .font(WidgetStyle.font(family, prefs.size(.title), .medium, design: .rounded).monospacedDigit())
+          .lineLimit(1)
+          .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
+      }
+      .opacity(0.8)
     }
   }
 

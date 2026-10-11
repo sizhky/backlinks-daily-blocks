@@ -119,6 +119,10 @@ final class BoardStore: ObservableObject {
   private var orphan: ActiveStretch?
   private static let stretchKey = "kanban.activeStretch"
   /// When the running break started (`takeBreak`); nil when not on a break.
+  /// Start of the current work session: the end of the last break, else the first presence today.
+  @Published private(set) var workStart: Date? = UserDefaults.standard.object(forKey: "kanban.workStart") as? Date {
+    didSet { UserDefaults.standard.set(workStart, forKey: "kanban.workStart") }
+  }
   @Published private(set) var breakStart: Date? = UserDefaults.standard.object(forKey: "kanban.breakStart") as? Date {
     didSet { UserDefaults.standard.set(breakStart, forKey: "kanban.breakStart") }
   }
@@ -191,6 +195,7 @@ final class BoardStore: ObservableObject {
     guard let start = breakStart else { return }
     breakStart = nil
     let end = Date()
+    workStart = end
     if end > start { activity.record(BreakSpan(start: start, end: end)) }
   }
 
@@ -439,6 +444,7 @@ final class BoardStore: ObservableObject {
     let cards = columns.flatMap(\.cards)
     let active = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
     if pin != nil, active?.id != pin?.id { pin = nil }
+    if activity.context != nil, breakStart == nil, !(workStart.map(Calendar.current.isDateInToday) ?? false) { workStart = Date() }
     let awaySince = activity.context == nil ? activity.contextSince : nil
     if stretchID != active?.id {
       closeStretch(at: awaySince ?? Date())
