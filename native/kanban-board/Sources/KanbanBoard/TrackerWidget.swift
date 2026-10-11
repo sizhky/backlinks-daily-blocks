@@ -249,17 +249,20 @@ struct WidgetView: View {
   /// Where you are: desktop name, or Away.
   @ViewBuilder private var header: some View {
     if let c = activity.context {
-      if let name = c.desktop ?? c.space.map({ "Desktop \($0)" }) {
-        part(.desktop) { Text(Image(systemName: "rectangle.3.group")) + Text(" " + name) }.opacity(0.75)
-        if desktopNumber, c.desktop != nil, let n = c.space {
-          part(.desktop, scale: 0.8) { Text("Desktop \(n)") }.opacity(0.5).padding(.top, -prefs.size(.desktop) * 0.25)
-        }
-        // Today on this desktop: share of all logged activity and the total (`ActivityMonitor.desktopToday`).
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-          if let d = activity.desktopToday(at: ctx.date), d.all > 0 {
-            part(.desktop, scale: 0.8) { Text("(\(Int((d.here / d.all * 100).rounded()))% · \(Self.clock(d.here)))").monospacedDigit() }
-              .opacity(0.5)
-              .accessibilityLabel("\(Int((d.here / d.all * 100).rounded())) percent of today on this desktop, \(Self.clock(d.here))")
+      // One stack: as loose views each line took the widget's section spacing.
+      VStack(spacing: prefs.size(.desktop) * 0.15) {
+        if let name = c.desktop ?? c.space.map({ "Desktop \($0)" }) {
+          part(.desktop) { Text(Image(systemName: "rectangle.3.group")) + Text(" " + name) }.opacity(0.75)
+          if desktopNumber, c.desktop != nil, let n = c.space {
+            part(.desktop, scale: 0.8) { Text("Desktop \(n)") }.opacity(0.5)
+          }
+          // Today on this desktop: share of all logged activity and the total (`ActivityMonitor.desktopToday`).
+          TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            if let d = activity.desktopToday(at: ctx.date), d.all > 0 {
+              part(.desktop, scale: 0.8) { Text("(\(Int((d.here / d.all * 100).rounded()))% · \(Self.clock(d.here)))").monospacedDigit() }
+                .opacity(0.5)
+                .accessibilityLabel("\(Int((d.here / d.all * 100).rounded())) percent of today on this desktop, \(Self.clock(d.here))")
+            }
           }
         }
       }
