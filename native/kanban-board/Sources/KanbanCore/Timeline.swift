@@ -239,19 +239,15 @@ extension ActivityLog {
   }
 }
 
-/// A stretch when one card was the active task (`Focus.active`), written when it ends to
-/// `<vault>/.activity/YYYYMMDD-active.jsonl`. The Timeline shades these inside Doing blocks.
-public struct ActiveStretch: Codable, Equatable, Sendable {
-  public var ref: String, title: String
-  public var start: Date, end: Date
+/// A timed line in a per-day log under `<vault>/.activity/`, `YYYYMMDD<suffix>.jsonl`, filed by the
+/// local day it starts. Written once it ends; one shared codec and midnight split.
+public protocol DayLine: Codable, Equatable, Sendable {
+  var start: Date { get set }
+  var end: Date { get set }
+  static var suffix: String { get }
+}
 
-  public init(ref: String, title: String, start: Date, end: Date) {
-    (self.ref, self.title, self.start, self.end) = (ref, title, start, end)
-  }
-
-  /// ```
-  /// {"end":"2026-10-11T07:00:00Z","ref":"20261011-1121.md:7","start":"2026-10-11T06:40:00Z","title":"Fix scroll"}
-  /// ```
+extension DayLine {
   public var jsonLine: String {
     let e = JSONEncoder()
     e.dateEncodingStrategy = .iso8601
@@ -259,24 +255,49 @@ public struct ActiveStretch: Codable, Equatable, Sendable {
     return (try? String(decoding: e.encode(self), as: UTF8.self)) ?? ""
   }
 
-  /// Log file of the day the stretch starts, local time.
   public var fileName: String { Self.fileName(start) }
 
   public static func fileName(_ day: Date) -> String {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyyMMdd"
-    return f.string(from: day) + "-active.jsonl"
+    return f.string(from: day) + suffix + ".jsonl"
   }
 }
 
+/// A stretch when one card was the active task (`Focus.active`), in `YYYYMMDD-active.jsonl`.
+/// The Timeline shades these inside Doing blocks.
+/// ```
+/// {"end":"2026-10-11T07:00:00Z","ref":"20261011-1121.md:7","start":"2026-10-11T06:40:00Z","title":"Fix scroll"}
+/// ```
+public struct ActiveStretch: DayLine {
+  public static let suffix = "-active"
+  public var ref: String, title: String
+  public var start: Date, end: Date
+
+  public init(ref: String, title: String, start: Date, end: Date) {
+    (self.ref, self.title, self.start, self.end) = (ref, title, start, end)
+  }
+}
+
+/// A break (the break key or the cup button), in `YYYYMMDD-breaks.jsonl`.
+/// ```
+/// {"end":"2026-10-11T07:15:00Z","start":"2026-10-11T07:00:00Z"}
+/// ```
+public struct BreakSpan: DayLine {
+  public static let suffix = "-breaks"
+  public var start: Date, end: Date
+
+  public init(start: Date, end: Date) { (self.start, self.end) = (start, end) }
+}
+
 extension ActivityLog {
-  /// Stretches from one active log (JSON lines), sorted by start; bad lines skipped.
-  public static func parseActive(_ data: Data) -> [ActiveStretch] {
+  /// Lines from one day log, sorted by start; bad lines skipped.
+  public static func parseLines<T: DayLine>(_ data: Data) -> [T] {
     let d = JSONDecoder()
     d.dateDecodingStrategy = .iso8601
     return String(decoding: data, as: UTF8.self).split(separator: "\n")
-      .compactMap { try? d.decode(ActiveStretch.self, from: Data($0.utf8)) }
+      .compactMap { try? d.decode(T.self, from: Data($0.utf8)) }
       .filter { $0.end > $0.start }
       .sorted { $0.start < $1.start }
   }
@@ -285,8 +306,8 @@ extension ActivityLog {
   /// ```
   /// 23:50-00:10 -> [23:50-00:00, 00:00-00:10]
   /// ```
-  public static func splitByDay(_ s: ActiveStretch, calendar: Calendar = .current) -> [ActiveStretch] {
-    var out: [ActiveStretch] = [], piece = s
+  public static func splitByDay<T: DayLine>(_ s: T, calendar: Calendar = .current) -> [T] {
+    var out: [T] = [], piece = s
     while let next = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: piece.start)), next < piece.end {
       var head = piece
       head.end = next

@@ -13,8 +13,8 @@ final class TimelineWindow {
   private var zoomMonitor: Any?
   private let menu = MenuController()
 
-  init(activity: ActivityMonitor, running: AnyPublisher<ActiveStretch?, Never>) {
-    model = TimelineModel(activity: activity, running: running)
+  init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?)) {
+    model = TimelineModel(activity: activity, live: live)
     reports = ReportsModel(activity: activity)
   }
 
@@ -80,18 +80,15 @@ final class TimelineModel: ObservableObject {
   private var timer: Timer?
   private var ticks = 0
 
-  /// The active card's stretch so far (`BoardStore.stretch`); logged stretches come from the day files.
-  private var running: ActiveStretch?
-  private var runningSink: AnyCancellable?
-  private var actives: [ActiveStretch] = []
-  private var weekActives: [[ActiveStretch]] = []
+  /// The running active stretch and break (`BoardStore.stretch`, `breakStart`), read on each load;
+  /// finished ones come from the day files.
+  private let live: @MainActor () -> (ActiveStretch?, BreakSpan?)
+  private var marks = DayMarks()
+  private var weekMarks: [DayMarks] = []
 
-  init(activity: ActivityMonitor, running: AnyPublisher<ActiveStretch?, Never>) {
+  init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?)) {
     self.activity = activity
-    runningSink = running.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] in
-      self?.running = $0
-      self?.load(chronicle: false)
-    }
+    self.live = live
   }
 
   var isToday: Bool { Calendar.current.isDateInToday(day) }
@@ -176,19 +173,23 @@ final class TimelineModel: ObservableObject {
     return ActivityLog.impute(fresh, maxGap: ActivityMonitor.idleAfter)
   }
 
-  /// One day's logged active stretches plus the running one, which `activeParts` clips to the day's stints.
-  private func actives(for day: Date, in dir: URL) -> [ActiveStretch] {
-    let url = dir.appendingPathComponent(ActiveStretch.fileName(day))
-    return ((try? Data(contentsOf: url)).map(ActivityLog.parseActive) ?? []) + (running.map { [$0] } ?? [])
+  /// One day's logged active stretches and breaks plus the running ones; drawing clips them to the day.
+  private func marks(for day: Date, in dir: URL) -> DayMarks {
+    func read<T: DayLine>(_: T.Type) -> [T] {
+      (try? Data(contentsOf: dir.appendingPathComponent(T.fileName(day)))).map { ActivityLog.parseLines($0) } ?? []
+    }
+    let (stretch, pause) = live()
+    return DayMarks(active: read(ActiveStretch.self) + (stretch.map { [$0] } ?? []),
+                    breaks: read(BreakSpan.self) + (pause.map { [$0] } ?? []))
   }
 
   private func load(chronicle: Bool) {
     guard let dir = activity.dir else { error = "Activity capture has not started"; return }
     if week { return loadWeek(dir: dir, chronicle: chronicle) }
-    let fresh = spans(for: day, in: dir), freshActive = actives(for: day, in: dir)
-    if fresh != spans || freshActive != actives {
-      (spans, actives) = (fresh, freshActive)
-      layout = CalendarLayout(spans: spans, stints: stints, active: actives)
+    let fresh = spans(for: day, in: dir), freshMarks = marks(for: day, in: dir)
+    if fresh != spans || freshMarks != marks {
+      (spans, marks) = (fresh, freshMarks)
+      layout = CalendarLayout(spans: spans, stints: stints, marks: marks)
     }
     error = nil
     guard chronicle else { return }
@@ -196,17 +197,17 @@ final class TimelineModel: ObservableObject {
     Task {
       let text = (try? await client.chronicle(day)) ?? ""
       let fresh = ActivityLog.stints(text, day: day)
-      if day == self.day, fresh != stints { stints = fresh; layout = CalendarLayout(spans: spans, stints: stints, active: actives) }
+      if day == self.day, fresh != stints { stints = fresh; layout = CalendarLayout(spans: spans, stints: stints, marks: marks) }
     }
   }
 
   private func loadWeek(dir: URL, chronicle: Bool) {
     let days = Self.weekDays(containing: day)
-    let fresh = days.map { spans(for: $0, in: dir) }, freshActive = days.map { actives(for: $0, in: dir) }
-    let changed = days != weekDays || fresh != weekSpans || freshActive != weekActives
+    let fresh = days.map { spans(for: $0, in: dir) }, freshMarks = days.map { marks(for: $0, in: dir) }
+    let changed = days != weekDays || fresh != weekSpans || freshMarks != weekMarks
     weekDays = days
     weekSpans = fresh
-    weekActives = freshActive
+    weekMarks = freshMarks
     if changed { rebuildWeek() }
     error = nil
     guard chronicle, let first = days.first, let last = days.last else { return }
@@ -222,7 +223,7 @@ final class TimelineModel: ObservableObject {
   private func rebuildWeek() {
     weekLayouts = weekDays.indices.map { i in
       CalendarLayout(spans: weekSpans[i], stints: weekStints[Self.ymd.string(from: weekDays[i])] ?? [],
-                     active: weekActives.indices.contains(i) ? weekActives[i] : [])
+                     marks: weekMarks.indices.contains(i) ? weekMarks[i] : DayMarks())
     }
     weekActive = weekSpans.joined().reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
   }
@@ -427,6 +428,12 @@ struct TimelineRowView: View {
   }()
 }
 
+/// A day's active stretches and breaks; a running one ends at `distantFuture` and is drawn up to now.
+struct DayMarks: Equatable {
+  var active: [ActiveStretch] = []
+  var breaks: [BreakSpan] = []
+}
+
 /// Precomputed calendar content for one day, rebuilt only when the data changes (never per frame).
 struct CalendarLayout {
   var blocks: [ActivityBlock] = []
@@ -434,12 +441,12 @@ struct CalendarLayout {
   var sessions: [ActivitySession] = []
   var stints: [DoingStint] = []
   var lane: [Int] = [], lanes: [Int] = []
-  /// Stretches when a card was the active task; shaded inside its Doing blocks.
-  var active: [ActiveStretch] = []
+  /// Active stretches (shaded inside their Doing blocks) and breaks (bands across the Doing lane).
+  var marks = DayMarks()
 
   init() {}
-  init(spans: [Span], stints: [DoingStint], active: [ActiveStretch]) {
-    self.active = active
+  init(spans: [Span], stints: [DoingStint], marks: DayMarks) {
+    self.marks = marks
     blocks = ActivityLog.blocks(spans)
     tints = blocks.map { Color(ProjectHues.pair($0.app).light) }
     sessions = ActivityLog.sessions(blocks).filter { s in !blocks.contains { $0.start == s.start && $0.end == s.end } }
@@ -464,6 +471,8 @@ struct CalendarDay: View {
   static let gutter = 64.0
   /// Fill of the parts of a Doing block when its card was the active task; the rest fills at 0.28.
   static let activeFill = 0.6
+  /// Coffee brown for breaks; not a project colour.
+  static let breakTint = Color(red: 0.72, green: 0.52, blue: 0.34)
   /// 24 pt per hour (whole day on screen) to 3600 pt per hour (1 pt per second).
   static let zoomRange = 24.0...3600.0
   static let hourKey = "timeline.hour"
@@ -652,6 +661,14 @@ struct CalendarDay: View {
           sessionLabel(gc, ss, at: CGPoint(x: s.ax + 8, y: ly), maxWidth: s.aw - 16)
         }
       }
+      // Breaks: bands across the Doing lane, behind the stints
+      for b in layout.marks.breaks {
+        let end = min(b.end, now), y0 = y(b.start, day), y1 = y(end, day)
+        guard end > b.start, visible(y0, y1) else { continue }
+        let r = CGRect(x: s.dx, y: y0 - top, width: s.dw, height: max(1, y1 - y0))
+        block(gc, r, tint: Self.breakTint, title: r.width >= 60 ? "Break" : nil, icon: nil,
+              dur: TimelineScreen.dur(end.timeIntervalSince(b.start)) + (b.end > now ? "+" : ""), fill: 0.18)
+      }
       // Doing
       for (k, base) in layout.stints.enumerated() {
         let st = preview(base, day)
@@ -659,7 +676,7 @@ struct CalendarDay: View {
         guard visible(c.minY, c.maxY) else { continue }
         let r = c.offsetBy(dx: 0, dy: -top)
         let tint = st.project.map { Color(ProjectHues.pair($0).light) } ?? Palette.indigo
-        let strong = ActivityLog.activeParts(of: st, in: layout.active, now: now).map { p in
+        let strong = ActivityLog.activeParts(of: st, in: layout.marks.active, now: now).map { p in
           CGRect(x: r.minX, y: y(p.start, day) - top, width: r.width, height: y(p.end, day) - y(p.start, day))
         }
         block(gc, r, tint: tint, title: r.width >= 60 ? st.title : nil, icon: nil,

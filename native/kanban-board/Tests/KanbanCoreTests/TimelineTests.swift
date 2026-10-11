@@ -99,8 +99,10 @@ final class TimelineTests: XCTestCase {
     func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
     let night = ActiveStretch(ref: "a.md:1", title: "A", start: at(-10), end: at(10))
     XCTAssertEqual(ActivityLog.splitByDay(night, calendar: cal).map { [$0.start, $0.end] }, [[at(-10), at(0)], [at(0), at(10)]])
-    let line = ActivityLog.parseActive(Data((night.jsonLine + "\nbad\n").utf8))
+    let line: [ActiveStretch] = ActivityLog.parseLines(Data((night.jsonLine + "\nbad\n").utf8))
     XCTAssertEqual(line, [night])
+    XCTAssertEqual(night.fileName, ActiveStretch.fileName(night.start))
+    XCTAssertTrue(BreakSpan.fileName(t0).hasSuffix("-breaks.jsonl"))
     let stint = DoingStint(start: at(600), end: at(660), title: "A", open: false, ref: "a.md:3")
     let stretches = [ActiveStretch(ref: "a.md:1", title: "A", start: at(590), end: at(620)),
                      ActiveStretch(ref: "b.md:1", title: "B", start: at(625), end: at(630)),

@@ -21,7 +21,8 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   DoingChange.swift    diff of live cards between two refreshes (widget toast)
   Hex.swift            #RRGGBB[AA] parse and format (widget colour setting)
   Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
-                       ActiveStretch (when a card was active; <vault>/.activity/YYYYMMDD-active.jsonl), parseActive/splitByDay/activeParts
+                       DayLine logs in <vault>/.activity/: ActiveStretch (YYYYMMDD-active.jsonl, card was active),
+                       BreakSpan (YYYYMMDD-breaks.jsonl, break key / cup); parseLines/splitByDay/activeParts
   Report.swift         ReportCard.parse, Report.attribute/series/tree, Allocation, ReportNode (Reports tab)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
@@ -273,6 +274,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   (`timeline.hour`, 24 to 480 pt per hour) through a local scrollWheel monitor on the Timeline window.
 
 ## Gotchas
+
+- `make run` (pkill) and crashes skip `willTerminate`. State that must reach a log on quit is also saved in
+  UserDefaults and written at the next launch: the running active stretch (`kanban.activeStretch`, ended at
+  the saved `ActiveClock.last`) and the running break (`kanban.breakStart`).
 
 - Values read in sorts or filters are computed once per card. `Card.created` parsed its file name with a
   `DateFormatter` on every read; the newest-first sort and the `created:` filter made that thousands of

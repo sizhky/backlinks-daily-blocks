@@ -93,9 +93,9 @@ final class ActivityMonitor: ObservableObject {
     append(span.jsonLine, to: span.fileName)
   }
 
-  /// Logs a finished active stretch, one line per local day it touches.
-  func record(_ stretch: ActiveStretch) {
-    for piece in ActivityLog.splitByDay(stretch) { append(piece.jsonLine, to: piece.fileName) }
+  /// Logs a finished stretch or break, one line per local day it touches.
+  func record<T: DayLine>(_ line: T) {
+    for piece in ActivityLog.splitByDay(line) { append(piece.jsonLine, to: piece.fileName) }
   }
 
   private func append(_ text: String, to fileName: String) {

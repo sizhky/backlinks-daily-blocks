@@ -90,9 +90,9 @@ final class BoardStore: ObservableObject {
   let activity = ActivityMonitor()
   private var desktopMenu: DesktopMenu?
   private(set) var widget: TrackerWidget?
-  // `activeID` publishes after `stretch` is set (`trackActive`), so the map reads the new stretch.
-  private lazy var timeline = TimelineWindow(activity: activity, running: $activeID.map { [weak self] _ in self?.stretch }
-    .eraseToAnyPublisher())
+  private lazy var timeline = TimelineWindow(activity: activity) { [weak self] in
+    (self?.stretch, self?.breakStart.map { BreakSpan(start: $0, end: .distantFuture) })
+  }
 
   func openTimeline() { timeline.show() }
   private var desktopSink: Any?
@@ -110,8 +110,18 @@ final class BoardStore: ObservableObject {
   private var lastFlush = Date()
   private var pin: FocusPin?
   /// The active card's stretch so far (`end` is `distantFuture`); logged when the active card changes.
-  private(set) var stretch: ActiveStretch?
+  /// Saved on every change, so a relaunch that skips `willTerminate` (pkill, crash) can still log it.
+  private(set) var stretch: ActiveStretch? {
+    didSet { UserDefaults.standard.set(stretch.flatMap { try? JSONEncoder().encode($0) }, forKey: Self.stretchKey) }
+  }
   private var stretchID: String?
+  /// The previous run's unlogged stretch and its last tick; logged once the activity folder is known.
+  private var orphan: ActiveStretch?
+  private static let stretchKey = "kanban.activeStretch"
+  /// When the running break started (`takeBreak`); nil when not on a break.
+  private(set) var breakStart: Date? = UserDefaults.standard.object(forKey: "kanban.breakStart") as? Date {
+    didSet { UserDefaults.standard.set(breakStart, forKey: "kanban.breakStart") }
+  }
   private var contextSink: Any?
   static let flushEvery: TimeInterval = 300
   /// When the Mac went to sleep (lid closed); screen lock and display sleep do not set it.
@@ -121,6 +131,11 @@ final class BoardStore: ObservableObject {
     query = UserDefaults.standard.string(forKey: "kanban.query") ?? ""
     saved = UserDefaults.standard.data(forKey: "kanban.saved")
       .flatMap { try? JSONDecoder().decode([SavedFilter].self, from: $0) } ?? SavedFilter.defaults
+    if var s = UserDefaults.standard.data(forKey: Self.stretchKey).flatMap({ try? JSONDecoder().decode(ActiveStretch.self, from: $0) }),
+       let last = clock.last {
+      s.end = last
+      orphan = s
+    }
     let ws = NSWorkspace.shared.notificationCenter
     ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.sleptAt = Date() }
@@ -154,6 +169,7 @@ final class BoardStore: ObservableObject {
     lastLive = nil
     breakParked = []
     if !back.isEmpty {
+      endBreak()
       show("Break over. Resumed \(back.count) task\(back.count == 1 ? "" : "s").")
       widgetToast = ((widgetToast?.gen ?? 0) + 1,
                      [DoingChange(title: "Resumed \(back.count) task\(back.count == 1 ? "" : "s")", verb: "Started")])
@@ -164,9 +180,18 @@ final class BoardStore: ObservableObject {
     let doing = columns.filter { !$0.done && $0.name.caseInsensitiveCompare("Doing") == .orderedSame }.flatMap(\.cards)
     let n = doing.count
     breakParked = Set(doing.map(\.id))
+    if breakStart == nil { breakStart = Date() }
     widgetToast = ((widgetToast?.gen ?? 0) + 1,
                    [DoingChange(title: n == 0 ? "Nothing was running" : "Parked \(n) task\(n == 1 ? "" : "s")", verb: "Break")])
     parkAll(at: Date())
+  }
+
+  /// Logs the running break. It ends on the resume press, or when any card is back in Doing.
+  private func endBreak() {
+    guard let start = breakStart else { return }
+    breakStart = nil
+    let end = Date()
+    if end > start { activity.record(BreakSpan(start: start, end: end)) }
   }
 
   private func parkAll(at: Date) {
@@ -331,6 +356,8 @@ final class BoardStore: ObservableObject {
           let vault = URL(fileURLWithPath: try await client.vaultPath(), isDirectory: true)
           desktops.start(dir: vault.appendingPathComponent(".activity", isDirectory: true))
           activity.start(vault: vault)
+          if let o = orphan, o.end > o.start { activity.record(o) }
+          orphan = nil
           return
         } catch { self.error = error.localizedDescription }
         try? await Task.sleep(for: .seconds(6))
@@ -362,6 +389,7 @@ final class BoardStore: ObservableObject {
       // An unchanged board would still redraw every card each refresh.
       if fresh != columns { withAnimation(DragController.spring) { columns = fresh } }
       picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
+      if breakStart != nil, live.contains(where: { $0.col.caseInsensitiveCompare("Doing") == .orderedSame }) { endBreak() }
       error = nil
       switchTasks()
       trackActive()
