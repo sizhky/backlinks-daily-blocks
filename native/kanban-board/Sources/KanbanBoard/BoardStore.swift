@@ -200,11 +200,12 @@ final class BoardStore: ObservableObject {
     parkAll(at: Date())
   }
 
-  /// Today's work and break seconds since the first activity, the running break included.
+  /// Today's work and break seconds since the first activity; idle time (no activity for `idleAfter`) counts as break.
   func dayTotals(at now: Date) -> (work: TimeInterval, pause: TimeInterval) {
     guard let first = dayStart ?? workStart ?? breakStart else { return (0, 0) }
     let running = breakStart.map { [BreakSpan(start: $0, end: .distantFuture)] } ?? []
-    return ActivityLog.dayTotals(dayBreaks + running, from: max(first, Calendar.current.startOfDay(for: now)), now: now)
+    let from = max(first, Calendar.current.startOfDay(for: now))
+    return ActivityLog.dayTotals(dayBreaks + running, idle: activity.idleToday(from: from, now: now), from: from, now: now)
   }
 
   /// Logs the running break. It ends on the resume press, or when any card is back in Doing.

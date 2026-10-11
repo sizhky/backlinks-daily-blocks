@@ -327,14 +327,33 @@ extension ActivityLog {
     }
   }
 
-  /// Seconds of `from...now` on `breaks` and the rest (work); a running break (`distantFuture`) counts until now.
+  /// Idle stretches of `from...now`: gaps of at least `minGap` with no activity span (the caller adds the open span).
   /// ```
-  /// from 9:00, now 11:00, breaks 8:50-9:10 and 10:00-running -> work 50 min, pause 70 min
+  /// from 9:00, now 11:00, minGap 5 min, spans 9:00-9:30 9:32-10:00 -> [10:00-11:00]
   /// ```
-  public static func dayTotals(_ breaks: [BreakSpan], from: Date, now: Date) -> (work: TimeInterval, pause: TimeInterval) {
+  public static func idle(_ spans: [Span], from: Date, now: Date, minGap: TimeInterval) -> [(Date, Date)] {
+    var out: [(Date, Date)] = [], cursor = from
+    for s in spans.sorted(by: { $0.start < $1.start }) {
+      if s.start.timeIntervalSince(cursor) >= minGap { out.append((cursor, min(s.start, now))) }
+      cursor = max(cursor, s.end)
+    }
+    if now.timeIntervalSince(cursor) >= minGap { out.append((cursor, now)) }
+    return out
+  }
+
+  /// Seconds of `from...now` off work (breaks and idle, overlaps counted once) and the rest (work);
+  /// a running break (`distantFuture`) counts until now.
+  /// ```
+  /// from 9:00, now 11:00, breaks 8:50-9:10 and 10:00-running, idle 9:40-10:10 -> work 30 min, pause 90 min
+  /// ```
+  public static func dayTotals(_ breaks: [BreakSpan], idle: [(Date, Date)] = [], from: Date, now: Date) -> (work: TimeInterval, pause: TimeInterval) {
     let total = max(0, now.timeIntervalSince(from))
-    let off = breaks.reduce(0.0) { $0 + max(0, min($1.end, now).timeIntervalSince(max($1.start, from))) }
-    return (total - min(total, off), min(total, off))
+    let clipped = (breaks.map { ($0.start, $0.end) } + idle).compactMap { a, b -> (Date, Date)? in
+      let s = max(a, from), e = min(b, now)
+      return e > s ? (s, e) : nil
+    }
+    let off = min(total, unionSeconds(clipped))
+    return (total - off, off)
   }
 
   /// Parts of `stretches` inside `stint`: the same card (ref, else title, since refs shift when

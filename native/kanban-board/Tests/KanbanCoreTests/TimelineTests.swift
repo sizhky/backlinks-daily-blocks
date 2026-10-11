@@ -119,6 +119,20 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(day.work, 50 * 60, accuracy: 1e-6)
     XCTAssertEqual(day.pause, 70 * 60, accuracy: 1e-6)
     XCTAssertEqual(ActivityLog.dayTotals([], from: at(0), now: at(0)).work, 0)
+    let withIdle = ActivityLog.dayTotals(breaks, idle: [(at(40), at(70))], from: at(0), now: at(120))
+    XCTAssertEqual(withIdle.pause, 90 * 60, accuracy: 1e-6)
+  }
+
+  func testIdleIsGapsOfAtLeastTheThreshold() {
+    let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+    func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
+    func span(_ a: Double, _ b: Double) -> Span {
+      var s = ActivityLog.parse(Data(#"{"app":"X","bundle":"x","title":"","start":"2025-10-09T09:00:00Z","end":"2025-10-09T09:01:00Z"}"#.utf8))[0]
+      (s.start, s.end) = (at(a), at(b))
+      return s
+    }
+    let gaps = ActivityLog.idle([span(0, 30), span(32, 60)], from: at(0), now: at(120), minGap: 300)
+    XCTAssertEqual(gaps.map { [$0.0, $0.1] }, [[at(60), at(120)]])
   }
 
   func testDesktopSecondsByUUIDElseNumber() {
