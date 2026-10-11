@@ -263,7 +263,22 @@ struct WidgetView: View {
   /// Doing as a small caption under it, the task under that. Other Doing cards follow as smaller quiet
   /// rows with the same pair.
   @ViewBuilder private var hero: some View {
-    if let card = active {
+    if let since = store.breakStart {
+      // A break holds the hero until it ends (`BoardStore.endBreak`): cup, time on break, then the parked cards.
+      VStack(spacing: 3) {
+        if prefs.shown(.timer) {
+          TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            (Text(Image(systemName: "cup.and.saucer.fill")) + Text(" ") + Text(Self.clock(ctx.date.timeIntervalSince(since))))
+              .font(WidgetStyle.font(family, prefs.size(.timer), WidgetPart.timer.weight, design: .rounded).monospacedDigit())
+              .lineLimit(1)
+              .minimumScaleFactor(0.6)
+              .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
+          }
+        }
+        part(.title) { Text("Break") }.opacity(0.7)
+        pausedRows.padding(.top, 4)
+      }
+    } else if let card = active {
       VStack(spacing: 3) {
         VStack(spacing: 3) {
           if prefs.shown(.timer) {

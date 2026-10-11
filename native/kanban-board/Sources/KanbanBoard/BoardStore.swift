@@ -119,7 +119,7 @@ final class BoardStore: ObservableObject {
   private var orphan: ActiveStretch?
   private static let stretchKey = "kanban.activeStretch"
   /// When the running break started (`takeBreak`); nil when not on a break.
-  private(set) var breakStart: Date? = UserDefaults.standard.object(forKey: "kanban.breakStart") as? Date {
+  @Published private(set) var breakStart: Date? = UserDefaults.standard.object(forKey: "kanban.breakStart") as? Date {
     didSet { UserDefaults.standard.set(breakStart, forKey: "kanban.breakStart") }
   }
   private var contextSink: Any?
