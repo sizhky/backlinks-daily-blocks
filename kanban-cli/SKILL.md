@@ -25,7 +25,7 @@ node kanban-cli/axi.mjs view 20260616-0946.md:0 [--full]
 node kanban-cli/axi.mjs task HTP-261008-1106.01 [--full]   # task by its Kanban Board ID
 node kanban-cli/axi.mjs move 20260616-0946.md:0 Done
 node kanban-cli/axi.mjs scopes --query InfoshareSystems
-node kanban-cli/axi.mjs create "Reply to Srinivas" --org InfoshareSystems --project AAA
+node kanban-cli/axi.mjs create "Reply to Srinivas" --org InfoshareSystems --project AAA --source claude
 node kanban-cli/axi.mjs done 20260620 [--col Done]
 node kanban-cli/axi.mjs report 20260620      # single date = TOON; --days N / from to = grouped raw
 node kanban-cli/axi.mjs chronicle 20260620   # time stints in Doing (or --col)
@@ -284,7 +284,8 @@ Returns `org<TAB>project<TAB>count<TAB>status`, ranked by observed task-note cou
 Inactive combinations are hidden unless `opts.all` is true. `opts.query` filters both names.
 
 ### `kb.createTask(opts)` — create one validated task note
-Requires `text`, `org`, and `project`; `col` defaults to `Backlog`.
+Requires `text`, `org`, `project`, and `source`; `col` defaults to `Backlog`.
+`source` names the LLM that creates the task: `claude` or `chatgpt`. It is written as frontmatter `source`.
 The organization/project combination must exist and remain active in `kb.scopes()`.
 Returns `file<TAB>line<TAB>org<TAB>project<TAB>column<TAB>body`.
 
@@ -304,6 +305,7 @@ the span. Lets an LLM or a UI button log work without opening the board.
 ## Creating a task
 
 Use `kanban create` or `kb.createTask`; do not construct task Markdown in an agent.
+Pass `--source claude` (Claude) or `--source chatgpt` (ChatGPT/Codex) so the note records which LLM created it.
 
 Manage active organizations and projects in the `scopes` code block in
 `90-99 Obsidian Meta/Kanban Scopes.md`. Organization status applies to all its projects.
@@ -328,6 +330,7 @@ A task remains a **checkbox line inside a note**, never a standalone file with a
      - "[[Divami]]"
    projects:
      - "[[Arka]]"
+   source: claude
    ---
    ```
 3. The task line + a move stamp comment. Column tag is `#kb/<col-lowercase>`; the stamp records the move with proper-case column names:

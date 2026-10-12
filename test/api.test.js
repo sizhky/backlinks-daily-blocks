@@ -41,8 +41,8 @@ test('scope inactivity supports organization, project, and exact combination rul
 
 test('taskNote writes validated scope properties and one kanban task', () => {
   const { taskNote } = loadApi();
-  assert.equal(taskNote({ text: ' Reply   to Srinivas ', org: 'InfoshareSystems', project: 'AAA', col: 'Backlog', stamp: '20260919-1423' }),
-    '---\norg:\n  - "[[InfoshareSystems]]"\nprojects:\n  - "[[AAA]]"\n---\n\n- [ ] Reply to Srinivas #kb/backlog\n  %% kb 20260919-1423 Backlog > Backlog %%\n');
+  assert.equal(taskNote({ text: ' Reply   to Srinivas ', org: 'InfoshareSystems', project: 'AAA', col: 'Backlog', stamp: '20260919-1423', source: 'claude' }),
+    '---\norg:\n  - "[[InfoshareSystems]]"\nprojects:\n  - "[[AAA]]"\nsource: claude\n---\n\n- [ ] Reply to Srinivas #kb/backlog\n  %% kb 20260919-1423 Backlog > Backlog %%\n');
 });
 
 test('parseTaskId maps a Kanban Board ID to its note and task ordinal', () => {
