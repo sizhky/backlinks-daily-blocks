@@ -339,7 +339,8 @@ struct WidgetView: View {
 
   /// The pair: active time at `size`, and under it the card's time in Doing over every stint
   /// (`Card.seconds(in:)`) as a dimmed caption tucked up close, the "Desktop 1" pattern. One owner for
-  /// the hero and the paused rows, so they read alike at their own scale.
+  /// the hero and the paused rows, so they read alike at their own scale. A card with an estimate
+  /// (`Card.est`) shows it after the time in Doing, the time it is measured against: `45:11 / 1h`.
   private func clockStack(_ card: Card, at now: Date, size: Double, captionScale: Double, captionOpacity: Double,
                           align: WidgetAlign) -> some View {
     VStack(alignment: align.horizontal, spacing: 0) {
@@ -348,13 +349,13 @@ struct WidgetView: View {
         .lineLimit(1)
         .minimumScaleFactor(0.6)
         .contentTransition(.numericText())
-      Text(Self.clock(card.seconds(in: "Doing", at: now)))
+      Text(Self.clock(card.seconds(in: "Doing", at: now)) + (card.est.map { " / " + Age.label(minutes: $0) } ?? ""))
         .font(WidgetStyle.font(family, size * captionScale, .medium, design: .rounded).monospacedDigit())
         .lineLimit(1)
         .opacity(captionOpacity)
         .padding(.top, -size * 0.15)
         .contentTransition(.numericText())
-        .accessibilityLabel("Time in Doing")
+        .accessibilityLabel(card.est.map { "Time in Doing, estimate \(Age.label(minutes: $0))" } ?? "Time in Doing")
     }
   }
 
