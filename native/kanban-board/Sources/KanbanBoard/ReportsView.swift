@@ -199,11 +199,14 @@ struct ReportsView: View {
 
   private var chart: some View {
     let unit = model.range.bar
-    let rows = Report.series(model.allocations, org: model.org) { Calendar.current.dateInterval(of: unit, for: $0)?.start ?? $0 }
+    let named = Report.series(model.allocations, org: model.org) { Calendar.current.dateInterval(of: unit, for: $0)?.start ?? $0 }
       .map { (bucket: $0.bucket, name: Self.seriesName($0.name, unattributed: $0.unattributed, drilled: model.org != nil), hours: $0.seconds / 3600) }
-    let names = Array(Set(rows.map(\.name))).sorted { a, b in
+    let names = Array(Set(named.map(\.name))).sorted { a, b in
       a == "Unattributed" ? false : b == "Unattributed" ? true : a < b
     }
+    // Swift Charts stacks in row order; sort by the legend's display names so bars match the legend.
+    let rank = Dictionary(uniqueKeysWithValues: names.enumerated().map { ($1, $0) })
+    let rows = named.sorted { ($0.bucket, rank[$0.name] ?? 0) < ($1.bucket, rank[$1.name] ?? 0) }
     let colors = names.map { $0 == "Unattributed" ? Palette.muted.opacity(0.5) : Color(ProjectHues.pair($0).light) }
     return VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 6) {
