@@ -269,6 +269,19 @@ extension Report {
     }
   }
 
+  /// Colour slot per desktop name: current desktops take their position in `order` (desktop number order),
+  /// other names (renamed or removed desktops) take the next free slots in name order. Slots wrap at `count`.
+  /// ```
+  /// names [Mail, Old, Desktop 3], order [Desktop 1, Mail, Desktop 3] -> [Mail 1, Desktop 3 2, Old 3]
+  /// ```
+  public static func desktopSlots(_ names: [String], order: [String], count: Int = 10) -> [String: Int] {
+    var out: [String: Int] = [:]
+    for (i, n) in order.enumerated() where out[n] == nil { out[n] = i % count }
+    var next = order.count
+    for n in Set(names).subtracting(order).sorted() { out[n] = next % count; next += 1 }
+    return out
+  }
+
   /// Seconds per bucket and name, each stretch cut at hour edges first so day charts split correctly.
   /// Rows sort by bucket, then name: Swift Charts stacks bars in row order.
   /// ```

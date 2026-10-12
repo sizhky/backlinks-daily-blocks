@@ -185,4 +185,12 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(rows.map(\.bucket), [t0, at(60)])
     XCTAssertEqual(rows.map(\.seconds), [600, 600])
   }
+
+  func testDesktopSlotsFollowDesktopOrderThenName() {
+    let slots = Report.desktopSlots(["Mail", "Old", "Desktop 3"], order: ["Desktop 1", "Mail", "Desktop 3"])
+    XCTAssertEqual(slots["Mail"], 1)
+    XCTAssertEqual(slots["Desktop 3"], 2)
+    XCTAssertEqual(slots["Old"], 3)
+    XCTAssertEqual(Report.desktopSlots(["X"], order: (1...10).map { "Desktop \($0)" })["X"], 0)
+  }
 }

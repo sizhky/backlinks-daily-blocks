@@ -236,8 +236,16 @@ struct ReportsView: View {
   /// State legend and stack order, Working at the bottom.
   private static let stateOrder = [Report.working, Report.idle, Report.onBreak]
 
-  private func color(_ name: String) -> Color {
-    switch (model.group, name) {
+  /// Tableau 10: ten hues spread around the wheel at mixed lightness, so neighbouring desktops differ.
+  private static let desktopPalette: [Color] = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
+                                                "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"].map { hex in
+    let c = Hex.rgba(hex)!
+    return Color(red: c.r, green: c.g, blue: c.b)
+  }
+
+  private func color(_ name: String, desktopSlots: [String: Int] = [:]) -> Color {
+    if model.group == .desktop, let slot = desktopSlots[name] { return Self.desktopPalette[slot] }
+    return switch (model.group, name) {
     case (.projects, "Unattributed"), (.desktop, "No desktop"), (.state, Report.idle): Palette.muted.opacity(0.5)
     case (.state, Report.working): Palette.link
     case (.state, Report.onBreak): Palette.amber
@@ -261,7 +269,8 @@ struct ReportsView: View {
     // Swift Charts stacks in row order; sort by the legend's display names so bars match the legend.
     let rank = Dictionary(uniqueKeysWithValues: names.enumerated().map { ($1, $0) })
     let rows = named.sorted { ($0.bucket, rank[$0.name] ?? 0) < ($1.bucket, rank[$1.name] ?? 0) }
-    let colors = names.map(color)
+    let slots = Report.desktopSlots(names.filter { $0 != "No desktop" }, order: DesktopStore.shared.spaces.map(\.name))
+    let colors = names.map { color($0, desktopSlots: slots) }
     // Laptop time per bar: active span time, the same in every grouping and drill.
     let laptop = Dictionary(Report.series(model.desktops, bucket: bucket).map { ($0.bucket, $0.seconds) }, uniquingKeysWith: +)
     return VStack(alignment: .leading, spacing: 10) {
