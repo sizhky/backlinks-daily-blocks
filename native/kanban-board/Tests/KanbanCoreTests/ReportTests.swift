@@ -133,7 +133,7 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(tree[0].untracked, ["b"])
     XCTAssertEqual(tree[0].children[0].children.map(\.ref), ["a", "b"])
     let series = Report.series(out, org: nil) { $0 }
-    XCTAssertEqual(series.map(\.unattributed).sorted { !$0 && $1 }, [false, true])
+    XCTAssertEqual(series.map(\.unattributed), [false, true])
     XCTAssertEqual(Report.series(out, org: "divami") { $0 }.map(\.name), ["P"])
   }
 

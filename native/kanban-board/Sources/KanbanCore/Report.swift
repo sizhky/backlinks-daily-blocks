@@ -152,6 +152,7 @@ public struct ReportNode: Identifiable, Equatable, Sendable {
 extension Report {
   /// Seconds per bucket and series. Series = org, or project inside `org` when drilled;
   /// unattributed time is its own series ("" org and project, `unattributed` true) and is left out when drilled.
+  /// Rows sort by bucket, then name with unattributed last: Swift Charts stacks bars in row order.
   public static func series(_ allocs: [Allocation], org: String?, bucket: (Date) -> Date)
     -> [(bucket: Date, name: String, unattributed: Bool, seconds: Double)] {
     var acc: [String: (Date, String, Bool, Double)] = [:]
@@ -162,7 +163,9 @@ extension Report {
       let key = "\(b.timeIntervalSince1970)|\(un)|\(name)"
       acc[key, default: (b, name, un, 0)].3 += a.seconds
     }
-    return acc.values.map { (bucket: $0.0, name: $0.1, unattributed: $0.2, seconds: $0.3) }.sorted { $0.bucket < $1.bucket }
+    return acc.values.map { (bucket: $0.0, name: $0.1, unattributed: $0.2, seconds: $0.3) }.sorted {
+      ($0.bucket, $0.unattributed ? 1 : 0, $0.name) < ($1.bucket, $1.unattributed ? 1 : 0, $1.name)
+    }
   }
 
   /// Breakdown tree, largest first; unattributed time is the last top-level row. Every card with Doing
