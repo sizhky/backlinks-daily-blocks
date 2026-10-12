@@ -23,7 +23,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
                        DayLine logs in <vault>/.activity/: ActiveStretch (YYYYMMDD-active.jsonl, card was active),
                        BreakSpan (YYYYMMDD-breaks.jsonl, break key / cup); parseLines/splitByDay/activeParts
-  Report.swift         ReportCard.parse, Report.attribute/series/tree, Allocation, ReportNode (Reports tab)
+  Report.swift         ReportCard.parse, Report.attribute/series/tree, Allocation, ReportNode; Stretch, Report.states/desktops (Reports tab)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
@@ -32,7 +32,7 @@ Sources/KanbanBoard/   SwiftUI app
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
   WidgetParts.swift    WidgetPart (per-element show/justification/size keys), WidgetAlign, WidgetPrefs
   TimelineWindow.swift Timeline window (Shift-Cmd-T, toolbar icon, menu bar): Day / Week calendar, per-second list, Reports
-  ReportsView.swift    Reports tab: ReportsModel (range, drill), tiles, stacked Swift Charts bars, org > project > card rows
+  ReportsView.swift    Reports tab: ReportsModel (range, group by projects/desktop/state, drill), tiles, stacked Swift Charts bars, org > project > card rows
   BoardStore.swift     single ObservableObject: data, selection, views, persistence
   BoardView.swift      header, filter chips, board, list, cards, rows; QueryField (filter + completion, also in Timeline)
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor

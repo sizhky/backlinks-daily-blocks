@@ -13,16 +13,29 @@ enum ReportRange: String, CaseIterable, Identifiable {
   var bar: Calendar.Component { switch self { case .day: .hour; case .week, .month, .year: .day } }
 }
 
+/// What the Reports chart stacks: org/project time, desktop time, or Working/Idle/Break.
+enum ReportGroup: String, CaseIterable, Identifiable {
+  case projects, desktop, state
+  var id: String { rawValue }
+  var label: String { rawValue.capitalized }
+}
+
 @MainActor
 final class ReportsModel: ObservableObject {
   @Published var range: ReportRange = ReportRange(rawValue: UserDefaults.standard.string(forKey: "reports.range") ?? "") ?? .week {
     didSet { UserDefaults.standard.set(range.rawValue, forKey: "reports.range"); load() }
   }
   @Published private(set) var anchor = Calendar.current.startOfDay(for: Date())
+  @Published var group: ReportGroup = ReportGroup(rawValue: UserDefaults.standard.string(forKey: "reports.group") ?? "") ?? .projects {
+    didSet { UserDefaults.standard.set(group.rawValue, forKey: "reports.group") }
+  }
   /// Drilled org; nil = all orgs.
   @Published var org: String?
   @Published private(set) var allocations: [Allocation] = []
   @Published private(set) var cards: [ReportCard] = []
+  /// Range stretches by desktop and by Working/Idle/Break (`Report.desktops`, `Report.states`).
+  @Published private(set) var desktops: [Stretch] = []
+  @Published private(set) var states: [Stretch] = []
   @Published private(set) var loading = false
   @Published private(set) var error: String?
 
@@ -65,12 +78,15 @@ final class ReportsModel: ObservableObject {
         let text = try await client.reportCards(span.start, to: last, mull: mull)
         let result = await Task.detached(priority: .userInitiated) {
           let cards = ReportCard.parse(text)
-          let spans = Self.spans(dir: dir, from: span.start, to: last, open: open, idle: idle)
-          return (cards, Report.attribute(spans: spans, cards: cards, rules: rules, labels: labels, names: names))
+          let (spans, states) = Self.spans(dir: dir, from: span.start, to: last, open: open, idle: idle)
+          return (cards, Report.attribute(spans: spans, cards: cards, rules: rules, labels: labels, names: names),
+                  Report.desktops(spans, labels: labels, names: names), states)
         }.value
         guard gen == generation else { return }
         cards = result.0
         allocations = result.1
+        desktops = result.2
+        states = result.3
         error = nil
       } catch {
         guard gen == generation else { return }
@@ -80,20 +96,25 @@ final class ReportsModel: ObservableObject {
     }
   }
 
-  /// Active spans of every day log in the range, gaps under the idle threshold filled (as the Timeline does).
-  nonisolated static func spans(dir: URL, from: Date, to: Date, open: Span?, idle: TimeInterval) -> [Span] {
+  /// Active spans of every day log in the range, gaps under the idle threshold filled (as the Timeline does),
+  /// and each day's Working/Idle/Break stretches up to its last span (today: up to now).
+  nonisolated static func spans(dir: URL, from: Date, to: Date, open: Span?, idle: TimeInterval) -> ([Span], [Stretch]) {
     let f = DateFormatter()
     f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyyMMdd"
-    var out: [Span] = []
+    var out: [Span] = [], states: [Stretch] = []
     var day = Calendar.current.startOfDay(for: from)
     while day <= to {
       var spans = (try? Data(contentsOf: dir.appendingPathComponent(f.string(from: day) + ".jsonl"))).map(ActivityLog.parse) ?? []
       if Calendar.current.isDateInToday(day), let open { spans.append(open) }
-      out += ActivityLog.impute(spans, maxGap: idle)
+      let filled = ActivityLog.impute(spans, maxGap: idle)
+      let breaks = (try? Data(contentsOf: dir.appendingPathComponent(BreakSpan.fileName(day)))).map { ActivityLog.parseLines($0) as [BreakSpan] } ?? []
+      let end = Calendar.current.isDateInToday(day) ? Date() : filled.map(\.end).max() ?? day
+      out += filled
+      states += Report.states(spans: filled, breaks: breaks, end: end, idleAfter: idle)
       day = Calendar.current.date(byAdding: .day, value: 1, to: day) ?? to.addingTimeInterval(1)
     }
-    return out
+    return (out, states)
   }
 }
 
@@ -111,7 +132,7 @@ struct ReportsView: View {
         VStack(alignment: .leading, spacing: 20) {
           tiles
           chart
-          breakdown
+          if model.group == .projects { breakdown }
         }
         .padding(20)
       }
@@ -165,7 +186,22 @@ struct ReportsView: View {
 
   private var tree: [ReportNode] { Report.tree(model.allocations, cards: model.cards) }
 
-  private var tiles: some View {
+  @ViewBuilder private var tiles: some View {
+    switch model.group {
+    case .projects: projectTiles
+    case .desktop, .state:
+      // Largest first; State keeps its fixed order.
+      let totals = Report.series(model.group == .state ? model.states : model.desktops) { _ in .distantPast }
+      let shown = model.group == .state ? Self.stateOrder.map { n in totals.first { $0.name == n } ?? (.distantPast, n, 0) }
+        : Array(totals.sorted { $0.seconds > $1.seconds }.prefix(4))
+      HStack(spacing: 12) {
+        ForEach(shown, id: \.name) { tile($0.name, TimelineScreen.dur($0.seconds)) }
+        if shown.isEmpty { tile("Logged", TimelineScreen.dur(0)) }
+      }
+    }
+  }
+
+  private var projectTiles: some View {
     let nodes = tree.filter { n in model.org.map { n.kind == .org && n.name.caseInsensitiveCompare($0) == .orderedSame } ?? true }
     let total = scoped.reduce(0) { $0 + $1.seconds }
     let unattributed = scoped.filter { $0.target == .unattributed }.reduce(0) { $0 + $1.seconds }
@@ -197,26 +233,53 @@ struct ReportsView: View {
     unattributed ? "Unattributed" : name.isEmpty ? (drilled ? "No project" : "No organization") : name
   }
 
+  /// State legend and stack order, Working at the bottom.
+  private static let stateOrder = [Report.working, Report.idle, Report.onBreak]
+
+  private func color(_ name: String) -> Color {
+    switch (model.group, name) {
+    case (.projects, "Unattributed"), (.desktop, "No desktop"), (.state, Report.idle): Palette.muted.opacity(0.5)
+    case (.state, Report.working): Palette.link
+    case (.state, Report.onBreak): Palette.amber
+    default: Color(ProjectHues.pair(name).light)
+    }
+  }
+
   private var chart: some View {
     let unit = model.range.bar
-    let named = Report.series(model.allocations, org: model.org) { Calendar.current.dateInterval(of: unit, for: $0)?.start ?? $0 }
+    let bucket = { (d: Date) in Calendar.current.dateInterval(of: unit, for: d)?.start ?? d }
+    let named: [(bucket: Date, name: String, hours: Double)] = switch model.group {
+    case .projects: Report.series(model.allocations, org: model.org, bucket: bucket)
       .map { (bucket: $0.bucket, name: Self.seriesName($0.name, unattributed: $0.unattributed, drilled: model.org != nil), hours: $0.seconds / 3600) }
-    let names = Array(Set(named.map(\.name))).sorted { a, b in
+    case .desktop, .state: Report.series(model.group == .state ? model.states : model.desktops, bucket: bucket)
+      .map { (bucket: $0.bucket, name: $0.name, hours: $0.seconds / 3600) }
+    }
+    let present = Set(named.map(\.name))
+    let names = model.group == .state ? Self.stateOrder.filter(present.contains) : present.sorted { a, b in
       a == "Unattributed" ? false : b == "Unattributed" ? true : a < b
     }
     // Swift Charts stacks in row order; sort by the legend's display names so bars match the legend.
     let rank = Dictionary(uniqueKeysWithValues: names.enumerated().map { ($1, $0) })
     let rows = named.sorted { ($0.bucket, rank[$0.name] ?? 0) < ($1.bucket, rank[$1.name] ?? 0) }
-    let colors = names.map { $0 == "Unattributed" ? Palette.muted.opacity(0.5) : Color(ProjectHues.pair($0).light) }
+    let colors = names.map(color)
     return VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 6) {
-        Button("All organizations") { model.org = nil }
-          .buttonStyle(.plain).foregroundStyle(model.org == nil ? Palette.text : Palette.link)
-          .disabled(model.org == nil)
-        if let org = model.org {
-          Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Palette.muted)
-          Text(org)
+        if model.group == .projects {
+          Button("All organizations") { model.org = nil }
+            .buttonStyle(.plain).foregroundStyle(model.org == nil ? Palette.text : Palette.link)
+            .disabled(model.org == nil)
+          if let org = model.org {
+            Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Palette.muted)
+            Text(org)
+          }
+        } else {
+          Text(model.group == .state ? "Working, idle and break" : "By desktop")
         }
+        Spacer()
+        Picker("Group by", selection: $model.group) {
+          ForEach(ReportGroup.allCases) { Text($0.label).tag($0) }
+        }
+        .labelsHidden().pickerStyle(.segmented).fixedSize().help("Group by")
       }
       .font(.system(size: 13, weight: .medium))
       Chart(rows.indices, id: \.self) { i in

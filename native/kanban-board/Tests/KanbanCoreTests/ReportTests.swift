@@ -157,4 +157,26 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(leaf?.seconds, 0)
     XCTAssertEqual(leaf?.doing, 3600)
   }
+
+  func testStatesSplitTheDayIntoWorkingIdleAndBreak() {
+    let out = Report.states(spans: [span(0, 30), span(50, 60)], breaks: [BreakSpan(start: at(30), end: at(40))],
+                            end: at(60), idleAfter: 300)
+    func total(_ name: String) -> Double { out.filter { $0.name == name }.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) } / 60 }
+    XCTAssertEqual(total(Report.working), 40)
+    XCTAssertEqual(total(Report.idle), 10)
+    XCTAssertEqual(total(Report.onBreak), 10)
+    XCTAssertEqual(Report.states(spans: [], breaks: [], end: at(60), idleAfter: 300), [])
+  }
+
+  func testDesktopStretchesTakeTheBestName() {
+    var none = span(0, 1); none.space = nil
+    let out = Report.desktops([span(0, 1, desktop: "PenguinAI"), span(0, 1, space: 2), span(0, 1, space: 3), none], labels: [2: "Mail"])
+    XCTAssertEqual(out.map(\.name), ["PenguinAI", "Mail", "Desktop 3", "No desktop"])
+  }
+
+  func testStretchSeriesCutsAtHourEdges() {
+    let rows = Report.series([Stretch(name: "Idle", start: at(50), end: at(70))], calendar: cal) { $0 }
+    XCTAssertEqual(rows.map(\.bucket), [t0, at(60)])
+    XCTAssertEqual(rows.map(\.seconds), [600, 600])
+  }
 }

@@ -226,3 +226,67 @@ extension Report {
     return out
   }
 }
+
+/// A named stretch of time for the Reports "Group by" Desktop and State charts.
+public struct Stretch: Equatable, Sendable {
+  public var name: String, start: Date, end: Date
+  public init(name: String, start: Date, end: Date) { (self.name, self.start, self.end) = (name, start, end) }
+}
+
+extension Report {
+  public static let working = "Working", idle = "Idle", onBreak = "Break"
+
+  /// One day's Working, Idle and Break stretches from its first span to `end` (now for today, else the last span end).
+  /// Idle is a gap of at least `idleAfter`; a break that was also idle counts as the break (as the Timeline draws it).
+  /// ```
+  /// spans 9:00-9:30 9:50-10:00, break 9:30-9:40, idleAfter 5 min, end 10:00
+  ///   -> [Working 9:00-9:30, Working 9:50-10:00, Idle 9:40-9:50, Break 9:30-9:40]
+  /// ```
+  public static func states(spans: [Span], breaks: [BreakSpan], end: Date, idleAfter: TimeInterval) -> [Stretch] {
+    guard let first = spans.map(\.start).min(), end > first else { return [] }
+    let off = breaks.compactMap { b -> (Date, Date)? in
+      let s = max(b.start, first), e = min(b.end, end)
+      return e > s ? (s, e) : nil
+    }
+    let idle = ActivityLog.subtract(ActivityLog.idle(spans, from: first, now: end, minGap: idleAfter), off)
+    let work = ActivityLog.subtract([(first, end)], idle + off)
+    return work.map { Stretch(name: working, start: $0.0, end: $0.1) }
+      + idle.map { Stretch(name: Self.idle, start: $0.0, end: $0.1) }
+      + off.map { Stretch(name: onBreak, start: $0.0, end: $0.1) }
+  }
+
+  /// Spans as stretches named by desktop: the span's name, else the label store's name for its Space UUID
+  /// or number, else "Desktop N"; spans with no desktop are "No desktop".
+  /// ```
+  /// [span desktop "PenguinAI", span space 2 (labels [2: "Mail"]), span space 3, span no space]
+  ///   -> [PenguinAI, Mail, Desktop 3, No desktop]
+  /// ```
+  public static func desktops(_ spans: [Span], labels: [Int: String] = [:], names: [String: String] = [:]) -> [Stretch] {
+    spans.map { s in
+      let name = s.desktop ?? s.uuid.flatMap { names[$0] } ?? s.space.flatMap { labels[$0] }
+        ?? s.space.map { "Desktop \($0)" } ?? "No desktop"
+      return Stretch(name: name, start: s.start, end: s.end)
+    }
+  }
+
+  /// Seconds per bucket and name, each stretch cut at hour edges first so day charts split correctly.
+  /// Rows sort by bucket, then name: Swift Charts stacks bars in row order.
+  /// ```
+  /// [Idle 9:50-10:10] bucket = hour -> [(9:00, Idle, 600), (10:00, Idle, 600)]
+  /// ```
+  public static func series(_ stretches: [Stretch], calendar: Calendar = .current, bucket: (Date) -> Date)
+    -> [(bucket: Date, name: String, seconds: Double)] {
+    var acc: [String: (Date, String, Double)] = [:]
+    for s in stretches {
+      var cursor = s.start
+      while cursor < s.end {
+        let hour = calendar.dateInterval(of: .hour, for: cursor)?.start ?? cursor
+        let next = min(s.end, calendar.date(byAdding: .hour, value: 1, to: hour) ?? s.end)
+        let b = bucket(hour)
+        acc["\(b.timeIntervalSince1970)|\(s.name)", default: (b, s.name, 0)].2 += next.timeIntervalSince(cursor)
+        cursor = next
+      }
+    }
+    return acc.values.map { (bucket: $0.0, name: $0.1, seconds: $0.2) }.sorted { ($0.bucket, $0.name) < ($1.bucket, $1.name) }
+  }
+}
