@@ -64,6 +64,8 @@ struct BoardView: View {
 struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
   @AppStorage(BreakHotKey.labelKey) private var breakKey = "F6"
+  /// The tracker widget's shown state; its own eye button writes the same key, so this follows it.
+  @AppStorage(WidgetKey.visible) private var widgetVisible = true
   @FocusState private var focused: Bool
   @State private var pickingOrgs = false
   @State private var tabMonitor: Any?
@@ -88,6 +90,8 @@ struct BoardHeader: View {
           IconButton(icon: "book.closed", help: "Logbook", active: store.mode == .logbook) { store.mode = .logbook }
         }
         IconButton(icon: "cup.and.saucer", help: "Take a break: park every Doing card; again to resume them" + (breakKey.isEmpty ? "" : " (\(breakKey))")) { store.takeBreak() }
+        IconButton(icon: widgetVisible ? "eye" : "eye.slash", help: widgetVisible ? "Hide widget" : "Show widget",
+                   active: widgetVisible) { widgetVisible.toggle() }
         IconButton(icon: "calendar.day.timeline.left", help: "Timeline (⇧⌘T)") { store.openTimeline() }
         IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
       }

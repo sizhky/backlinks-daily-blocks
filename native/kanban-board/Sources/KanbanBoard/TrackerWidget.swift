@@ -81,6 +81,7 @@ final class TrackerWidget {
     // Option opens the task in Obsidian, Command copies its task ID, Shift shows it on the board;
     // a plain click makes it active.
     grip.onPick = { [weak store] id, flags in
+      if id == WidgetGrip.hide { return UserDefaults.standard.set(false, forKey: WidgetKey.visible) }
       guard let store, let card = store.columns.lazy.flatMap(\.cards).first(where: { $0.id == id }) else { return }
       if flags.contains(.option) { store.open(card) }
       else if flags.contains(.command) { store.copyID(card) }
@@ -216,6 +217,16 @@ struct WidgetView: View {
     // fully clear pixels would pass the mouse through to the window below.
     .background(RoundedRectangle(cornerRadius: corner, style: .continuous)
       .fill(grip.armed ? Color.black : Color.white.opacity(0.001)))
+    .overlay(alignment: .topTrailing) {
+      // Hide button, shown while armed (Fn over the widget); the board header's eye shows it again.
+      if grip.armed {
+        Image(systemName: "eye.slash").font(.system(size: max(11, width * 0.055), weight: .medium))
+          .padding(width * 0.03)
+          .widgetTarget(WidgetGrip.hide, grip, slots, dim: 0.7)
+          .padding(width * 0.03)
+          .accessibilityLabel("Hide widget")
+      }
+    }
     .overlay {
       if !toast.isEmpty {
         ToastCover(changes: toast, unit: prefs.size(.title), family: family, corner: corner, align: prefs.align(.title))
@@ -521,6 +532,8 @@ final class DragHostingView<Content: View>: NSHostingView<Content> {
 /// Whether the widget currently takes the mouse (Fn held over it), and where its tasks are.
 @MainActor
 final class WidgetGrip: ObservableObject {
+  /// Target id of the hide (eye) button.
+  static let hide = "widget.hide"
   @Published var armed = false
   /// The task under the pointer while armed.
   @Published var hovered: String?
