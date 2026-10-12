@@ -310,17 +310,18 @@ struct ReportsView: View {
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
   }
 
-  /// Hours per series in the bar under the pointer, largest first; nil off the bars.
+  /// The segment under the pointer: its bar's date, series and hours; nil off the bars.
+  /// Rows are in stack order (bottom first), so the segment is where the running total passes the pointer's hours.
   private static func tip(at p: CGPoint, proxy: ChartProxy, geo: GeometryProxy,
                           rows: [(bucket: Date, name: String, hours: Double)], unit: Calendar.Component) -> String? {
     guard let plot = proxy.plotFrame.map({ geo[$0] }), plot.contains(p),
       let date: Date = proxy.value(atX: p.x - plot.minX),
+      let hours: Double = proxy.value(atY: p.y - plot.minY), hours >= 0,
       let bucket = Calendar.current.dateInterval(of: unit, for: date)?.start else { return nil }
-    let hit = rows.filter { $0.bucket == bucket }.sorted { $0.hours > $1.hours }
-    guard !hit.isEmpty else { return nil }
+    var top = 0.0
+    guard let hit = rows.filter({ $0.bucket == bucket }).first(where: { top += $0.hours; return hours < top }) else { return nil }
     let head = bucket.formatted(unit == .hour ? .dateTime.hour() : unit == .month ? .dateTime.month(.wide) : .dateTime.weekday().day().month())
-    let total = TimelineScreen.dur(hit.reduce(0) { $0 + $1.hours } * 3600)
-    return (["\(head)  \(total)"] + hit.map { "\($0.name)  \(TimelineScreen.dur($0.hours * 3600))" }).joined(separator: "\n")
+    return "\(hit.name)  \(TimelineScreen.dur(hit.hours * 3600))\n\(head)"
   }
 
   // MARK: Breakdown
