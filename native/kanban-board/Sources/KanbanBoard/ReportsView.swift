@@ -262,6 +262,8 @@ struct ReportsView: View {
     let rank = Dictionary(uniqueKeysWithValues: names.enumerated().map { ($1, $0) })
     let rows = named.sorted { ($0.bucket, rank[$0.name] ?? 0) < ($1.bucket, rank[$1.name] ?? 0) }
     let colors = names.map(color)
+    // Laptop time per bar: active span time, the same in every grouping and drill.
+    let laptop = Dictionary(Report.series(model.desktops, bucket: bucket).map { ($0.bucket, $0.seconds) }, uniquingKeysWith: +)
     return VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 6) {
         if model.group == .projects {
@@ -296,7 +298,7 @@ struct ReportsView: View {
               if case .active(let p) = phase { pointer = p } else { pointer = nil }
             }
             .overlay(alignment: .topLeading) {
-              if let p = pointer, let text = Self.tip(at: p, proxy: proxy, geo: geo, rows: rows, unit: unit) {
+              if let p = pointer, let text = Self.tip(at: p, proxy: proxy, geo: geo, rows: rows, laptop: laptop, unit: unit) {
                 HoverCard(text: text, at: p, bounds: geo.size).allowsHitTesting(false)
               }
             }
@@ -310,18 +312,25 @@ struct ReportsView: View {
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
   }
 
-  /// The segment under the pointer: its bar's date, series and hours; nil off the bars.
+  /// The segment under the pointer: series, hours and share of its bar; the bar's date and laptop time; nil off the bars.
   /// Rows are in stack order (bottom first), so the segment is where the running total passes the pointer's hours.
+  /// ```
+  /// bar 10:00 [Divami 0.5 h, Unattributed 0.25 h], laptop 2700 s, pointer at 0.3 h
+  ///   -> "Divami  30m · 67%\n10 AM · 45m on laptop"
+  /// ```
   private static func tip(at p: CGPoint, proxy: ChartProxy, geo: GeometryProxy,
-                          rows: [(bucket: Date, name: String, hours: Double)], unit: Calendar.Component) -> String? {
+                          rows: [(bucket: Date, name: String, hours: Double)], laptop: [Date: Double],
+                          unit: Calendar.Component) -> String? {
     guard let plot = proxy.plotFrame.map({ geo[$0] }), plot.contains(p),
       let date: Date = proxy.value(atX: p.x - plot.minX),
       let hours: Double = proxy.value(atY: p.y - plot.minY), hours >= 0,
       let bucket = Calendar.current.dateInterval(of: unit, for: date)?.start else { return nil }
+    let bar = rows.filter { $0.bucket == bucket }
     var top = 0.0
-    guard let hit = rows.filter({ $0.bucket == bucket }).first(where: { top += $0.hours; return hours < top }) else { return nil }
+    guard let hit = bar.first(where: { top += $0.hours; return hours < top }) else { return nil }
+    let share = Int((hit.hours / max(bar.reduce(0) { $0 + $1.hours }, 1e-9) * 100).rounded())
     let head = bucket.formatted(unit == .hour ? .dateTime.hour() : unit == .month ? .dateTime.month(.wide) : .dateTime.weekday().day().month())
-    return "\(hit.name)  \(TimelineScreen.dur(hit.hours * 3600))\n\(head)"
+    return "\(hit.name)  \(TimelineScreen.dur(hit.hours * 3600)) · \(share)%\n\(head) · \(TimelineScreen.dur(laptop[bucket] ?? 0)) on laptop"
   }
 
   // MARK: Breakdown
