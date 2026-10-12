@@ -31,6 +31,12 @@ final class BoardTests: XCTestCase {
     XCTAssertTrue(Remaining.of([(est: nil, active: 0)]).isEmpty)
   }
 
+  func testOverrunIsActiveTimePastTheGuess() {
+    XCTAssertEqual(Remaining.overrun(est: 60, active: 4320), 720)
+    XCTAssertNil(Remaining.overrun(est: 60, active: 3600))
+    XCTAssertNil(Remaining.overrun(est: nil, active: 9999))
+  }
+
   func testFirstColumnSurvivesCliPrefix() {
     XCTAssertEqual(Board.parse("=> @column\tBacklog\tlive\nBacklog\ta.md:1\tX\t1h\t\t").first?.cards.count, 1)
   }

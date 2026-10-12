@@ -365,21 +365,27 @@ struct WidgetView: View {
   /// (`Card.seconds(in:)`) as a dimmed caption tucked up close, the "Desktop 1" pattern. One owner for
   /// the hero and the paused rows, so they read alike at their own scale. A card with an estimate
   /// (`Card.est`) shows it after the time in Doing, the time it is measured against: `45:11 / 1h`.
+  /// Active time past the estimate (`Remaining.overrun`) turns the caption amber at full opacity: `1:12:03 / 1h +12m`.
   private func clockStack(_ card: Card, at now: Date, size: Double, captionScale: Double, captionOpacity: Double,
                           align: WidgetAlign) -> some View {
-    VStack(alignment: align.horizontal, spacing: 0) {
-      Text(Self.clock(store.activeTime(card, at: now)))
+    let active = store.activeTime(card, at: now)
+    let over = Remaining.overrun(est: card.est, active: active)
+    return VStack(alignment: align.horizontal, spacing: 0) {
+      Text(Self.clock(active))
         .font(WidgetStyle.font(family, size, WidgetPart.timer.weight, design: .rounded).monospacedDigit())
         .lineLimit(1)
         .minimumScaleFactor(0.6)
         .contentTransition(.numericText())
-      Text(Self.clock(card.seconds(in: "Doing", at: now)) + (card.est.map { " / " + Age.label(minutes: $0) } ?? ""))
+      Text(Self.clock(card.seconds(in: "Doing", at: now)) + (card.est.map { " / " + Age.label(minutes: $0) } ?? "")
+           + (over.map { " +" + Age.span(seconds: $0) } ?? ""))
         .font(WidgetStyle.font(family, size * captionScale, .medium, design: .rounded).monospacedDigit())
         .lineLimit(1)
-        .opacity(captionOpacity)
+        .foregroundStyle(over == nil ? AnyShapeStyle(.foreground) : AnyShapeStyle(Palette.amber))
+        .opacity(over == nil ? captionOpacity : 1)
         .padding(.top, -size * 0.15)
         .contentTransition(.numericText())
-        .accessibilityLabel(card.est.map { "Time in Doing, estimate \(Age.label(minutes: $0))" } ?? "Time in Doing")
+        .accessibilityLabel((card.est.map { "Time in Doing, estimate \(Age.label(minutes: $0))" } ?? "Time in Doing")
+          + (over.map { ", over by \(Age.span(seconds: $0))" } ?? ""))
     }
   }
 

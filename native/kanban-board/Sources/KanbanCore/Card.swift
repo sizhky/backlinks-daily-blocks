@@ -224,4 +224,13 @@ public struct Remaining: Equatable {
     let seconds = guessed.reduce(0) { $0 + max(0, Double($1.est! * 60) - $1.active) }
     return Remaining(seconds: seconds, unestimated: cards.count - guessed.count, guessed: guessed.count)
   }
+
+  /// Active seconds past the guess; nil without a guess or while within it.
+  /// ```
+  /// est 60, active 4320 -> 720;  est 60, active 3600 -> nil;  est nil -> nil
+  /// ```
+  public static func overrun(est: Int?, active: TimeInterval) -> TimeInterval? {
+    guard let est, active > Double(est * 60) else { return nil }
+    return active - Double(est * 60)
+  }
 }
