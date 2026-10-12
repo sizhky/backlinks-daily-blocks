@@ -447,10 +447,13 @@ struct TimePills: View {
           .help("Time in Doing, all stints")
       }
       if active > 0 || live {
-        Pill(text: Age.span(seconds: active), color: live ? tint : Palette.muted) {
-          Image(systemName: live ? "bolt.fill" : "bolt").imageScale(.small)
+        Button { store.estimating = card } label: {
+          Pill(text: Age.span(seconds: active), color: live ? tint : Palette.muted) {
+            Image(systemName: live ? "bolt.fill" : "bolt").imageScale(.small)
+          }
         }
-        .help(live ? "Active now; active time" : "Active time")
+        .buttonStyle(.pointing).pointerStyle(.link)
+        .help((live ? "Active now; active time" : "Active time") + ". Click to set the time estimate")
       }
     }
   }
