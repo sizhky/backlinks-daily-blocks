@@ -9,8 +9,8 @@ enum ReportRange: String, CaseIterable, Identifiable {
   var id: String { rawValue }
   var label: String { rawValue.capitalized }
   var component: Calendar.Component { switch self { case .day: .day; case .week: .weekOfYear; case .month: .month; case .year: .year } }
-  /// Chart bar unit: hours of a day, days of a week or month, months of a year.
-  var bar: Calendar.Component { switch self { case .day: .hour; case .week, .month: .day; case .year: .month } }
+  /// Chart bar unit: hours of a day, days of a week, month or year.
+  var bar: Calendar.Component { switch self { case .day: .hour; case .week, .month, .year: .day } }
 }
 
 @MainActor
