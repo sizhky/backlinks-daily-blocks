@@ -15,12 +15,13 @@ enum WidgetAlign: String, CaseIterable, Identifiable {
 /// The widget's elements, top to bottom. Each has its own visibility, justification, and font size
 /// under `widget.<part>.*`; visibility keeps the original `widget.*` keys so earlier choices survive.
 enum WidgetPart: String, CaseIterable, Identifiable {
-  case desktop, timer, title, app, window, url
+  case desktop, finish, timer, title, app, window, url
   var id: String { rawValue }
 
   var label: String {
     switch self {
     case .desktop: "Desktop"
+    case .finish: "Finish time"
     case .timer: "Time in Doing"
     case .title: "Task"
     case .app: "App"
@@ -32,6 +33,7 @@ enum WidgetPart: String, CaseIterable, Identifiable {
   var showKey: String {
     switch self {
     case .desktop: WidgetKey.desktop
+    case .finish: WidgetKey.finish
     case .timer: WidgetKey.timer
     case .title: WidgetKey.task
     case .app: WidgetKey.app
@@ -45,7 +47,7 @@ enum WidgetPart: String, CaseIterable, Identifiable {
   /// Apple small-widget scale: one hero number, a body line, quieter captions.
   var defaultSize: Double {
     switch self {
-    case .desktop: 10
+    case .desktop, .finish: 10
     case .timer: 34
     case .title: 13
     case .app: 10.5
@@ -55,7 +57,7 @@ enum WidgetPart: String, CaseIterable, Identifiable {
   }
   var weight: Font.Weight {
     switch self {
-    case .timer, .title, .desktop, .app: .semibold
+    case .timer, .title, .desktop, .finish, .app: .semibold
     case .window, .url: .regular
     }
   }

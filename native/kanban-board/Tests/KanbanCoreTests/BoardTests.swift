@@ -22,6 +22,15 @@ final class BoardTests: XCTestCase {
     XCTAssertEqual(cols[0].cards[0].moved(to: "Done").desktop, "3")
   }
 
+  func testRemainingSumsEstimateLessActiveAndCountsUnestimated() {
+    // 2h with 1h35m active leaves 25m; an overrun card adds nothing; a card without a guess is counted.
+    let left = Remaining.of([(est: 120, active: 5700), (est: 30, active: 2400), (est: nil, active: 60)])
+    XCTAssertEqual(left.seconds, 1500)
+    XCTAssertEqual(left.unestimated, 1)
+    XCTAssertFalse(left.isEmpty)
+    XCTAssertTrue(Remaining.of([(est: nil, active: 0)]).isEmpty)
+  }
+
   func testFirstColumnSurvivesCliPrefix() {
     XCTAssertEqual(Board.parse("=> @column\tBacklog\tlive\nBacklog\ta.md:1\tX\t1h\t\t").first?.cards.count, 1)
   }

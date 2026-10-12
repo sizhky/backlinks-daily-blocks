@@ -9,6 +9,8 @@ enum WidgetKey {
   /// Bottom-left corner of the widget, `NSStringFromPoint`.
   static let origin = "widget.origin"
   static let title = "widget.title", desktop = "widget.desktop", url = "widget.url"
+  /// The finish time of the Doing cards' remaining guesses.
+  static let finish = "widget.finish"
   /// The desktop number in small type under a named desktop.
   static let desktopNumber = "widget.desktop.number"
   static let width = "widget.width"
@@ -199,6 +201,7 @@ struct WidgetView: View {
     VStack(spacing: width * 0.04) {
       header
       session
+      finish
       hero
       footer
     }
@@ -318,6 +321,27 @@ struct WidgetView: View {
         if let s = store.session(at: ctx.date) { sessionClock(onBreak: s.onBreak, since: s.since, at: ctx.date) }
       }
       .opacity(0.8)
+    }
+  }
+
+  /// When the Doing cards' remaining guesses end if worked from now (`Remaining`), the time left, and the cards
+  /// without a guess. Working holds it still, since active time grows as the remainder shrinks; a break moves it later.
+  @ViewBuilder private var finish: some View {
+    if prefs.shown(.finish) {
+      TimelineView(.periodic(from: .now, by: 30)) { ctx in
+        let left = Remaining.of(doing.map { (est: $0.est, active: store.activeTime($0, at: ctx.date)) })
+        if !left.isEmpty {
+          let ends = ctx.date.addingTimeInterval(left.seconds).formatted(date: .omitted, time: .shortened)
+          let rest = Age.label(minutes: Int((left.seconds / 60).rounded())) + " left"
+            + (left.unestimated > 0 ? " · \(left.unestimated) unestimated" : "")
+          part(.finish) {
+            Text(Image(systemName: "flag.checkered")) + Text("  " + ends)
+              + Text("  (" + rest + ")").foregroundStyle(.secondary)
+          }
+          .monospacedDigit()
+          .accessibilityLabel("Finish at \(ends), \(rest)")
+        }
+      }
     }
   }
 

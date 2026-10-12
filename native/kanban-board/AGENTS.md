@@ -9,7 +9,7 @@ It does not depend on `native/doing-tasks`.
 
 ```
 Sources/KanbanCore/    pure logic, no UI, fully unit-tested
-  Card.swift           Card, Column, Board.parse (kb output -> model), identifier, created
+  Card.swift           Card, Column, Board.parse (kb output -> model), identifier, created, Remaining (widget finish time)
   Query.swift          query text -> QueryTerm; format; toggling (single-valued keys); expression -> QueryExpr (and/or/parens, Timeline filter)
   Catalog.swift        keys and values the filter field and palette complete (`Catalog.make`, `suggest`)
   Filter.swift         term matching, org scope, SavedFilter (a "view")

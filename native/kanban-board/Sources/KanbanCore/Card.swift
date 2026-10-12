@@ -207,3 +207,21 @@ public enum Board {
     return columns
   }
 }
+
+/// Work still expected from the Doing cards: each guess (`Card.est`, minutes) less its active time,
+/// never below zero, so an overrun card does not hide the time other cards still need.
+public struct Remaining: Equatable {
+  public var seconds: TimeInterval
+  /// Doing cards without a guess, which the total cannot include.
+  public var unestimated: Int
+  /// Doing cards with a guess.
+  public var guessed: Int
+  /// No card has a guess, so there is no finish time to show.
+  public var isEmpty: Bool { guessed == 0 }
+
+  public static func of(_ cards: [(est: Int?, active: TimeInterval)]) -> Remaining {
+    let guessed = cards.filter { $0.est != nil }
+    let seconds = guessed.reduce(0) { $0 + max(0, Double($1.est! * 60) - $1.active) }
+    return Remaining(seconds: seconds, unestimated: cards.count - guessed.count, guessed: guessed.count)
+  }
+}
