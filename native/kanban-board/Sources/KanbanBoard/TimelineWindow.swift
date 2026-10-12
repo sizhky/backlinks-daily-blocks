@@ -957,9 +957,7 @@ struct HoverCard: View {
       .frame(maxWidth: min(Self.width, bounds.width) - 18, alignment: .leading)
       .fixedSize(horizontal: true, vertical: true)
       .padding(.horizontal, 9).padding(.vertical, 7)
-      .background(RoundedRectangle(cornerRadius: 7).fill(Palette.window))
-      .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Palette.hairlineStrong))
-      .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
+      .glassEffect(.regular, in: .rect(cornerRadius: 10))
       .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
       .offset(x: Self.x(at.x, width: size.width, bounds: bounds.width), y: at.y + 14)
   }
