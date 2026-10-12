@@ -42,6 +42,12 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(Focus.active(cards, context: u2, rules: [], pin: pin)?.id, "b")
     XCTAssertNil(Focus.active(cards, context: nil, rules: [], pin: pin))
     XCTAssertEqual(Focus.active([card("b", 30)], context: u1, rules: [], pin: pin)?.id, "b")
+
+    var moving = FocusPin(id: "a", context: u1, to: "U2")
+    XCTAssertEqual(Focus.active(cards, context: u1, rules: [], pin: moving)?.id, "a")
+    moving.arrive(u2)
+    XCTAssertEqual(Focus.active(cards, context: u2, rules: [], pin: moving)?.id, "a")
+    XCTAssertEqual(Focus.active(cards, context: u1, rules: [], pin: moving)?.id, "b")
   }
 
   func testActiveClockCreditsTicksCapsGapsAndRetractsIdle() {

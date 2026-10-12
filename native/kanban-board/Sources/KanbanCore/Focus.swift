@@ -32,20 +32,35 @@ public enum Focus {
 }
 
 /// A card made active by hand (Fn-click in the widget). It holds on the desktop it was made on;
-/// changing desktop or going away hands the choice back to the rules.
+/// changing desktop or going away hands the choice back to the rules. A pin made with a switch to
+/// another desktop holds on that desktop, and on the one it leaves until the context arrives.
 /// ```
 /// pin(a, on desktop U1): context on U1 -> holds; on U2 -> no; away (nil) -> no
+/// pin(a, on U1, to U2): U1 -> holds; U2 -> holds, arrive; then U1 -> no
 /// ```
 public struct FocusPin: Equatable, Sendable {
   public let id: String
   public let desktop: String?
+  /// The desktop a pending switch leaves.
+  public private(set) var leaving: String?
 
-  public init(id: String, context: Sample?) {
+  public init(id: String, context: Sample?, to target: String? = nil) {
     self.id = id
-    desktop = context.flatMap(Self.desktop)
+    let here = context.flatMap(Self.desktop)
+    desktop = target ?? here
+    leaving = target == nil || target == here ? nil : here
   }
 
-  public func holds(_ context: Sample?) -> Bool { context.map { Self.desktop($0) == desktop } ?? false }
+  public func holds(_ context: Sample?) -> Bool {
+    guard let context else { return false }
+    let here = Self.desktop(context)
+    return here == desktop || (leaving != nil && here == leaving)
+  }
+
+  /// Ends the pending switch once the context is on `desktop`.
+  public mutating func arrive(_ context: Sample?) {
+    if let context, Self.desktop(context) == desktop { leaving = nil }
+  }
 
   static func desktop(_ s: Sample) -> String? { Desktops.key(uuid: s.uuid, space: s.space) }
 }

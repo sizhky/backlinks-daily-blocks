@@ -489,9 +489,12 @@ final class BoardStore: ObservableObject {
     if s.end > s.start { activity.record(s) }
   }
 
-  /// Makes a Doing card active by hand until the desktop changes (`FocusPin`).
+  /// Makes a Doing card active by hand until the desktop changes (`FocusPin`); a card whose desktop
+  /// (`desktop(_:)`) is another one switches there first.
   func activate(_ id: String) {
-    pin = FocusPin(id: id, context: activity.context)
+    let target = columns.lazy.flatMap(\.cards).first { $0.id == id }.flatMap(desktop).flatMap(desktops.resolve)
+    let switched = target.map { $0.uuid != desktops.current?.uuid && switchDesktop($0.number) } ?? false
+    pin = FocusPin(id: id, context: activity.context, to: switched ? target?.uuid : nil)
     withAnimation(.spring(duration: 0.4, bounce: 0.15)) { trackActive() }
   }
 
@@ -499,6 +502,7 @@ final class BoardStore: ObservableObject {
   /// away, and every `flushEvery` seconds.
   private func trackActive() {
     let cards = columns.flatMap(\.cards)
+    pin?.arrive(activity.context)
     let active = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
     if pin != nil, active?.id != pin?.id { pin = nil }
     if activity.context != nil, breakStart == nil, !(workStart.map(Calendar.current.isDateInToday) ?? false) {
@@ -675,17 +679,18 @@ final class BoardStore: ObservableObject {
   }
 
   /// Presses Right Cmd+N while BetterTouchTool runs, else the macOS "Switch to Desktop N" shortcut.
-  /// Needs Accessibility permission.
-  func switchDesktop(_ n: Int) {
+  /// Needs Accessibility permission. Returns whether the keys were sent.
+  @discardableResult
+  func switchDesktop(_ n: Int) -> Bool {
     let bttRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.hegenberg.BetterTouchTool").isEmpty
     let hotkeys = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys") ?? [:]
     guard let key = bttRunning ? Spaces.rightCommand(n) : Spaces.shortcut(n, in: hotkeys) else {
       error = "Enable Switch to Desktop \(n) in Keyboard Shortcuts > Mission Control"
-      return
+      return false
     }
     guard AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) else {
       error = "Allow Kanban Board in Privacy & Security > Accessibility, then try again"
-      return
+      return false
     }
     // Right Cmd is pressed as its own key around the digit so modifier-side tracking sees it.
     let modifier: [(UInt16, Bool, UInt64)] = bttRunning ? [(Spaces.rightCommandKey, true, key.flags)] : []
@@ -695,6 +700,7 @@ final class BoardStore: ObservableObject {
       event?.flags = CGEventFlags(rawValue: flags)
       event?.post(tap: .cghidEventTap)
     }
+    return true
   }
 
   /// Selects `card` and brings the board window forward. Launch Services activation, like

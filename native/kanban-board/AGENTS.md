@@ -321,6 +321,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   did nothing on the SwiftUI hosting view. `DragHostingView` takes the hit and calls `window.performDrag(with:)`.
   The tracker widget is click-through (`ignoresMouseEvents`) until Fn (`.function`) is held with the pointer over it;
   global plus local `NSEvent` monitors (flagsChanged, mouseMoved, leftMouseUp) set `WidgetGrip.armed`.
+  Fn-click on a task (`store.activate`) switches to its desktop (`store.desktop(card)`) when that is another one,
+  then pins it. The sampler sees the new Space up to 5 s later, so the `FocusPin` also holds on the desktop it
+  leaves until `arrive`; a pin bound only to the target was dropped by the next tick on the old desktop.
   Control held with the pointer over it fades the panel `alphaValue` to 0 over 0.25 s (peek at the text underneath).
   The panel is a square of the Size setting (`widget.width`), taller when the content needs it: parallel
   Doing cards each get a row with their own timer (none hidden), and `WidgetView` reports its natural
