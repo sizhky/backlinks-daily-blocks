@@ -220,10 +220,10 @@ struct WidgetView: View {
     .overlay(alignment: .topTrailing) {
       // Hide button, shown while armed (Fn over the widget); the board header's eye shows it again.
       if grip.armed {
-        Image(systemName: "eye.slash").font(.system(size: max(11, width * 0.055), weight: .medium))
-          .padding(width * 0.03)
-          .widgetTarget(WidgetGrip.hide, grip, slots, dim: 0.7)
-          .padding(width * 0.03)
+        Image(systemName: "eye.slash").font(.system(size: 9, weight: .regular))
+          .padding(4)
+          .widgetTarget(WidgetGrip.hide, grip, slots, dim: 0.6)
+          .padding(corner * 0.35)
           .accessibilityLabel("Hide widget")
       }
     }
