@@ -123,6 +123,10 @@ struct ReportsView: View {
   @Binding var mode: String
   /// Pointer over the chart's plot, for the instant `HoverCard`.
   @State private var pointer: CGPoint?
+  /// Scroll viewport, tiles and breakdown heights: the chart takes the height the others leave.
+  @State private var viewport: CGFloat = 0
+  @State private var tilesHeight: CGFloat = 0
+  @State private var breakdownHeight: CGFloat = 0
 
   var body: some View {
     VStack(spacing: 0) {
@@ -130,14 +134,23 @@ struct ReportsView: View {
       Divider().overlay(Palette.hairline)
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
-          tiles
-          chart
-          if model.group == .projects { breakdown }
+          tiles.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tilesHeight = $0 }
+          chart.frame(height: chartHeight)
+          if model.group == .projects {
+            breakdown.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { breakdownHeight = $0 }
+          }
         }
         .padding(20)
       }
+      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = $0 }
     }
     .onAppear { model.load() }
+  }
+
+  /// The viewport left after padding, tiles and (Projects) the breakdown; never under 300 pt, then the page scrolls.
+  private var chartHeight: CGFloat {
+    let below = model.group == .projects ? breakdownHeight + 20 : 0
+    return max(300, viewport - 40 - tilesHeight - 20 - below)
   }
 
   // MARK: Header
@@ -184,7 +197,10 @@ struct ReportsView: View {
     return model.allocations.filter { $0.target != .unattributed && $0.org.caseInsensitiveCompare(org) == .orderedSame }
   }
 
-  private var tree: [ReportNode] { Report.tree(model.allocations, cards: model.cards) }
+  /// Idle stretches of the range (`Report.states`): neither work nor break, and never on laptop.
+  private var idle: [(Date, Date)] { model.states.filter { $0.name == Report.idle }.map { ($0.start, $0.end) } }
+
+  private var tree: [ReportNode] { Report.tree(model.allocations, cards: model.cards, idle: idle) }
 
   @ViewBuilder private var tiles: some View {
     switch model.group {
@@ -211,6 +227,7 @@ struct ReportsView: View {
     return HStack(spacing: 12) {
       tile("Tracked", TimelineScreen.dur(total - unattributed))
       tile("Unattributed", TimelineScreen.dur(unattributed))
+      tile("Idle", TimelineScreen.dur(ActivityLog.unionSeconds(idle)))
       tile("Ad hoc", onCards > 0 ? "\(Int((adhocSeconds / onCards * 100).rounded()))%" : "–")
       tile("Untracked cards", "\(untracked)")
     }
@@ -313,7 +330,7 @@ struct ReportsView: View {
             }
         }
       }
-      .frame(height: 240)
+      .frame(maxHeight: .infinity)
       .overlay { if rows.isEmpty, !model.loading { Text("No tracked time").foregroundStyle(Palette.muted) } }
     }
     .padding(16)
@@ -381,8 +398,9 @@ struct ReportRow: View {
         tags
         Spacer(minLength: 12)
         if node.kind == .card, node.doing - node.seconds >= 60 {
-          Text("\(TimelineScreen.dur(node.doing)) in Doing").font(.system(size: 11.5)).foregroundStyle(Palette.muted).monospacedDigit()
-            .help("Time in Doing; the rest went to another card, a project with no card, or nobody")
+          Text("\(TimelineScreen.dur(node.doing)) in Doing" + (node.idle >= 60 ? " · \(TimelineScreen.dur(node.idle)) idle" : ""))
+            .font(.system(size: 11.5)).foregroundStyle(Palette.muted).monospacedDigit()
+            .help("Time in Doing, and the part of it with no activity (idle); the active rest went to another card, a project with no card, or nobody")
         }
         Text(TimelineScreen.dur(node.seconds)).monospacedDigit()
         Text("\(Int((node.seconds / total * 100).rounded()))%").monospacedDigit().foregroundStyle(Palette.muted)

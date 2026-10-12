@@ -776,7 +776,7 @@ function buildApi(plugin) {
         'moveTasks(refs,col)      move several file:line refs to a column',
         'rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first',
         'setEstimate(ref,min)    set (minutes) or clear (null) the time guess of a card',
-        'estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing)',
+        'estimates(opts?)        cards with a guess: ref, est min, took min (time in opts.col, default Doing), closed stints s-e epoch s',
         'planned(date|from,to,opts) Doing time split planned (>= opts.mull min, default 60, in Backlog/Todo first) vs ad hoc',
         'addActive([[ref,sec]])   add seconds to each card\'s %% kbactive N %% (active-task time); returns ref<TAB>total',
         'activeTimes(opts?)       cards with active time: ref<TAB>seconds',
@@ -1057,7 +1057,8 @@ function buildApi(plugin) {
       return '\n' + out.join('\n');
     },
 
-    // Cards with a guess: "file:line<TAB>estMinutes<TAB>tookMinutes", took = summed time in `col` (default Doing).
+    // Cards with a guess: "file:line<TAB>estMinutes<TAB>tookMinutes<TAB>s-e,s-e", took = summed time in `col` (default Doing),
+    // then the closed stints in `col` as epoch seconds (the Kanban Board app subtracts idle time from them).
     async estimates(opts = {}) {
       const want = String(opts.col || 'Doing').toLowerCase();
       const byCol = await scanKanbanTasks(plugin.app, makeConfig(opts, plugin));
@@ -1071,7 +1072,8 @@ function buildApi(plugin) {
           if (!ev[i + 1] && key !== want) return; // not in `want` now: no open stint
           ms += (ev[i + 1] ? stampToDate(ev[i + 1].stamp).getTime() : Date.now()) - stampToDate(e.stamp).getTime();
         });
-        out.push(`${card.file.path}:${card.line}\t${card.est}\t${Math.round(ms / 60000)}`);
+        const closed = stints(card.history, want, 0, Date.now(), () => 0, false).filter(x => !x.open);
+        out.push(`${card.file.path}:${card.line}\t${card.est}\t${Math.round(ms / 60000)}\t${closed.map(x => `${Math.round(x.s / 1000)}-${Math.round(x.e / 1000)}`).join(',')}`);
       }
       return '\n' + out.join('\n');
     },

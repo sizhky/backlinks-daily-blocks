@@ -69,6 +69,32 @@ final class ActivityMonitor: ObservableObject {
     return ActivityLog.idle(spans, from: from, now: now, minGap: Self.idleAfter)
   }
 
+  /// Idle stretches of past days, by log file name; a past day's log no longer changes.
+  private var pastIdle: [String: [(Date, Date)]] = [:]
+
+  /// Idle stretches on every day `ivals` touch: today from `idleToday`, past days from their logs (cached).
+  /// A day with no log has no idle: capture was off, so nothing is known about it.
+  func idle(covering ivals: [(Date, Date)], now: Date) -> [(Date, Date)] {
+    guard let dir, let first = ivals.map(\.0).min(), let last = ivals.map(\.1).max() else { return [] }
+    let cal = Calendar.current
+    var out: [(Date, Date)] = [], day = cal.startOfDay(for: first)
+    while day < min(last, now), let next = cal.date(byAdding: .day, value: 1, to: day) {
+      let name = Span.fileName(day)
+      if cal.isDate(day, inSameDayAs: now) {
+        out += idleToday(from: day, now: now)
+      } else if let cached = pastIdle[name] {
+        out += cached
+      } else {
+        let gaps = (try? Data(contentsOf: dir.appendingPathComponent(name)))
+          .map { ActivityLog.idle(ActivityLog.parse($0), from: day, now: next, minGap: Self.idleAfter) } ?? []
+        pastIdle[name] = gaps
+        out += gaps
+      }
+      day = next
+    }
+    return out
+  }
+
   /// Today's seconds on the current desktop and on all desktops, the open span included; nil while away.
   func desktopToday(at now: Date) -> (here: TimeInterval, all: TimeInterval)? {
     guard let c = context, let key = Desktops.key(uuid: c.uuid, space: c.space) else { return nil }

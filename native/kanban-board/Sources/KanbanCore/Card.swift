@@ -24,6 +24,8 @@ public struct Card: Identifiable, Equatable, Sendable {
   public var activeSeconds: Int?
   /// Seconds per column over closed stints (`kb.columnTimes`); the open stint comes from `since`.
   public var columnSeconds: [String: Int] = [:]
+  /// Closed Doing stints (`kb.estimates`, cards with a guess only), for subtracting idle time; the open stint comes from `since`.
+  public var doingStints: [DateInterval] = []
   /// View identity that survives line shifts (`file|title`, set by `Board.parse`); `ref` changes
   /// whenever a line is inserted above the task, which would make SwiftUI re-insert the card.
   public var id: String
@@ -80,7 +82,7 @@ public struct Card: Identifiable, Equatable, Sendable {
   }
 
   /// Fields: col, file:line, body, age, orgs(a|b), projects(a|b), rank, desktop, ordinal, siblings, doneAt (ISO), est, took, since (ISO),
-  /// active seconds, column seconds (`Doing=1800|Todo=600`).
+  /// active seconds, column seconds (`Doing=1800|Todo=600`), closed Doing stints (`start-end,...` epoch seconds).
   init?(fields f: [String]) {
     guard f.count >= 4, let colon = f[1].lastIndex(of: ":"),
       let line = Int(f[1][f[1].index(after: colon)...]) else { return nil }
@@ -103,6 +105,32 @@ public struct Card: Identifiable, Equatable, Sendable {
         if kv.count == 2, let n = Int(kv[1]) { columnSeconds[String(kv[0]), default: 0] += n }
       }
     }
+    if f.count > 16 { doingStints = Self.intervals(f[16]) }
+  }
+
+  /// `"100-400,500-800"` (epoch seconds) -> two intervals; malformed or empty pairs are skipped.
+  public static func intervals(_ s: String) -> [DateInterval] {
+    s.split(separator: ",").compactMap { pair in
+      let p = pair.split(separator: "-")
+      guard p.count == 2, let a = Double(p[0]), let b = Double(p[1]), b > a else { return nil }
+      return DateInterval(start: Date(timeIntervalSince1970: a), end: Date(timeIntervalSince1970: b))
+    }
+  }
+
+  /// Every Doing stint up to `now`: the closed ones and the open one when the card is in Doing.
+  public func doingIntervals(at now: Date) -> [(Date, Date)] {
+    var out = doingStints.map { ($0.start, $0.end) }
+    if col.caseInsensitiveCompare("Doing") == .orderedSame, let since, now > since { out.append((since, now)) }
+    return out
+  }
+
+  /// Time in Doing less the parts inside `idle`: what a guess (`est`) is measured against.
+  /// Without stints (a card with no guess) only the open stint loses its idle time.
+  /// ```
+  /// columnSeconds ["Doing": 3600] over 9:00-10:00, idle [9:40-9:50] -> 3000
+  /// ```
+  public func doingLessIdle(idle: [(Date, Date)], at now: Date) -> TimeInterval {
+    max(0, seconds(in: "Doing", at: now) - ActivityLog.overlapSeconds(doingIntervals(at: now), idle))
   }
 
   /// Total seconds in `column` at `now`: closed stints plus the open one when the card is there.
@@ -134,6 +162,8 @@ public struct Card: Identifiable, Equatable, Sendable {
     c.took = took
     c.activeSeconds = activeSeconds
     c.columnSeconds = columnSeconds
+    if self.col.caseInsensitiveCompare("Doing") == .orderedSame, let since { c.doingStints = doingStints + [DateInterval(start: since, end: max(since, Date()))] }
+    else { c.doingStints = doingStints }
     if let since { c.columnSeconds[self.col, default: 0] += Int(max(0, Date().timeIntervalSince(since))) }
     c.since = Date()
     c.id = id
@@ -208,7 +238,7 @@ public enum Board {
   }
 }
 
-/// Work still expected from the Doing cards: each guess (`Card.est`, minutes) less its active time,
+/// Work still expected from the Doing cards: each guess (`Card.est`, minutes) less its time in Doing minus idle,
 /// never below zero, so an overrun card does not hide the time other cards still need.
 public struct Remaining: Equatable {
   public var seconds: TimeInterval
@@ -225,7 +255,7 @@ public struct Remaining: Equatable {
     return Remaining(seconds: seconds, unestimated: cards.count - guessed.count, guessed: guessed.count)
   }
 
-  /// Active seconds past the guess; nil without a guess or while within it.
+  /// Seconds (time in Doing minus idle) past the guess; nil without a guess or while within it.
   /// ```
   /// est 60, active 4320 -> 720;  est 60, active 3600 -> nil;  est nil -> nil
   /// ```

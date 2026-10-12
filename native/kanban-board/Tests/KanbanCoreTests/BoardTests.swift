@@ -185,4 +185,15 @@ final class CreatedTests: XCTestCase {
     XCTAssertEqual(c.seconds(in: "Parked", at: Date(timeIntervalSince1970: 1600)), 600)
     XCTAssertEqual(c.moved(to: "Parked").columnSeconds["Doing"].map { $0 >= 1800 }, true)
   }
+
+  func testDoingLessIdleSubtractsIdleFromClosedAndOpenStints() {
+    let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+    let row = ["Doing", "a.md:1", "X", "1h", "", "", "", "", "", "", "", "60", "", Card.iso.string(from: t0.addingTimeInterval(7200)),
+               "", "Doing=3600", "\(Int(t0.timeIntervalSince1970))-\(Int(t0.timeIntervalSince1970) + 3600)"]
+    let card = Card(fields: row)!
+    XCTAssertEqual(card.doingStints.count, 1)
+    let idle = [(t0.addingTimeInterval(600), t0.addingTimeInterval(1200)), (t0.addingTimeInterval(7500), t0.addingTimeInterval(7800))]
+    // 3600 closed + 900 open, minus 600 closed idle and 300 open idle
+    XCTAssertEqual(card.doingLessIdle(idle: idle, at: t0.addingTimeInterval(8100)), 3600, accuracy: 1e-6)
+  }
 }

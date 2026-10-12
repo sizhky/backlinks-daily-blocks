@@ -230,9 +230,9 @@ final class BoardStore: ObservableObject {
     return (false, since)
   }
 
-  /// Today's work and break seconds since the first activity; idle time (no activity for `idleAfter`) counts as break.
-  func dayTotals(at now: Date) -> (work: TimeInterval, pause: TimeInterval) {
-    guard let first = dayStart ?? workStart ?? breakStart else { return (0, 0) }
+  /// Today's work, idle and break seconds since the first activity; idle (no activity for `idleAfter`) is neither work nor break.
+  func dayTotals(at now: Date) -> (work: TimeInterval, idle: TimeInterval, pause: TimeInterval) {
+    guard let first = dayStart ?? workStart ?? breakStart else { return (0, 0, 0) }
     let running = breakStart.map { [BreakSpan(start: $0, end: .distantFuture)] } ?? []
     let from = max(first, Calendar.current.startOfDay(for: now))
     return ActivityLog.dayTotals(dayBreaks + running, idle: activity.idleToday(from: from, now: now), from: from, now: now)
@@ -546,6 +546,11 @@ final class BoardStore: ObservableObject {
   /// Active seconds of a card at `now`: written total plus unwritten time.
   func activeTime(_ card: Card, at now: Date) -> TimeInterval {
     Double(card.activeSeconds ?? 0) + clock.unwritten(card.id, now: now)
+  }
+
+  /// Time in Doing minus idle (`Card.doingLessIdle`): what the card's guess is measured against.
+  func estimateTime(_ card: Card, at now: Date) -> TimeInterval {
+    card.doingLessIdle(idle: activity.idle(covering: card.doingIntervals(at: now), now: now), at: now)
   }
 
   func move(ref: String, to column: String) { move(refs: [ref], to: column) }

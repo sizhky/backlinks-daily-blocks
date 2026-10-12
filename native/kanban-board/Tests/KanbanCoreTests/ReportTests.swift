@@ -193,4 +193,13 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(slots["Old"], 3)
     XCTAssertEqual(Report.desktopSlots(["X"], order: (1...10).map { "Desktop \($0)" })["X"], 0)
   }
+
+  func testTreeSplitsIdleOutOfDoing() {
+    let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+    let a = ReportCard(ref: "a.md:1", title: "A", orgs: ["O"], stints: [DateInterval(start: t0, duration: 3600)])
+    let leaf = Report.tree([], cards: [a], idle: [(t0.addingTimeInterval(600), t0.addingTimeInterval(1200))])
+      .first?.children.first?.children.first
+    XCTAssertEqual(leaf?.doing ?? 0, 3600, accuracy: 1e-6)
+    XCTAssertEqual(leaf?.idle ?? 0, 600, accuracy: 1e-6)
+  }
 }

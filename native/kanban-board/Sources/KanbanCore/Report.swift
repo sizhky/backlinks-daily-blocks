@@ -145,6 +145,8 @@ public struct ReportNode: Identifiable, Equatable, Sendable {
   public var seconds: Double = 0, adhocSeconds: Double = 0
   /// Doing time in the range from the move stamps, before attribution (shows cards that got none).
   public var doing: Double = 0
+  /// The part of `doing` that was idle (no activity for the idle threshold).
+  public var idle: Double = 0
   public var adhoc: Set<String> = [], untracked: Set<String> = []
   public var children: [ReportNode] = []
 }
@@ -175,19 +177,21 @@ extension Report {
   /// allocs [Divami/P card a 30 min, unattributed 10 min], card a ad hoc
   ///   -> [Divami 30m (P 30m (a 30m)), Unattributed 10m]; Divami.adhoc = [a]
   /// ```
-  public static func tree(_ allocs: [Allocation], cards: [ReportCard]) -> [ReportNode] {
+  /// `idle` intervals set each node's idle part of `doing`.
+  public static func tree(_ allocs: [Allocation], cards: [ReportCard], idle: [(Date, Date)] = []) -> [ReportNode] {
     let byRef = Dictionary(cards.map { ($0.ref, $0) }, uniquingKeysWith: { a, _ in a })
     var orgs: [String: ReportNode] = [:]
     var projects: [String: [String: ReportNode]] = [:]
     var leaves: [String: [String: [String: ReportNode]]] = [:]
     var unattributed = ReportNode(id: "u", kind: .unattributed, name: "")
-    func add(org: String, project: String, ref: String?, seconds: Double, doing: Double = 0) {
+    func add(org: String, project: String, ref: String?, seconds: Double, doing: Double = 0, idleDoing: Double = 0) {
       let ok = org.lowercased(), pk = project.lowercased()
       let card = ref.flatMap { byRef[$0] }
       let adhoc = card?.adhoc == true, untracked = card?.untracked == true
       func bump(_ n: inout ReportNode) {
         n.seconds += seconds
         n.doing += doing
+        n.idle += idleDoing
         if adhoc { n.adhocSeconds += seconds; n.adhoc.insert(ref!) }
         if untracked { n.untracked.insert(ref!) }
       }
@@ -207,8 +211,9 @@ extension Report {
     for c in cards {
       let doing = c.stints.reduce(0) { $0 + $1.duration }
       guard doing > 0 || c.untracked else { continue }
-      let pairs = pairs(c)
-      for (o, p) in pairs { add(org: o, project: p, ref: c.ref, seconds: 0, doing: doing / Double(pairs.count)) }
+      let idleDoing = ActivityLog.overlapSeconds(c.stints.map { ($0.start, $0.end) }, idle)
+      let pairs = pairs(c), n = Double(pairs.count)
+      for (o, p) in pairs { add(org: o, project: p, ref: c.ref, seconds: 0, doing: doing / n, idleDoing: idleDoing / n) }
     }
     let order: (ReportNode, ReportNode) -> Bool = {
       $0.seconds != $1.seconds ? $0.seconds > $1.seconds : $0.doing != $1.doing ? $0.doing > $1.doing : $0.name < $1.name

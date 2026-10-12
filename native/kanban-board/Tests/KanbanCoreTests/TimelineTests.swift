@@ -120,7 +120,9 @@ final class TimelineTests: XCTestCase {
     XCTAssertEqual(day.pause, 70 * 60, accuracy: 1e-6)
     XCTAssertEqual(ActivityLog.dayTotals([], from: at(0), now: at(0)).work, 0)
     let withIdle = ActivityLog.dayTotals(breaks, idle: [(at(40), at(70))], from: at(0), now: at(120))
-    XCTAssertEqual(withIdle.pause, 90 * 60, accuracy: 1e-6)
+    XCTAssertEqual(withIdle.pause, 70 * 60, accuracy: 1e-6)
+    XCTAssertEqual(withIdle.idle, 20 * 60, accuracy: 1e-6)
+    XCTAssertEqual(withIdle.work, 30 * 60, accuracy: 1e-6)
   }
 
   func testIdleIsGapsOfAtLeastTheThreshold() {

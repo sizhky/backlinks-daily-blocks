@@ -325,11 +325,11 @@ struct WidgetView: View {
   }
 
   /// When the Doing cards' remaining guesses end if worked from now (`Remaining`), the time left, and the cards
-  /// without a guess. Working holds it still, since active time grows as the remainder shrinks; a break moves it later.
+  /// without a guess. Working holds it still, since time in Doing grows as the remainder shrinks; idle and breaks move it later.
   @ViewBuilder private var finish: some View {
     if prefs.shown(.finish) {
       TimelineView(.periodic(from: .now, by: 30)) { ctx in
-        let left = Remaining.of(doing.map { (est: $0.est, active: store.activeTime($0, at: ctx.date)) })
+        let left = Remaining.of(doing.map { (est: $0.est, active: store.estimateTime($0, at: ctx.date)) })
         if !left.isEmpty {
           let ends = ctx.date.addingTimeInterval(left.seconds).formatted(date: .omitted, time: .shortened)
           let rest = Age.label(minutes: Int((left.seconds / 60).rounded())) + " left"
@@ -345,18 +345,20 @@ struct WidgetView: View {
     }
   }
 
-  /// The clock, and under it this mode's share of today since the first activity and its total (`BoardStore.dayTotals`).
+  /// The clock, and under it this mode's share of today since the first activity and its total (`BoardStore.dayTotals`),
+  /// then today's idle time, which is neither work nor break.
   private func sessionClock(onBreak: Bool, since: Date, at now: Date) -> some View {
-    let day = store.dayTotals(at: now), spent = onBreak ? day.pause : day.work
-    let pct = Int(((day.work + day.pause > 0 ? spent / (day.work + day.pause) : 0) * 100).rounded())
+    let day = store.dayTotals(at: now), spent = onBreak ? day.pause : day.work, total = day.work + day.idle + day.pause
+    let pct = Int(((total > 0 ? spent / total : 0) * 100).rounded())
+    let idle = day.idle >= 60 ? " · idle \(Age.span(seconds: day.idle))" : ""
     return VStack(alignment: prefs.align(.timer).horizontal, spacing: 0) {
       (Text(Image(systemName: onBreak ? "cup.and.saucer.fill" : "laptopcomputer")) + Text("  ") + Text(Self.clock(now.timeIntervalSince(since))))
         .font(WidgetStyle.font(family, prefs.size(.title), .medium, design: .rounded).monospacedDigit())
         .lineLimit(1)
-      Text("(\(pct)% · \(Self.clock(spent)))")
+      Text("(\(pct)% · \(Self.clock(spent))\(idle))")
         .font(WidgetStyle.font(family, prefs.size(.title) * 0.7, .medium, design: .rounded).monospacedDigit())
         .opacity(0.6)
-        .accessibilityLabel("\(pct) percent of today, \(Self.clock(spent))")
+        .accessibilityLabel("\(pct) percent of today, \(Self.clock(spent))\(idle)")
     }
     .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
   }
@@ -364,19 +366,20 @@ struct WidgetView: View {
   /// The pair: active time at `size`, and under it the card's time in Doing over every stint
   /// (`Card.seconds(in:)`) as a dimmed caption tucked up close, the "Desktop 1" pattern. One owner for
   /// the hero and the paused rows, so they read alike at their own scale. A card with an estimate
-  /// (`Card.est`) shows it after the time in Doing, the time it is measured against: `45:11 / 1h`.
-  /// Active time past the estimate (`Remaining.overrun`) turns the caption amber at full opacity: `1:12:03 / 1h +12m`.
+  /// (`Card.est`) shows time in Doing minus idle (`BoardStore.estimateTime`) and the estimate it is measured against: `45:11 / 1h`.
+  /// That time past the estimate (`Remaining.overrun`) turns the caption amber at full opacity: `1:12:03 / 1h +12m`.
   private func clockStack(_ card: Card, at now: Date, size: Double, captionScale: Double, captionOpacity: Double,
                           align: WidgetAlign) -> some View {
     let active = store.activeTime(card, at: now)
-    let over = Remaining.overrun(est: card.est, active: active)
+    let doing = card.est == nil ? card.seconds(in: "Doing", at: now) : store.estimateTime(card, at: now)
+    let over = Remaining.overrun(est: card.est, active: doing)
     return VStack(alignment: align.horizontal, spacing: 0) {
       Text(Self.clock(active))
         .font(WidgetStyle.font(family, size, WidgetPart.timer.weight, design: .rounded).monospacedDigit())
         .lineLimit(1)
         .minimumScaleFactor(0.6)
         .contentTransition(.numericText())
-      Text(Self.clock(card.seconds(in: "Doing", at: now)) + (card.est.map { " / " + Age.label(minutes: $0) } ?? "")
+      Text(Self.clock(doing) + (card.est.map { " / " + Age.label(minutes: $0) } ?? "")
            + (over.map { " +" + Age.span(seconds: $0) } ?? ""))
         .font(WidgetStyle.font(family, size * captionScale, .medium, design: .rounded).monospacedDigit())
         .lineLimit(1)
@@ -384,7 +387,7 @@ struct WidgetView: View {
         .opacity(over == nil ? captionOpacity : 1)
         .padding(.top, -size * 0.15)
         .contentTransition(.numericText())
-        .accessibilityLabel((card.est.map { "Time in Doing, estimate \(Age.label(minutes: $0))" } ?? "Time in Doing")
+        .accessibilityLabel((card.est.map { "Time in Doing minus idle, estimate \(Age.label(minutes: $0))" } ?? "Time in Doing")
           + (over.map { ", over by \(Age.span(seconds: $0))" } ?? ""))
     }
   }

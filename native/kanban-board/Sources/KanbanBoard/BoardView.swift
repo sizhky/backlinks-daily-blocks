@@ -796,7 +796,7 @@ struct LogbookMode: View {
               IssueRow(card: card)
               Text(card.est.map { guess(card, $0) } ?? "")
                 .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle((card.took ?? 0) > (card.est ?? .max) ? Palette.amber : Palette.muted)
+                .foregroundStyle(store.estimateTime(card, at: Date()) > Double((card.est ?? .max / 60) * 60) ? Palette.amber : Palette.muted)
                 .frame(width: 150, alignment: .trailing).padding(.trailing, 16)
             }
           }
@@ -806,9 +806,10 @@ struct LogbookMode: View {
     .scrollIndicators(.never)
   }
 
-  /// "est 1h · took 1h 20m".
+  /// "est 1h · took 1h 20m"; took is time in Doing minus idle (`BoardStore.estimateTime`).
   private func guess(_ card: Card, _ est: Int) -> String {
-    "est \(Age.label(minutes: est))" + (card.took.map { " · took \(Age.label(minutes: $0))" } ?? "")
+    let took = Int((store.estimateTime(card, at: Date()) / 60).rounded())
+    return "est \(Age.label(minutes: est))" + (card.took == nil ? "" : " · took \(Age.label(minutes: took))")
   }
 
   private func title(_ day: Date) -> String {

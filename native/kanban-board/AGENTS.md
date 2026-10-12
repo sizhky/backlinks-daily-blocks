@@ -88,6 +88,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   (`metadataCache` `listItems`) and their count; every task gets `.NN` (zero-padded) when the count is above 1. `Card.identifier` uses it, never the line: every move inserts a
   `%% kb %%` line and shifted ids of tasks below (OW-1215.15 became .16).
 - Field 15 (after `since`) is `%% kbactive N %%` seconds from `kb.activeTimes()`, parsed into `Card.activeSeconds`.
+- Field 17 is the closed Doing stints of a card with a guess (`kb.estimates()` 4th field, `s-e,s-e` epoch seconds), parsed into
+  `Card.doingStints`. `kb.estimates` keeps est and took at fields 12-13, so the script slices it to two there.
 - After est and took (always two fields, empty without a guess) every row ends with `since`: the ISO time a
   live card entered its column (`kb.active({timestamps:true})`), parsed into `Card.since` for the widget timer.
 - Done (`=x`) rows end with the ISO done time (`kb.board({timestamps:true})`), parsed into `Card.doneAt`.
@@ -365,7 +367,17 @@ Before building or wording any UI, ask what Apple would do and do that.
   the timer size (`WidgetView.clockStack`), and the other Doing cards as dimmed paused rows at 0.85 of the title
   size with the same stacked pair (caption 0.75 of the row number, running). One number per line: an inline
   `23:14 (45:11)` pair on every row read as clutter (2026-10-09). A card with an estimate (`Card.est`, `%% kbest %%`) adds it to
-  the time in Doing caption, `45:11 / 1h`: the estimate is measured against that time, not the active time. Reports use the same pick per moment.
+  the time in Doing caption, `45:11 / 1h`: the estimate is measured against time in Doing minus idle
+  (`BoardStore.estimateTime`, decided 2026-10-12), not the active time; the caption shows that number for a card with a guess. Reports use the same pick per moment.
   `ActiveClock` (persisted in `kanban.activeClock`) credits ticks (refresh and every context change, capped at
   15 s), takes back time after the idle start when going away, and `BoardStore.flushActive` writes whole seconds
   with `kb.addActive` on a switch and every 300 s. The board adds flushed seconds locally so the timer never dips.
+
+## Idle
+
+- Idle (no input for `ActivityMonitor.idleAfter`, 300 s) is its own class: never work, never break, never on laptop.
+  Every total and denominator names the class it uses. Day totals (`ActivityLog.dayTotals`) return work, idle and
+  pause separately; idle inside a break counts as the break. Reports show an Idle tile and split each card's
+  "in Doing" into its idle part (`ReportNode.idle`). Estimates, Remaining, overrun and Logbook took use
+  `Card.doingLessIdle` with `ActivityMonitor.idle(covering:)`: a day with no activity log has no idle (nothing is known).
+- Open: a video call with no input becomes idle. The fix to try is counting display-sleep assertions as activity.

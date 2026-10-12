@@ -384,19 +384,30 @@ extension ActivityLog {
     }
   }
 
-  /// Seconds of `from...now` off work (breaks and idle, overlaps counted once) and the rest (work);
-  /// a running break (`distantFuture`) counts until now.
+  /// Seconds of `from...now` split into work, idle and break (`pause`); idle inside a break counts as the break.
+  /// A running break (`distantFuture`) counts until now.
   /// ```
-  /// from 9:00, now 11:00, breaks 8:50-9:10 and 10:00-running, idle 9:40-10:10 -> work 30 min, pause 90 min
+  /// from 9:00, now 11:00, breaks 8:50-9:10 and 10:00-running, idle 9:40-10:10 -> work 30 min, idle 20 min, pause 70 min
   /// ```
-  public static func dayTotals(_ breaks: [BreakSpan], idle: [(Date, Date)] = [], from: Date, now: Date) -> (work: TimeInterval, pause: TimeInterval) {
+  public static func dayTotals(_ breaks: [BreakSpan], idle: [(Date, Date)] = [], from: Date, now: Date)
+    -> (work: TimeInterval, idle: TimeInterval, pause: TimeInterval) {
     let total = max(0, now.timeIntervalSince(from))
-    let clipped = (breaks.map { ($0.start, $0.end) } + idle).compactMap { a, b -> (Date, Date)? in
+    let clip = { (ivals: [(Date, Date)]) in ivals.compactMap { a, b -> (Date, Date)? in
       let s = max(a, from), e = min(b, now)
       return e > s ? (s, e) : nil
-    }
-    let off = min(total, unionSeconds(clipped))
-    return (total - off, off)
+    } }
+    let off = clip(breaks.map { ($0.start, $0.end) })
+    let pause = min(total, unionSeconds(off))
+    let idle = min(total - pause, unionSeconds(subtract(clip(idle), off)))
+    return (total - pause - idle, idle, pause)
+  }
+
+  /// Seconds of `ivals` that fall inside `cut`, each counted once.
+  /// ```
+  /// [9:00-10:00] with cut [9:40-9:50, 9:45-10:30] -> 20 min
+  /// ```
+  public static func overlapSeconds(_ ivals: [(Date, Date)], _ cut: [(Date, Date)]) -> TimeInterval {
+    unionSeconds(ivals) - unionSeconds(subtract(ivals, cut))
   }
 
   /// Parts of `stretches` inside `stint`: the same card (ref, else title, since refs shift when
