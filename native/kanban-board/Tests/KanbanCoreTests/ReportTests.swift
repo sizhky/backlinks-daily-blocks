@@ -66,6 +66,28 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(idle.unwritten("a", now: t0.addingTimeInterval(400)), 0, accuracy: 0.01)
   }
 
+  func testActiveClockWaitsBeforeAnotherCardTakesOver() {
+    let t = { [t0] (s: Double) in t0.addingTimeInterval(s) }
+    var back = ActiveClock()
+    back.tick(now: t(0), active: "a")
+    for s in stride(from: 6.0, through: 30, by: 6) { back.tick(now: t(s), active: s < 30 ? "b" : "a") }
+    XCTAssertEqual(back.current, "a", "a return within the wait keeps the card")
+    XCTAssertEqual(back.pending["a"] ?? 0, 30, accuracy: 0.01)
+    XCTAssertNil(back.next)
+    var held = ActiveClock()
+    held.tick(now: t(0), active: "a")
+    held.tick(now: t(6), active: "a")
+    for s in stride(from: 12.0, through: 72, by: 6) { held.tick(now: t(s), active: "b") }
+    XCTAssertEqual(held.current, "b")
+    XCTAssertEqual(held.since, t(12), "the switch is backdated to the wait's start")
+    XCTAssertEqual(held.pending["a"] ?? 0, 12, accuracy: 0.01)
+    XCTAssertEqual(held.pending["b"] ?? 0, 60, accuracy: 0.01)
+    var pinned = ActiveClock()
+    pinned.tick(now: t(0), active: "a")
+    pinned.tick(now: t(6), active: "b", settle: 0)
+    XCTAssertEqual(pinned.current, "b")
+  }
+
   func testOwnerTakesTheSpanAndForeignContextIsUnattributed() {
     let cards = [card("a", 0, 60, desktop: "2"), card("b", 0, 60, desktop: "3")]
     let out = Report.attribute(spans: [span(0, 10, space: 2)], cards: cards, rules: [], calendar: cal)

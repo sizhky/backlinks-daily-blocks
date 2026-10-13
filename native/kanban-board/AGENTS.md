@@ -369,6 +369,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   `23:14 (45:11)` pair on every row read as clutter (2026-10-09). A card with an estimate (`Card.est`, `%% kbest %%`) adds it to
   the time in Doing caption, `45:11 / 1h`: the estimate is measured against time in Doing minus idle
   (`BoardStore.estimateTime`, decided 2026-10-12), not the active time; the caption shows that number for a card with a guess. Reports use the same pick per moment.
+  A context change to another card waits `ActiveClock.settle` (60 s): a return within it keeps the card; if it holds,
+  the new card takes over from the wait's start and gets the seconds credited meanwhile (`activeID`, the widget hero,
+  and the active stretch follow the settled card). A hand pin, going away, and a current card that left Doing switch at once.
+  Reports still pick per moment, so a short visit there counts for the other card.
   `ActiveClock` (persisted in `kanban.activeClock`) credits ticks (refresh and every context change, capped at
   15 s), takes back time after the idle start when going away, and `BoardStore.flushActive` writes whole seconds
   with `kb.addActive` on a switch and every 300 s. The board adds flushed seconds locally so the timer never dips.

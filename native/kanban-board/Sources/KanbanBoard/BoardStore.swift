@@ -511,19 +511,23 @@ final class BoardStore: ObservableObject {
   private func trackActive() {
     let cards = columns.flatMap(\.cards)
     pin?.arrive(activity.context)
-    let active = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
-    if pin != nil, active?.id != pin?.id { pin = nil }
+    let picked = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
+    if pin != nil, picked?.id != pin?.id { pin = nil }
     if activity.context != nil, breakStart == nil, !(workStart.map(Calendar.current.isDateInToday) ?? false) {
       (workStart, dayStart, dayBreaks) = (Date(), Date(), [])
     }
     let awaySince = activity.context == nil ? activity.contextSince : nil
+    // A hand pin, or a current card that left Doing, switches at once; a context change waits `ActiveClock.settle`.
+    let inDoing = cards.contains { $0.id == clock.current && $0.col.caseInsensitiveCompare("Doing") == .orderedSame }
+    let before = clock.current
+    clock.tick(now: Date(), active: picked?.id, awaySince: awaySince, settle: pin != nil || !inDoing ? 0 : ActiveClock.settle)
+    let active = cards.first { $0.id == clock.current }
     if stretchID != active?.id {
-      closeStretch(at: awaySince ?? Date())
-      stretch = active.map { ActiveStretch(ref: $0.ref, title: $0.title, start: Date(), end: .distantFuture) }
+      let at = awaySince ?? clock.since ?? Date()
+      closeStretch(at: at)
+      stretch = active.map { ActiveStretch(ref: $0.ref, title: $0.title, start: at, end: .distantFuture) }
       stretchID = active?.id
     }
-    let before = clock.current
-    clock.tick(now: Date(), active: active?.id, awaySince: awaySince)
     if !cards.isEmpty { clock.keep(Set(cards.map(\.id))) }
     if activeID != active?.id { activeID = active?.id }
     if before != active?.id || Date().timeIntervalSince(lastFlush) >= Self.flushEvery { flushActive() }
