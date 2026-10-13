@@ -392,7 +392,9 @@ struct ColumnView: View {
         Text("\(column.cards.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
       }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    // Own width, not maxWidth: the ZStack is a full column wide and `.clipped()` does not clip hit testing,
+    // so a wider strip took clicks on the neighbouring columns and expanded itself.
+    .frame(width: Self.stripWidth - 8, alignment: .top).frame(maxHeight: .infinity, alignment: .top)
     .contentShape(Rectangle())
     .onTapGesture { store.setSink(column, false) }
     .help("Expand column")
