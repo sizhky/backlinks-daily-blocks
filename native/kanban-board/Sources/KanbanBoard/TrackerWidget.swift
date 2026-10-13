@@ -394,7 +394,7 @@ struct WidgetView: View {
            + (over.map { " +" + Age.span(seconds: $0) } ?? ""))
         .font(WidgetStyle.font(family, size * captionScale, .medium, design: .rounded).monospacedDigit())
         .lineLimit(1)
-        .foregroundStyle(over == nil ? AnyShapeStyle(.foreground) : AnyShapeStyle(Palette.amber))
+        .foregroundStyle(over == nil ? tint(card) : Palette.amber)
         .opacity(over == nil ? captionOpacity : 1)
         .padding(.top, -size * 0.15)
         .contentTransition(.numericText())
