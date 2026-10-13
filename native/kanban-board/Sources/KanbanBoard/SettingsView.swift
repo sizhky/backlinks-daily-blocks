@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import KanbanCore
 
 /// Card and row spacing. Compact is the original layout.
@@ -178,6 +179,7 @@ struct TrackingSettings: View {
         if let none = regions.last { region(none).frame(minHeight: 120) }
         Divider().padding(.vertical, 4)
         BreakShortcutRow()
+        KeepActiveAppsRow()
         HStack {
           VStack(alignment: .leading, spacing: 2) {
             Text("Minimum mulling time")
@@ -394,6 +396,49 @@ private struct FloatingPill: View {
       .shadow(color: .black.opacity(0.45), radius: 10, y: 5)
       .offset(x: pointer.origin.x, y: pointer.origin.y)
       .allowsHitTesting(false)
+  }
+}
+
+/// Apps that keep the session active with no input (`ActivityMonitor.keepActive`), picked from Applications.
+struct KeepActiveAppsRow: View {
+  @AppStorage(ActivityMonitor.keepActiveKey) private var stored = ""
+
+  private var ids: [String] { stored.split(separator: "\n").map(String.init) }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Never idle while running")
+          Text("No input does not pause cards while one of these apps is open.").font(.callout).foregroundStyle(.secondary)
+        }
+        Spacer()
+        Button("Add App…") { add() }
+      }
+      ForEach(ids, id: \.self) { id in
+        HStack(spacing: 6) {
+          if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 16, height: 16)
+            Text(FileManager.default.displayName(atPath: url.path))
+          } else {
+            Text(id)
+          }
+          Spacer()
+          Button { stored = ids.filter { $0 != id }.joined(separator: "\n") } label: { Image(systemName: "minus.circle") }
+            .buttonStyle(.borderless).help("Remove")
+        }
+      }
+    }
+  }
+
+  private func add() {
+    let panel = NSOpenPanel()
+    panel.allowedContentTypes = [.applicationBundle]
+    panel.allowsMultipleSelection = true
+    panel.directoryURL = URL(fileURLWithPath: "/Applications")
+    guard panel.runModal() == .OK else { return }
+    let new = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }.filter { !ids.contains($0) }
+    stored = (ids + new).joined(separator: "\n")
   }
 }
 

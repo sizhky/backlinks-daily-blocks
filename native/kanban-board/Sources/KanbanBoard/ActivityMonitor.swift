@@ -11,6 +11,14 @@ import KanbanCore
 final class ActivityMonitor: ObservableObject {
   static let interval: TimeInterval = 5
   static let idleAfter: TimeInterval = 300
+  /// Bundle ids, newline-separated (Settings > Tracking): while one runs, no input never counts as idle.
+  static let keepActiveKey = "tracking.keepActiveApps"
+
+  /// Whether a running app is one the user chose to keep the session active (a call, a video).
+  static var keepActive: Bool {
+    let ids = Set((UserDefaults.standard.string(forKey: keepActiveKey) ?? "").split(separator: "\n").map(String.init))
+    return !ids.isEmpty && NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier.map(ids.contains) ?? false }
+  }
 
   /// Current context; nil while away (idle, locked, asleep).
   @Published private(set) var context: Sample?
@@ -116,7 +124,7 @@ final class ActivityMonitor: ObservableObject {
     let now = Date()
     if let since = asleepSince { return setContext(nil, since: since) }
     let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
-    if idle >= Self.idleAfter {
+    if idle >= Self.idleAfter, !Self.keepActive {
       let since = now.addingTimeInterval(-idle)
       setContext(nil, since: since)
       write(builder.close(at: since))

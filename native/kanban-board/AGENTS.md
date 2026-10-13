@@ -380,4 +380,6 @@ Before building or wording any UI, ask what Apple would do and do that.
   pause separately; idle inside a break counts as the break. Reports show an Idle tile and split each card's
   "in Doing" into its idle part (`ReportNode.idle`). Estimates, Remaining, overrun and Logbook took use
   `Card.doingLessIdle` with `ActivityMonitor.idle(covering:)`: a day with no activity log has no idle (nothing is known).
-- Open: a video call with no input becomes idle. The fix to try is counting display-sleep assertions as activity.
+- Apps picked in Settings > Tracking (`KeepActiveAppsRow`, bundle ids in `tracking.keepActiveApps`) suspend the
+  no-input check while any of them is running (`ActivityMonitor.keepActive`): the frontmost window keeps being logged,
+  so no idle, no away park. Lock, sleep and display sleep still go away. This covers calls and videos without input.
