@@ -300,7 +300,7 @@ struct WidgetView: View {
         VStack(spacing: 3) {
           if prefs.shown(.timer) {
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
-              clockStack(card, at: ctx.date, size: prefs.size(.timer), captionScale: 0.4, captionOpacity: 0.5, align: prefs.align(.timer))
+              clockStack(card, at: ctx.date, size: prefs.size(.timer), captionScale: 0.4, captionOpacity: 1, align: prefs.align(.timer))
                 .frame(maxWidth: .infinity, alignment: prefs.align(.timer).frame)
             }
             .foregroundStyle(tint(card))
