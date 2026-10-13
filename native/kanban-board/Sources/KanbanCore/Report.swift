@@ -69,8 +69,10 @@ public enum Report {
   /// Spans recorded before their desktop had a name take its current name: by Space UUID (`names`), or for
   /// spans older than the UUID field by desktop number (`labels`), a guess that fails once desktops are reordered.
   /// Without either, a card pinned to "Trading" never matches the earlier `space 5` spans.
+  /// A run shorter than `settle` keeps the card before it (`settle(_:after:)`), as the live clock does (`ActiveClock.settle`).
   public static func attribute(spans: [Span], cards: [ReportCard], rules: [ActivityRule], labels: [Int: String] = [:],
-                               names: [String: String] = [:], calendar: Calendar = .current) -> [Allocation] {
+                               names: [String: String] = [:], calendar: Calendar = .current,
+                               settle: TimeInterval = ActiveClock.settle) -> [Allocation] {
     let stints = cards.indices.flatMap { i in cards[i].stints.map { (s: $0.start, e: $0.end, card: i) } }.sorted { $0.s < $1.s }
     let orgOf = projectOrgs(cards)
     var acc: [Allocation: Double] = [:]
@@ -79,6 +81,7 @@ public enum Report {
     }
     var next = 0
     var active: [(s: Date, e: Date, card: Int)] = []
+    var segs: [Segment] = []
     for span in spans.sorted(by: { $0.start < $1.start }) {
       let ctx = Sample(app: span.app, bundle: span.bundle, title: span.title, url: span.url, space: span.space,
                        desktop: span.desktop ?? (span.uuid.map { names[$0] } ?? span.space.flatMap { labels[$0] }),
@@ -89,23 +92,64 @@ public enum Report {
         let cuts = Set(active.flatMap { [$0.s, $0.e] }.filter { $0 > piece.start && $0 < piece.end })
         let marks = [piece.start] + cuts.sorted() + [piece.end]
         for (a, b) in zip(marks, marks.dropFirst()) {
-          let sec = b.timeIntervalSince(a)
           let doing = active.filter { $0.s < b && $0.e > a }
+          let owner: Owner
           if let i = Focus.pick(doing.map { d in
             (d.card, d.s, SwitchEngine.owns(desktop: cards[d.card].desktop, orgs: cards[d.card].orgs, projects: cards[d.card].projects, ctx, rules))
           }) {
-            let pairs = pairs(cards[i])
-            for (o, p) in pairs { credit(piece.hour, o, p, .card(cards[i].ref), sec / Double(pairs.count)) }
+            owner = .card(i)
           } else if let r = rules.first(where: { ($0.org != nil || $0.project != nil) && $0.matches(ctx) }) {
-            let org = r.org ?? r.project.flatMap { orgOf[$0.lowercased()] } ?? ""
-            credit(piece.hour, org, r.project ?? "", .noCard, sec)
+            owner = .rule(r.org ?? r.project.flatMap { orgOf[$0.lowercased()] } ?? "", r.project ?? "")
           } else {
-            credit(piece.hour, "", "", .unattributed, sec)
+            owner = .none
           }
+          segs.append(Segment(hour: piece.hour, a: a, b: b, owner: owner, doing: Set(doing.map(\.card))))
         }
       }
     }
+    Self.settle(&segs, after: settle)
+    for g in segs {
+      let sec = g.b.timeIntervalSince(g.a)
+      switch g.owner {
+      case .card(let i):
+        let pairs = pairs(cards[i])
+        for (o, p) in pairs { credit(g.hour, o, p, .card(cards[i].ref), sec / Double(pairs.count)) }
+      case .rule(let org, let project): credit(g.hour, org, project, .noCard, sec)
+      case .none: credit(g.hour, "", "", .unattributed, sec)
+      }
+    }
     return acc.map { var a = $0.key; a.seconds = $0.value; return a }.sorted { $0.hour < $1.hour }
+  }
+
+  enum Owner: Equatable { case card(Int), rule(String, String), none }
+  struct Segment { let hour: Date, a: Date, b: Date; var owner: Owner; let doing: Set<Int> }
+
+  /// The live clock's wait over time order: a run of one owner shorter than `settle` that follows a card's time
+  /// with no gap goes to that card while it is in Doing. A gap (away) ends the hold, as going away does live.
+  /// ```
+  /// A 10 min, B 30 s, A 5 min          -> A 15.5 min
+  /// A 10 min, B 30 s, C 30 s, A 5 min  -> A 16 min
+  /// A 10 min, B 2 min                  -> A 10 min, B 2 min
+  /// A 10 min, gap, B 30 s              -> A 10 min, B 30 s
+  /// ```
+  static func settle(_ segs: inout [Segment], after settle: TimeInterval) {
+    guard settle > 0 else { return }
+    func joins(_ i: Int) -> Bool { i > 0 && abs(segs[i].a.timeIntervalSince(segs[i - 1].b)) < 1 }
+    var held: Int?, i = 0
+    while i < segs.count {
+      var j = i + 1
+      while j < segs.count, segs[j].owner == segs[i].owner, joins(j) { j += 1 }
+      if !joins(i) { held = nil }
+      if let h = held, segs[i].owner != .card(h), segs[j - 1].b.timeIntervalSince(segs[i].a) < settle,
+         segs[i..<j].allSatisfy({ $0.doing.contains(h) }) {
+        for k in i..<j { segs[k].owner = .card(h) }
+      } else if case .card(let c) = segs[i].owner {
+        held = c
+      } else {
+        held = nil
+      }
+      i = j
+    }
   }
 
   /// A card's org x project pairs; a missing side is "".

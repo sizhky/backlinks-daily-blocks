@@ -83,18 +83,19 @@ public struct ActiveClock: Codable, Equatable, Sendable {
   public static let settle: TimeInterval = 60
   /// When `current` became active, backdated to the start of its wait.
   public private(set) var since: Date?
-  /// The card waiting to take over, since when, and the seconds credited to `current` meanwhile.
+  /// The card waiting to take over (nil: no card here), since when (nil: no wait), and the seconds credited to `current` meanwhile.
   public private(set) var next: String?
-  private var nextSince: Date?
+  public private(set) var nextSince: Date?
   private var nextRun: Double?
 
-  /// A change to another card waits `settle` seconds; if it holds, that card takes over from the wait's start
-  /// and gets the seconds `current` had meanwhile. A return within the wait keeps `current`. Going away, a first
-  /// card, and `settle` 0 (a hand pin, `current` left Doing) switch at once.
+  /// A change to another card, or to no card while still here, waits `settle` seconds; if it holds, it takes over
+  /// from the wait's start and gets the seconds `current` had meanwhile. A return within the wait keeps `current`.
+  /// Going away (`awaySince`), a first card, and `settle` 0 (a hand pin, `current` left Doing) switch at once.
   /// ```
   /// tick(0, a) tick(6, a) tick(12, b)               -> pending [a: 12], current a, next b
   /// tick(0, a) tick(12, b) ... tick(72, b)          -> pending [a: 12, b: 60], current b since 12
   /// tick(0, a) tick(12, b) tick(30, a)              -> pending [a: 30], current a
+  /// tick(0, a) tick(12, nil) ... tick(72, nil)      -> pending [a: 12], current nil
   /// tick(0, a) ... tick(300, a) tick(306, nil, away 0) -> pending [a: 0]
   /// ```
   public mutating func tick(now: Date, active: String?, awaySince: Date? = nil, settle: TimeInterval = Self.settle) {
@@ -102,25 +103,27 @@ public struct ActiveClock: Codable, Equatable, Sendable {
       let step = min(Self.maxStep, max(0, now.timeIntervalSince(last)))
       pending[current, default: 0] += step
       run += step
-      if next != nil { nextRun = (nextRun ?? 0) + step }
+      if nextSince != nil { nextRun = (nextRun ?? 0) + step }
       if active == nil, let awaySince {
         pending[current, default: 0] -= min(run, max(0, now.timeIntervalSince(awaySince)))
       }
     }
     last = now
-    defer { if next == nil || next == current { (next, nextSince, nextRun) = (nil, nil, nil) } }
-    guard active != current else { next = nil; return }
-    guard let to = active, let from = current, settle > 0 else {
-      (current, since, run, next) = (active, now, 0, nil)
-      return
+    guard active != current else { return endWait() }
+    guard let from = current, settle > 0, awaySince == nil else {
+      (current, since, run) = (active, now, 0)
+      return endWait()
     }
-    if to != next { (next, nextSince, nextRun) = (to, now, 0) }
+    if nextSince == nil || active != next { (next, nextSince, nextRun) = (active, now, 0) }
     guard let start = nextSince, now.timeIntervalSince(start) >= settle else { return }
     let moved = nextRun ?? 0
     pending[from, default: 0] -= moved
-    pending[to, default: 0] += moved
-    (current, since, run, next) = (to, start, moved, nil)
+    if let active { pending[active, default: 0] += moved }
+    (current, since, run) = (active, start, moved)
+    endWait()
   }
+
+  private mutating func endWait() { (next, nextSince, nextRun) = (nil, nil, nil) }
 
   /// Whole seconds ready to write (at least 1), removed from `pending`; fractions and negatives stay.
   public mutating func take() -> [String: Int] {

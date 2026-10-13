@@ -88,6 +88,34 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(pinned.current, "b")
   }
 
+  func testShortVisitElsewhereKeepsTheCardInReports() {
+    let cards = [card("a", 0, 60, desktop: "2"), card("b", 0, 60, desktop: "3")]
+    let back = Report.attribute(spans: [span(0, 10, space: 2), span(10, 10.5, space: 3), span(10.5, 15, space: 2)], cards: cards, rules: [], calendar: cal)
+    XCTAssertEqual(minutes(back, .card("a")), 15, accuracy: 0.01)
+    XCTAssertEqual(minutes(back, .card("b")), 0, accuracy: 0.01)
+    let nowhere = Report.attribute(spans: [span(0, 10, space: 2), span(10, 10.5, space: 4), span(10.5, 15, space: 2)], cards: cards, rules: [], calendar: cal)
+    XCTAssertEqual(minutes(nowhere, .card("a")), 15, accuracy: 0.01, "a short look at a desktop with no card keeps the card")
+    let held = Report.attribute(spans: [span(0, 10, space: 2), span(10, 12, space: 3)], cards: cards, rules: [], calendar: cal)
+    XCTAssertEqual(minutes(held, .card("b")), 2, accuracy: 0.01)
+    let gap = Report.attribute(spans: [span(0, 10, space: 2), span(20, 20.5, space: 3)], cards: cards, rules: [], calendar: cal)
+    XCTAssertEqual(minutes(gap, .card("b")), 0.5, accuracy: 0.01, "after a gap (away) the switch is at once")
+  }
+
+  func testActiveClockWaitsOnADesktopWithNoCard() {
+    let t = { [t0] (s: Double) in t0.addingTimeInterval(s) }
+    var c = ActiveClock()
+    c.tick(now: t(0), active: "a")
+    c.tick(now: t(12), active: nil)
+    XCTAssertEqual(c.current, "a", "no card here waits too")
+    for s in stride(from: 18.0, through: 72, by: 6) { c.tick(now: t(s), active: nil) }
+    XCTAssertNil(c.current)
+    XCTAssertEqual(c.pending["a"] ?? 0, 12, accuracy: 0.01)
+    var away = ActiveClock()
+    away.tick(now: t(0), active: "a")
+    away.tick(now: t(6), active: nil, awaySince: t(6))
+    XCTAssertNil(away.current, "going away switches at once")
+  }
+
   func testOwnerTakesTheSpanAndForeignContextIsUnattributed() {
     let cards = [card("a", 0, 60, desktop: "2"), card("b", 0, 60, desktop: "3")]
     let out = Report.attribute(spans: [span(0, 10, space: 2)], cards: cards, rules: [], calendar: cal)
