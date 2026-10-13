@@ -356,8 +356,8 @@ struct ColumnView: View {
   let column: Column
 
   /// An empty column shrinks to a slim strip in place. A drag over it only highlights the strip;
-  /// the column widens after the drop puts a card in it.
-  private var collapsed: Bool { column.cards.isEmpty }
+  /// the column widens after the drop puts a card in it. A collapsed column (`BoardStore.isSink`) stays a strip.
+  private var collapsed: Bool { column.cards.isEmpty || store.isSink(column) }
 
   /// `collapsed` as last animated. A drop ends its transaction with animations off, so the shrink
   /// follows `collapsed` through its own `withAnimation` instead of the transaction that caused it.
@@ -367,7 +367,7 @@ struct ColumnView: View {
     let shrunk = shrunk ?? collapsed
     ZStack(alignment: .top) {
       full.frame(width: density.columnWidth - 8).opacity(shrunk ? 0 : 1).allowsHitTesting(!shrunk)
-      strip.opacity(shrunk ? 1 : 0).allowsHitTesting(false)
+      strip.opacity(shrunk ? 1 : 0).allowsHitTesting(shrunk && store.isSink(column))
     }
     .padding(4)
     .frame(width: shrunk ? Self.stripWidth : density.columnWidth, alignment: .top)
@@ -388,7 +388,14 @@ struct ColumnView: View {
       StatusGlyph(column: column.name, size: 14).padding(.top, 6)
       Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
         .fixedSize().rotationEffect(.degrees(90)).frame(width: 16, height: 8 + CGFloat(column.name.count) * 7.5)
+      if !column.cards.isEmpty {
+        Text("\(column.cards.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
+      }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .contentShape(Rectangle())
+    .onTapGesture { store.setSink(column, false) }
+    .help("Expand column")
   }
 
   private var full: some View {
@@ -482,6 +489,7 @@ extension BoardStore {
     let names = visible.map(\.name)
     var items: [MenuItem] = [
       .action(isHidden(column) ? "Show column" : "Hide column", symbol: isHidden(column) ? "eye" : "eye.slash") { self.setHidden(column, !self.isHidden(column)) },
+      .action(isSink(column) ? "Expand column" : "Collapse column", symbol: isSink(column) ? "arrow.left.and.right" : "arrow.right.and.line.vertical.and.arrow.left") { self.setSink(column, !self.isSink(column)) },
       .action("Select all in column", symbol: "checkmark.circle", disabled: column.cards.isEmpty) { self.pickAll(in: column) },
       .separator,
       .action("Move left", symbol: "arrow.left", disabled: names.first == column.name) { self.shiftColumn(column, by: -1) },

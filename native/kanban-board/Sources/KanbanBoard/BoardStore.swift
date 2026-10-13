@@ -50,6 +50,10 @@ final class BoardStore: ObservableObject {
   @Published var hiddenColumns: [String] = UserDefaults.standard.stringArray(forKey: "kanban.hiddenColumns") ?? [] {
     didSet { UserDefaults.standard.set(hiddenColumns, forKey: "kanban.hiddenColumns") }
   }
+  /// Columns kept as a strip that only takes drops (a sink), by name.
+  @Published var sinkColumns: [String] = UserDefaults.standard.stringArray(forKey: "kanban.sinkColumns") ?? [] {
+    didSet { UserDefaults.standard.set(sinkColumns, forKey: "kanban.sinkColumns") }
+  }
   @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
     didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
   }
@@ -273,6 +277,10 @@ final class BoardStore: ObservableObject {
     withAnimation(.spring(duration: 0.3)) {
       hiddenColumns = hide ? hiddenColumns + [column.name] : hiddenColumns.filter { $0 != column.name }
     }
+  }
+  func isSink(_ column: Column) -> Bool { sinkColumns.contains(column.name) }
+  func setSink(_ column: Column, _ sink: Bool) {
+    sinkColumns = sink ? sinkColumns + [column.name] : sinkColumns.filter { $0 != column.name }
   }
   /// Drops `refs` before `before` in `column`'s shown order and saves the ranks.
   func place(_ refs: [String], before: String?, in column: Column) {
