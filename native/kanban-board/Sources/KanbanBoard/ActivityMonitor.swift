@@ -160,6 +160,12 @@ final class ActivityMonitor: ObservableObject {
     for piece in ActivityLog.splitByDay(line) { append(piece.jsonLine, to: piece.fileName) }
   }
 
+  /// Drops a logged stretch or break from its day file (`ActivityLog.removing`).
+  func remove<T: DayLine>(_ line: T) {
+    guard let url = dir?.appendingPathComponent(line.fileName), let data = try? Data(contentsOf: url) else { return }
+    try? ActivityLog.removing(line, from: data).write(to: url, options: .atomic)
+  }
+
   private func append(_ text: String, to fileName: String) {
     guard let dir else { return }
     let url = dir.appendingPathComponent(fileName)

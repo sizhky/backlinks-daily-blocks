@@ -2,6 +2,18 @@ import XCTest
 @testable import KanbanCore
 
 final class TimelineTests: XCTestCase {
+  func testRemovingDropsOnlyTheMatchingBreak() {
+    let text = """
+    {"end":"2026-10-14T09:10:00Z","start":"2026-10-14T09:00:00Z"}
+    {"end":"2026-10-14T10:20:00Z","start":"2026-10-14T10:00:00Z"}
+    {"bad
+    """
+    let f = ISO8601DateFormatter()
+    let drop = BreakSpan(start: f.date(from: "2026-10-14T10:00:00Z")!.addingTimeInterval(0.4), end: f.date(from: "2026-10-14T10:20:00Z")!)
+    let out = String(decoding: ActivityLog.removing(drop, from: Data(text.utf8)), as: UTF8.self)
+    XCTAssertEqual(out, "{\"end\":\"2026-10-14T09:10:00Z\",\"start\":\"2026-10-14T09:00:00Z\"}\n{\"bad\n")
+  }
+
   func testParseSkipsBadLinesAndSorts() {
     let text = """
     {"app":"B","bundle":"b","end":"2026-10-07T10:06:00Z","start":"2026-10-07T10:05:00Z","title":"t"}

@@ -302,6 +302,22 @@ extension ActivityLog {
       .sorted { $0.start < $1.start }
   }
 
+  /// One day log without the lines that match `line` to the second (the log keeps whole seconds);
+  /// every other line, bad ones too, stays as written.
+  /// ```
+  /// lines [break 9:00-9:10, break 10:00-10:20], drop 10:00-10:20 -> [break 9:00-9:10]
+  /// ```
+  public static func removing<T: DayLine>(_ line: T, from data: Data) -> Data {
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    func sec(_ t: Date) -> Int { Int(t.timeIntervalSince1970) }
+    let kept = String(decoding: data, as: UTF8.self).split(separator: "\n").filter { raw in
+      guard let l = try? d.decode(T.self, from: Data(raw.utf8)) else { return true }
+      return sec(l.start) != sec(line.start) || sec(l.end) != sec(line.end)
+    }
+    return Data(kept.map { $0 + "\n" }.joined().utf8)
+  }
+
   /// Splits at local midnights so each piece lands in its own day file.
   /// ```
   /// 23:50-00:10 -> [23:50-00:00, 00:00-00:10]

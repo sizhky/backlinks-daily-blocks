@@ -4,7 +4,8 @@ import SwiftUI
 import KanbanCore
 
 /// Day timeline window: what the Mac showed, second by second (activity log), beside what was
-/// in Doing (`kb.chronicle`). It never moves cards; it only retimes or deletes Doing stints (`kb.editStint`).
+/// in Doing (`kb.chronicle`). It never moves cards; it only retimes or deletes Doing stints (`kb.editStint`)
+/// and deletes finished breaks (`BoardStore.deleteBreak`).
 @MainActor
 final class TimelineWindow {
   private var window: NSWindow?
@@ -14,10 +15,11 @@ final class TimelineWindow {
   private let menu = MenuController()
 
   init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
+       deleteBreak: @escaping @MainActor (BreakSpan) -> Void,
        moveItems: @escaping @MainActor (DoingStint) -> [MenuItem],
        facts: @escaping @MainActor (String?, String) -> TimelineFacts?,
        suggest: @escaping @MainActor (String) -> [Suggestion]) {
-    model = TimelineModel(activity: activity, live: live, moveItems: moveItems, facts: facts, suggest: suggest)
+    model = TimelineModel(activity: activity, live: live, deleteBreak: deleteBreak, moveItems: moveItems, facts: facts, suggest: suggest)
     reports = ReportsModel(activity: activity)
   }
 
@@ -97,11 +99,13 @@ final class TimelineModel: ObservableObject {
   private let facts: @MainActor (String?, String) -> TimelineFacts?
 
   init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
+       deleteBreak: @escaping @MainActor (BreakSpan) -> Void,
        moveItems: @escaping @MainActor (DoingStint) -> [MenuItem],
        facts: @escaping @MainActor (String?, String) -> TimelineFacts?,
        suggest: @escaping @MainActor (String) -> [Suggestion]) {
     self.activity = activity
     self.live = live
+    self.dropBreak = deleteBreak
     self.moveItems = moveItems
     self.facts = facts
     self.suggest = suggest
@@ -158,6 +162,14 @@ final class TimelineModel: ObservableObject {
 
   func open(ref: String) {
     Task { do { try await client.open(ref: ref) } catch { self.error = error.localizedDescription } }
+  }
+
+  private let dropBreak: @MainActor (BreakSpan) -> Void
+
+  /// Deletes a finished break from the day log (work pulled you back), then redraws.
+  func deleteBreak(_ b: BreakSpan) {
+    dropBreak(b)
+    load(chronicle: false)
   }
 
   /// Writes a retimed or deleted Doing stint to its note, then reloads the stints.
@@ -309,7 +321,7 @@ struct TimelineScreen: View {
         header.zIndex(1)
         Divider().overlay(Palette.hairline)
         CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:), moveItems: model.moveItems,
-                    edit: { model.editStint($0, $1, to: $2) })
+                    edit: { model.editStint($0, $1, to: $2) }, deleteBreak: model.deleteBreak)
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
     }
@@ -535,6 +547,8 @@ struct CalendarDay: View {
   let moveItems: @MainActor (DoingStint) -> [MenuItem]
   /// Retimes a Doing stint (edge dragged to a time) or deletes it (nil edge); right-click and edge drags.
   let edit: (DoingStint, StintEdge?, Date?) -> Void
+  /// Deletes a finished break; right-click on its band.
+  let deleteBreak: (BreakSpan) -> Void
   static let gutter = 64.0
   /// Fill of the parts of a Doing block when its card was the active task; the rest fills at 0.28.
   static let activeFill = 0.6
@@ -888,7 +902,14 @@ struct CalendarDay: View {
   }
 
   private func showMenu() {
-    guard let p = pointer, case .doing(let st, _, _)? = item(at: p), let ref = st.ref else { return }
+    guard let p = pointer else { return }
+    let at = CGPoint(x: menuOrigin.x + p.x, y: menuOrigin.y + p.y - offsetY)
+    if case .pause(let b, _)? = item(at: p) {
+      let running = b.end == .distantFuture
+      return menu.show([MenuItem(title: running ? "Delete Break (running)" : "Delete Break", disabled: running, destructive: true,
+                                 kind: .action { deleteBreak(b) })], at: at)
+    }
+    guard case .doing(let st, _, _)? = item(at: p), let ref = st.ref else { return }
     let moves = moveItems(st)
     let items: [MenuItem] = [
       MenuItem(title: "Open in Obsidian", kind: .action { open(ref) }),
@@ -898,12 +919,13 @@ struct CalendarDay: View {
       MenuItem(title: st.open ? "Delete Stint (running)" : "Delete Stint", disabled: st.open || !editable(st), destructive: true,
                kind: .action { edit(st, nil, nil) }),
     ]
-    menu.show(items, at: CGPoint(x: menuOrigin.x + p.x, y: menuOrigin.y + p.y - offsetY))
+    menu.show(items, at: at)
   }
 
   private enum Item {
     case activity(ActivityBlock, day: Date)
     case doing(DoingStint, others: Int, day: Date)
+    case pause(BreakSpan, day: Date)
   }
 
   private func item(at p: CGPoint) -> Item? {
@@ -922,6 +944,8 @@ struct CalendarDay: View {
         let r = doingRect(k, st, layout, s, days[i])
         if p.x >= r.minX, p.x <= r.maxX + 2 { return .doing(st, others: layout.lanes[k] - 1, day: days[i]) }
       }
+      // Break bands sit behind the stints, so a stint over one wins.
+      if let b = layout.marks.breaks.first(where: { $0.start <= t && min($0.end, Date()) >= t }) { return .pause(b, day: days[i]) }
     }
     return nil
   }
@@ -934,6 +958,10 @@ struct CalendarDay: View {
     case .doing(let st, _, let day):
       let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
       return "\(st.title)\n\(when)\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
+    case .pause(let b, let day):
+      let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
+      let end = min(b.end, Date())
+      return "Break\n\(when)\(TimelineRowView.clock(b.start))–\(TimelineRowView.clock(end)) · \(TimelineScreen.dur(end.timeIntervalSince(b.start)))\(b.end > Date() ? " (running)" : "")"
     }
   }
 

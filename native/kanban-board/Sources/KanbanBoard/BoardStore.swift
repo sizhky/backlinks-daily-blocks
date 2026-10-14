@@ -95,6 +95,8 @@ final class BoardStore: ObservableObject {
   private(set) var widget: TrackerWidget?
   private lazy var timeline = TimelineWindow(activity: activity, live: { [weak self] in
     (self?.stretch, self?.breakStart.map { BreakSpan(start: $0, end: .distantFuture) })
+  }, deleteBreak: { [weak self] b in
+    self?.deleteBreak(b)
   }, moveItems: { [weak self] st in
     guard let self, let card = card(ref: st.ref, title: st.title) else { return [] }
     return statusItems(card)
@@ -252,6 +254,12 @@ final class BoardStore: ObservableObject {
       activity.record(BreakSpan(start: start, end: end))
       dayBreaks.append(BreakSpan(start: start, end: end))
     }
+  }
+
+  /// Drops a finished break from its day log and from today's totals: a break that work cut short counts as work.
+  func deleteBreak(_ b: BreakSpan) {
+    activity.remove(b)
+    dayBreaks.removeAll { Int($0.start.timeIntervalSince1970) == Int(b.start.timeIntervalSince1970) }
   }
 
   private func parkAll(at: Date) {

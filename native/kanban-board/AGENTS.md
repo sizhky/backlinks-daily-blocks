@@ -259,7 +259,9 @@ Before building or wording any UI, ask what Apple would do and do that.
   The 6th field is the stint's entry stamp (`DoingStint.enter`), its key for `kb.editStint`. Hovering a Doing block shows grab bars
   on its start edge and, once closed, its end edge; dragging one (`DoingStint.dragged`: whole minutes, a minute from the other
   edge, never after now) writes `kb.editStint(ref, enter, {start|end})` on release, and the preview stays until the stints reload.
-  Right-click a Doing block for Open in Obsidian / Delete Stint (running stints cannot be deleted). The Timeline window has its
+  Right-click a Doing block for Open in Obsidian / Delete Stint (running stints cannot be deleted). Right-click a Break band for
+  Delete Break: `BoardStore.deleteBreak` drops its line from the day log (`ActivityLog.removing`, matched to the second) and from
+  today's `dayBreaks`; a running break cannot be deleted. The Timeline window has its
   own `MenuController` and `MenuHost`; `onRightClick` hands the click to the view, which places the menu at its hover pointer
   (`show(atWindow:)` divides by the board's `kanban.zoom`, which the Timeline does not use).
   `TimelineModel.load` runs `ActivityLog.impute` once with `maxGap: ActivityMonitor.idleAfter` (300 s): a gap
