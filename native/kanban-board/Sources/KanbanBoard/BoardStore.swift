@@ -140,6 +140,10 @@ final class BoardStore: ObservableObject {
     .flatMap { try? JSONDecoder().decode(ActiveClock.self, from: $0) } ?? ActiveClock()
   private var lastFlush = Date()
   private var pin: FocusPin?
+  /// Meeting cards (`MeetingTracker`); persisted so a relaunch mid-call still finishes the card.
+  private var meetings: MeetingTracker = UserDefaults.standard.data(forKey: "kanban.meetings")
+    .flatMap { try? JSONDecoder().decode(MeetingTracker.self, from: $0) } ?? MeetingTracker()
+  private let calendar = CalendarSource.shared
   /// The active card's stretch so far (`end` is `distantFuture`); logged when the active card changes.
   /// Saved on every change, so a relaunch that skips `willTerminate` (pkill, crash) can still log it.
   private(set) var stretch: ActiveStretch? {
@@ -470,6 +474,7 @@ final class BoardStore: ObservableObject {
       if breakStart != nil, live.contains(where: { $0.col.caseInsensitiveCompare("Doing") == .orderedSame }) { endBreak() }
       error = nil
       switchTasks()
+      trackMeetings()
       trackActive()
     } catch {
       self.error = error.localizedDescription
@@ -505,6 +510,44 @@ final class BoardStore: ObservableObject {
     if s.end > s.start { activity.record(s) }
   }
 
+  /// The card of the running call, by note file (each meeting card is its own note).
+  private var callCardID: String? {
+    guard let file = meetings.current.flatMap({ meetings.files[$0] }) else { return nil }
+    return columns.lazy.flatMap(\.cards).first { $0.file == file }?.id
+  }
+
+  /// A Teams call during a calendar meeting puts that meeting's card in Doing; a silent call moves it to Done.
+  private func trackMeetings() {
+    let now = Date()
+    let actions = meetings.tick(now: now, inCall: CallDetector.inCall, events: calendar.events(around: now))
+    saveMeetings()
+    guard !actions.isEmpty else { return }
+    writeGen += 1
+    Task {
+      for action in actions {
+        do {
+          switch action {
+          case .create(let event):
+            meetings.record(event.key, file: try await client.createMeeting(title: event.title, org: event.org), now: now)
+            saveMeetings()
+          case .resume(let file): try await moveMeeting(file, to: "Doing")
+          case .finish(let file): try await moveMeeting(file, to: "Done")
+          }
+        } catch { self.error = error.localizedDescription }
+      }
+      await refresh()
+    }
+  }
+
+  private func moveMeeting(_ file: String, to column: String) async throws {
+    let cards = columns.flatMap(\.cards).filter { $0.file == file && $0.col.caseInsensitiveCompare(column) != .orderedSame }
+    if !cards.isEmpty { try await client.move(cards, to: column) }
+  }
+
+  private func saveMeetings() {
+    UserDefaults.standard.set(try? JSONEncoder().encode(meetings), forKey: "kanban.meetings")
+  }
+
   /// Makes a Doing card active by hand until the desktop changes (`FocusPin`); a card whose desktop
   /// (`desktop(_:)`) is another one switches there first.
   func activate(_ id: String) {
@@ -519,7 +562,7 @@ final class BoardStore: ObservableObject {
   private func trackActive() {
     let cards = columns.flatMap(\.cards)
     pin?.arrive(activity.context)
-    let picked = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin)
+    let picked = Focus.active(cards, context: activity.context, rules: activity.rules, pin: pin, call: callCardID)
     if pin != nil, picked?.id != pin?.id { pin = nil }
     if activity.context != nil, breakStart == nil, !(workStart.map(Calendar.current.isDateInToday) ?? false) {
       (workStart, dayStart, dayBreaks) = (Date(), Date(), [])
@@ -528,7 +571,8 @@ final class BoardStore: ObservableObject {
     // A hand pin, or a current card that left Doing, switches at once; a context change waits `ActiveClock.settle`.
     let inDoing = cards.contains { $0.id == clock.current && $0.col.caseInsensitiveCompare("Doing") == .orderedSame }
     let before = clock.current
-    clock.tick(now: Date(), active: picked?.id, awaySince: awaySince, settle: pin != nil || !inDoing ? 0 : ActiveClock.settle)
+    let instant = pin != nil || !inDoing || (picked?.id != nil && picked?.id == callCardID)
+    clock.tick(now: Date(), active: picked?.id, awaySince: awaySince, settle: instant ? 0 : ActiveClock.settle)
     let active = cards.first { $0.id == clock.current }
     if stretchID != active?.id {
       let at = awaySince ?? clock.since ?? Date()

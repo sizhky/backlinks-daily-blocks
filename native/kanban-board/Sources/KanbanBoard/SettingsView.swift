@@ -180,6 +180,7 @@ struct TrackingSettings: View {
         Divider().padding(.vertical, 4)
         BreakShortcutRow()
         KeepActiveAppsRow()
+        MeetingCalendarsRow()
         HStack {
           VStack(alignment: .leading, spacing: 2) {
             Text("Minimum mulling time")
@@ -439,6 +440,56 @@ struct KeepActiveAppsRow: View {
     guard panel.runModal() == .OK else { return }
     let new = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }.filter { !ids.contains($0) }
     stored = (ids + new).joined(separator: "\n")
+  }
+}
+
+/// Calendars whose Teams meetings become Doing cards, each with the org its cards get (`CalendarSource.orgs`).
+struct MeetingCalendarsRow: View {
+  @EnvironmentObject var store: BoardStore
+  @ObservedObject private var source = CalendarSource.shared
+  @State private var orgs = CalendarSource.orgs
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Meeting cards")
+          Text("During a Teams call, the calendar's current meeting is a Doing card; it moves to Done when the call ends.")
+            .font(.callout).foregroundStyle(.secondary)
+        }
+        Spacer()
+        if source.access != .fullAccess {
+          Button("Allow Calendars…") {
+            if source.access == .notDetermined { return source.requestAccess() }
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
+          }
+        }
+      }
+      if source.access == .fullAccess && source.calendars.isEmpty {
+        Text("No calendars. Add your Outlook account in System Settings > Internet Accounts.").font(.callout).foregroundStyle(.secondary)
+      }
+      ForEach(source.calendars, id: \.calendarIdentifier) { cal in
+        HStack(spacing: 6) {
+          Circle().fill(Color(cgColor: cal.cgColor)).frame(width: 8, height: 8)
+          Text(cal.title)
+          Text(cal.source.title).foregroundStyle(.secondary)
+          Spacer()
+          Picker("Org", selection: binding(cal.calendarIdentifier)) {
+            Text("Off").tag("")
+            ForEach(store.orgs.map(\.name), id: \.self) { Text($0).tag($0) }
+          }
+          .labelsHidden().fixedSize()
+        }
+      }
+    }
+    .onAppear { if source.access == .fullAccess { source.load() } }
+  }
+
+  private func binding(_ id: String) -> Binding<String> {
+    Binding(get: { orgs[id] ?? "" }, set: { org in
+      orgs[id] = org.isEmpty ? nil : org
+      CalendarSource.orgs = orgs
+    })
   }
 }
 

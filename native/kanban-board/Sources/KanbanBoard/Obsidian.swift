@@ -127,6 +127,15 @@ struct ObsidianClient {
     _ = try await eval("kb.rankTasks([\(list)],\(try js(column)))")
   }
 
+  /// Creates a meeting card in Doing (kb.createTask, source `calendar`, org only); returns its note file.
+  func createMeeting(title: String, org: String) async throws -> String {
+    let opts: [String: String] = ["text": title, "org": org, "source": "calendar", "col": "Doing"]
+    let out = try await eval("kb.createTask(\(try js(opts)))")
+    let file = (out.hasPrefix("=> ") ? String(out.dropFirst(3)) : out).split(separator: "\t").first.map(String.init) ?? ""
+    guard file.hasSuffix(".md") else { throw ObsidianError("No meeting card: " + String(out.prefix(120))) }
+    return file
+  }
+
   /// Bulk-moves these cards with the plugin's sweep (bottom-up, open-children guard).
   func sweep(_ cards: [Card], from: String, to: String) async throws {
     _ = try await eval("kb.sweep(\(try js(from)),\(try js(to)),\(try js(cards.map(\.ref))))")

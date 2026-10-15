@@ -17,12 +17,13 @@ public enum Focus {
     return pool.max { $0.since < $1.since }?.index
   }
 
-  /// The active card among live cards in `doing`; nil while away (`context` nil). A `pin` that
-  /// holds for `context` beats the rules while its card is in `doing`.
+  /// The active card among live cards in `doing`; nil while away (`context` nil). The card of a running
+  /// call (`call`, a card id) beats everything on any desktop; a `pin` that holds for `context` beats the rules.
   public static func active(_ cards: [Card], context: Sample?, rules: [ActivityRule], pin: FocusPin? = nil,
-                            doing: String = "Doing") -> Card? {
+                            call: String? = nil, doing: String = "Doing") -> Card? {
     guard let context else { return nil }
     let live = cards.filter { $0.col.caseInsensitiveCompare(doing) == .orderedSame }
+    if let call, let card = live.first(where: { $0.id == call }) { return card }
     if let pin, pin.holds(context), let card = live.first(where: { $0.id == pin.id }) { return card }
     let i = pick(live.indices.map { i in
       (i, live[i].since ?? .distantPast, SwitchEngine.owns(live[i], context, rules))

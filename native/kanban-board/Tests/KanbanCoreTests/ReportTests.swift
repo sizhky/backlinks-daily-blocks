@@ -42,6 +42,8 @@ final class ReportTests: XCTestCase {
     XCTAssertEqual(Focus.active(cards, context: u2, rules: [], pin: pin)?.id, "b")
     XCTAssertNil(Focus.active(cards, context: nil, rules: [], pin: pin))
     XCTAssertEqual(Focus.active([card("b", 30)], context: u1, rules: [], pin: pin)?.id, "b")
+    XCTAssertEqual(Focus.active(cards, context: u2, rules: [], pin: pin, call: "a")?.id, "a", "a call card wins on any desktop")
+    XCTAssertEqual(Focus.active([card("b", 30)], context: u1, rules: [], call: "a")?.id, "b", "a call card out of Doing does not")
 
     var moving = FocusPin(id: "a", context: u1, to: "U2")
     XCTAssertEqual(Focus.active(cards, context: u1, rules: [], pin: moving)?.id, "a")

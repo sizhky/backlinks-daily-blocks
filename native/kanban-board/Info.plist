@@ -14,6 +14,7 @@
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Kanban Board reads the active tab address to record which page you work on.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Kanban Board turns the Teams meeting you are in into a Doing card.</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict>
 </plist>
