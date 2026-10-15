@@ -4,12 +4,23 @@ import XCTest
 final class MeetingTests: XCTestCase {
   let t0 = Date(timeIntervalSince1970: 1_800_000_000)
   func at(_ m: Double) -> Date { t0.addingTimeInterval(m * 60) }
-  lazy var a = MeetingEvent(id: "A", title: "Standup", org: "PenguinAI", start: at(0), end: at(30))
-  lazy var b = MeetingEvent(id: "B", title: "Review", org: "PenguinAI", start: at(30), end: at(60))
+  lazy var a = MeetingEvent(id: "A", title: "Standup", org: "PenguinAI", start: at(0), end: at(30), apps: [.teams])
+  lazy var b = MeetingEvent(id: "B", title: "Review", org: "PenguinAI", start: at(30), end: at(60), apps: [.teams, .zoom])
 
-  func testIsTeamsReadsLinkInAnyField() {
-    XCTAssertTrue(MeetingEvent.isTeams([nil, "Join: https://teams.microsoft.com/l/meetup-join/x"]))
-    XCTAssertFalse(MeetingEvent.isTeams(["Room 4", nil]))
+  func testAppsComeFromLinksWithinTheCalendarsApps() {
+    XCTAssertEqual(CallApp.linked([nil, "Join: https://teams.microsoft.com/l/meetup-join/x"]), [.teams])
+    XCTAssertEqual(CallApp.linked(["Room 4", nil]), [])
+    XCTAssertEqual(CallApp.apps(["https://meet.google.com/abc"], allowed: [.teams, .zoom]), [])
+    XCTAssertEqual(CallApp.apps(["Room 4"], allowed: [.teams, .zoom]), [.teams, .zoom], "no link: any of the calendar's apps")
+  }
+
+  func testOnlyACallInTheEventsAppCounts() {
+    var m = MeetingTracker()
+    XCTAssertEqual(m.tick(now: at(1), calls: [.meet], events: [a]), [], "Meet call during a Teams meeting")
+    XCTAssertEqual(m.tick(now: at(1), calls: [.teams], events: [a]), [.create(a)])
+    m.record(a.key, file: "a.md", now: at(1))
+    XCTAssertEqual(m.tick(now: at(2), calls: [.zoom], events: [a]), [], "a Zoom call does not hold a Teams meeting")
+    XCTAssertEqual(m.tick(now: at(3.5), calls: [.zoom], events: [a]), [.finish(file: "a.md")])
   }
 
   func testPickUsesPaddedWindowAndLatestStart() {
@@ -21,23 +32,23 @@ final class MeetingTests: XCTestCase {
 
   func testCallCreatesThenFinishesAfterGrace() {
     var m = MeetingTracker()
-    XCTAssertEqual(m.tick(now: at(1), inCall: true, events: [a]), [.create(a)])
+    XCTAssertEqual(m.tick(now: at(1), calls: [.teams], events: [a]), [.create(a)])
     m.record(a.key, file: "20270115-0800.md", now: at(1))
-    XCTAssertEqual(m.tick(now: at(2), inCall: true, events: [a]), [])
-    XCTAssertEqual(m.tick(now: at(10), inCall: false, events: [a]), [], "silence starts the grace")
-    XCTAssertEqual(m.tick(now: at(10.5), inCall: true, events: [a]), [], "a dropped call keeps the card")
-    XCTAssertEqual(m.tick(now: at(20), inCall: false, events: [a]), [])
-    XCTAssertEqual(m.tick(now: at(21), inCall: false, events: [a]), [.finish(file: "20270115-0800.md")])
+    XCTAssertEqual(m.tick(now: at(2), calls: [.teams], events: [a]), [])
+    XCTAssertEqual(m.tick(now: at(10), calls: [], events: [a]), [], "silence starts the grace")
+    XCTAssertEqual(m.tick(now: at(10.5), calls: [.teams], events: [a]), [], "a dropped call keeps the card")
+    XCTAssertEqual(m.tick(now: at(20), calls: [], events: [a]), [])
+    XCTAssertEqual(m.tick(now: at(21), calls: [], events: [a]), [.finish(file: "20270115-0800.md")])
     XCTAssertNil(m.current)
-    XCTAssertEqual(m.tick(now: at(22), inCall: true, events: [a]), [.resume(file: "20270115-0800.md")], "rejoin reuses the card")
+    XCTAssertEqual(m.tick(now: at(22), calls: [.teams], events: [a]), [.resume(file: "20270115-0800.md")], "rejoin reuses the card")
   }
 
   func testCallWithoutMeetingDoesNothingAndBackToBackSwitches() {
     var m = MeetingTracker()
-    XCTAssertEqual(m.tick(now: at(-30), inCall: true, events: [a]), [])
-    _ = m.tick(now: at(1), inCall: true, events: [a, b])
+    XCTAssertEqual(m.tick(now: at(-30), calls: [.teams], events: [a]), [])
+    _ = m.tick(now: at(1), calls: [.teams], events: [a, b])
     m.record(a.key, file: "a.md", now: at(1))
-    XCTAssertEqual(m.tick(now: at(31), inCall: true, events: [a, b]), [.finish(file: "a.md"), .create(b)])
+    XCTAssertEqual(m.tick(now: at(31), calls: [.teams], events: [a, b]), [.finish(file: "a.md"), .create(b)])
   }
 
   func testRecordDropsOldMeetings() {

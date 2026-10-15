@@ -5,7 +5,8 @@ import Foundation
 import KanbanCore
 
 /// Calendar meetings (EventKit): Outlook shows up once its account is added in System Settings >
-/// Internet Accounts. Only calendars mapped to an org (Settings > Tracking) make meeting cards.
+/// Internet Accounts. Only calendars mapped to an org (Settings > Tracking) make meeting cards, and only
+/// for calls in the apps the calendar names.
 @MainActor
 final class CalendarSource: ObservableObject {
   static let shared = CalendarSource()
@@ -39,7 +40,19 @@ final class CalendarSource: ObservableObject {
     set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: orgsKey) }
   }
 
-  /// Teams meetings around `now` on calendars mapped to an org.
+  /// JSON `[calendarIdentifier: [CallApp]]`; a calendar with no entry uses Teams.
+  static let appsKey = "tracking.calendarApps"
+
+  static var apps: [String: Set<CallApp>] {
+    get {
+      UserDefaults.standard.data(forKey: appsKey).flatMap { try? JSONDecoder().decode([String: Set<CallApp>].self, from: $0) } ?? [:]
+    }
+    set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: appsKey) }
+  }
+
+  static func apps(_ calendar: String) -> Set<CallApp> { apps[calendar] ?? [.teams] }
+
+  /// Meetings around `now` on calendars mapped to an org, each with the call apps it can be held in.
   func events(around now: Date) -> [MeetingEvent] {
     let orgs = Self.orgs
     guard access == .fullAccess, !orgs.isEmpty else { return [] }
@@ -48,23 +61,36 @@ final class CalendarSource: ObservableObject {
     let pad = MeetingTracker.late + 3600
     let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-pad), end: now.addingTimeInterval(pad), calendars: cals)
     return store.events(matching: predicate).compactMap { e in
-      guard !e.isAllDay, let org = orgs[e.calendar.calendarIdentifier],
-            MeetingEvent.isTeams([e.url?.absoluteString, e.location, e.notes]) else { return nil }
+      let cal = e.calendar.calendarIdentifier
+      let apps = CallApp.apps([e.url?.absoluteString, e.location, e.notes], allowed: Self.apps(cal))
+      guard !e.isAllDay, let org = orgs[cal], !apps.isEmpty else { return nil }
       let id = e.calendarItemExternalIdentifier ?? e.calendarItemIdentifier
-      return MeetingEvent(id: id, title: e.title ?? "Meeting", org: org, start: e.startDate, end: e.endDate)
+      return MeetingEvent(id: id, title: e.title ?? "Meeting", org: org, start: e.startDate, end: e.endDate, apps: apps)
     }
   }
 }
 
-/// A Teams call: Teams is running and a Teams process records from a microphone (Teams keeps the
-/// input open while muted). Where macOS gives no per-process audio list, any recording input counts.
+/// Calls by app: a process of the app records from a microphone (Teams keeps the input open while
+/// muted). Google Meet runs in a browser, so a recording browser counts as Meet. Where macOS gives no
+/// per-process audio list, a recording default input counts for every call app that is running.
 enum CallDetector {
-  static let bundlePrefix = "com.microsoft.teams"
+  /// Bundle id prefixes per app; Safari records in its WebKit GPU process.
+  static let bundles: [CallApp: [String]] = [
+    .teams: ["com.microsoft.teams"],
+    .zoom: ["us.zoom."],
+    .meet: Probe.browsers.keys.sorted() + ["com.apple.WebKit.GPU"],
+  ]
 
-  static var inCall: Bool {
-    guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier?.hasPrefix(bundlePrefix) == true }) else { return false }
-    guard let processes = audioProcesses() else { return defaultInputRunning() }
-    return processes.contains { bundle($0)?.hasPrefix(bundlePrefix) == true && flag($0, kAudioProcessPropertyIsRunningInput) }
+  static func app(_ bundle: String) -> CallApp? {
+    bundles.first { $0.value.contains { bundle.hasPrefix($0) } }?.key
+  }
+
+  static var calls: Set<CallApp> {
+    guard let processes = audioProcesses() else {
+      guard defaultInputRunning() else { return [] }
+      return Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier.flatMap(app) })
+    }
+    return Set(processes.filter { flag($0, kAudioProcessPropertyIsRunningInput) }.compactMap { bundle($0).flatMap(app) })
   }
 
   private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {

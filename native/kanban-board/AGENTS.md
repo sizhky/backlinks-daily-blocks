@@ -28,7 +28,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
   ActivityMonitor.swift 5 s sampler (app, AX title, browser URL, desktop) -> <vault>/.activity/YYYYMMDD.jsonl
-  Meetings.swift       CalendarSource (EventKit, calendar -> org in tracking.calendarOrgs), CallDetector (Teams process records input)
+  Meetings.swift       CalendarSource (EventKit, calendar -> org in tracking.calendarOrgs), CallDetector (call apps whose process records input)
   DesktopStore.swift   current Spaces (private CGS via dlsym) + names in <vault>/.activity/desktops.json
   DesktopMenu.swift    menu bar item: current desktop name, switch, Rename
   TrackerWidget.swift  always-on-top transparent widget: Doing cards + timer, desktop, app, title, URL; toast cover
@@ -388,12 +388,15 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Meeting cards
 
-- Settings > Tracking > Meeting cards maps an EventKit calendar to an org; Outlook appears once its account is in
-  System Settings > Internet Accounts. Only events with a `teams.microsoft.com` link on a mapped calendar count.
-- `CallDetector.inCall`: Teams runs and a `com.microsoft.teams*` audio process records input
-  (`kAudioProcessPropertyIsRunningInput`; on 2026-10-15 that was `com.microsoft.teams2.modulehost`).
+- Settings > Tracking > Meeting cards maps an EventKit calendar to an org (`tracking.calendarOrgs`) and to call apps
+  (`CallApp`: Teams, Zoom, Google Meet; `tracking.calendarApps`, default Teams). Outlook appears once its account is in
+  System Settings > Internet Accounts. An event's apps are its join-link apps among the calendar's (`CallApp.apps`);
+  an event with no link takes all of the calendar's apps; an empty result makes no card.
+- `CallDetector.calls`: the apps with a process that records input (`kAudioProcessPropertyIsRunningInput`), matched by
+  bundle prefix (`CallDetector.bundles`). Teams recorded as `com.microsoft.teams2.modulehost` on 2026-10-15. Meet is any
+  `Probe.browsers` browser or Safari's `com.apple.WebKit.GPU` recording, so a browser call of another kind counts as Meet.
 - Each refresh, `MeetingTracker.tick` creates the card in Doing (`kb.createTask`, source `calendar`, no project),
-  resumes it on a rejoin, and moves it to Done after 60 s with no call. The call card beats pins and rules in
+  resumes it on a rejoin, and moves it to Done after 60 s with no call in the event's apps. The call card beats pins and rules in
   `Focus.active` and takes over at once; a call also counts as keep-active, so no input is not idle.
 
 ## Idle

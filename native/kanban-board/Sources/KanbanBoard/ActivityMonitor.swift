@@ -14,9 +14,9 @@ final class ActivityMonitor: ObservableObject {
   /// Bundle ids, newline-separated (Settings > Tracking): while one runs, no input never counts as idle.
   static let keepActiveKey = "tracking.keepActiveApps"
 
-  /// Whether a running app is one the user chose to keep the session active (a call, a video), or a Teams call runs.
+  /// Whether a running app is one the user chose to keep the session active (a call, a video), or a call runs.
   static var keepActive: Bool {
-    if CallDetector.inCall { return true }
+    if !CallDetector.calls.isEmpty { return true }
     let ids = Set((UserDefaults.standard.string(forKey: keepActiveKey) ?? "").split(separator: "\n").map(String.init))
     return !ids.isEmpty && NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier.map(ids.contains) ?? false }
   }

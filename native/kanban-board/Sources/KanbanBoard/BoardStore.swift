@@ -516,10 +516,10 @@ final class BoardStore: ObservableObject {
     return columns.lazy.flatMap(\.cards).first { $0.file == file }?.id
   }
 
-  /// A Teams call during a calendar meeting puts that meeting's card in Doing; a silent call moves it to Done.
+  /// A call in one of a calendar meeting's apps puts that meeting's card in Doing; a silent call moves it to Done.
   private func trackMeetings() {
     let now = Date()
-    let actions = meetings.tick(now: now, inCall: CallDetector.inCall, events: calendar.events(around: now))
+    let actions = meetings.tick(now: now, calls: CallDetector.calls, events: calendar.events(around: now))
     saveMeetings()
     guard !actions.isEmpty else { return }
     writeGen += 1

@@ -443,18 +443,20 @@ struct KeepActiveAppsRow: View {
   }
 }
 
-/// Calendars whose Teams meetings become Doing cards, each with the org its cards get (`CalendarSource.orgs`).
+/// Calendars whose meetings become Doing cards, each with the org its cards get (`CalendarSource.orgs`) and
+/// the call apps its meetings use (`CalendarSource.apps`).
 struct MeetingCalendarsRow: View {
   @EnvironmentObject var store: BoardStore
   @ObservedObject private var source = CalendarSource.shared
   @State private var orgs = CalendarSource.orgs
+  @State private var apps = CalendarSource.apps
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack {
         VStack(alignment: .leading, spacing: 2) {
           Text("Meeting cards")
-          Text("During a Teams call, the calendar's current meeting is a Doing card; it moves to Done when the call ends.")
+          Text("During a call in one of the calendar's apps, its current meeting is a Doing card; it moves to Done when the call ends.")
             .font(.callout).foregroundStyle(.secondary)
         }
         Spacer()
@@ -474,6 +476,12 @@ struct MeetingCalendarsRow: View {
           Text(cal.title)
           Text(cal.source.title).foregroundStyle(.secondary)
           Spacer()
+          ForEach(CallApp.allCases, id: \.self) { app in
+            Toggle(app.label, isOn: binding(cal.calendarIdentifier, app))
+              .toggleStyle(.button).controlSize(.small)
+              .disabled(orgs[cal.calendarIdentifier] == nil)
+              .help(app == .meet ? "A browser recording from the microphone counts as a Google Meet call" : "")
+          }
           Picker("Org", selection: binding(cal.calendarIdentifier)) {
             Text("Off").tag("")
             ForEach(store.orgs.map(\.name), id: \.self) { Text($0).tag($0) }
@@ -483,6 +491,15 @@ struct MeetingCalendarsRow: View {
       }
     }
     .onAppear { if source.access == .fullAccess { source.load() } }
+  }
+
+  private func binding(_ id: String, _ app: CallApp) -> Binding<Bool> {
+    Binding(get: { CalendarSource.apps(id).contains(app) }, set: { on in
+      var set = CalendarSource.apps(id)
+      if on { set.insert(app) } else { set.remove(app) }
+      apps[id] = set
+      CalendarSource.apps = apps
+    })
   }
 
   private func binding(_ id: String) -> Binding<String> {

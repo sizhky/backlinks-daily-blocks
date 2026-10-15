@@ -1,5 +1,34 @@
 import Foundation
 
+/// An app that holds calls; a calendar names the ones its meetings use (Settings > Tracking).
+public enum CallApp: String, Codable, CaseIterable, Sendable {
+  case teams, zoom, meet
+
+  public var label: String { switch self { case .teams: "Teams"; case .zoom: "Zoom"; case .meet: "Google Meet" } }
+  /// The host of the app's join links.
+  public var link: String { switch self { case .teams: "teams.microsoft.com"; case .zoom: "zoom.us"; case .meet: "meet.google.com" } }
+
+  /// The apps whose join link is in the URL, location or notes.
+  /// ```
+  /// ["https://teams.microsoft.com/l/meetup-join/..."] -> [teams]
+  /// ["Room 4", nil]                                   -> []
+  /// ```
+  public static func linked(_ texts: [String?]) -> Set<CallApp> {
+    Set(allCases.filter { app in texts.contains { $0?.localizedCaseInsensitiveContains(app.link) == true } })
+  }
+
+  /// The apps an event on a calendar that allows `allowed` can be held in: its linked apps among the
+  /// allowed ones, or every allowed app when the event has no link.
+  /// ```
+  /// linked [meet], allowed [teams, zoom] -> []
+  /// linked [],     allowed [teams, zoom] -> [teams, zoom]
+  /// ```
+  public static func apps(_ texts: [String?], allowed: Set<CallApp>) -> Set<CallApp> {
+    let found = linked(texts)
+    return found.isEmpty ? allowed : found.intersection(allowed)
+  }
+}
+
 /// One occurrence of a calendar event (EventKit), reduced to what a meeting card needs.
 public struct MeetingEvent: Equatable, Codable, Sendable {
   /// Occurrence key: the event's external id plus its start, so each repeat of a series is its own card.
@@ -7,23 +36,16 @@ public struct MeetingEvent: Equatable, Codable, Sendable {
   public var title: String
   public var org: String
   public var start: Date, end: Date
+  /// The apps a call for this event runs in.
+  public var apps: Set<CallApp>
 
-  public init(id: String, title: String, org: String, start: Date, end: Date) {
+  public init(id: String, title: String, org: String, start: Date, end: Date, apps: Set<CallApp>) {
     key = "\(id)@\(Int(start.timeIntervalSince1970))"
-    (self.title, self.org, self.start, self.end) = (title, org, start, end)
-  }
-
-  /// A Teams meeting carries its join link in the URL, location or notes.
-  /// ```
-  /// ["https://teams.microsoft.com/l/meetup-join/..."] -> true
-  /// ["Room 4", nil]                                   -> false
-  /// ```
-  public static func isTeams(_ texts: [String?]) -> Bool {
-    texts.contains { $0?.localizedCaseInsensitiveContains("teams.microsoft.com") == true }
+    (self.title, self.org, self.start, self.end, self.apps) = (title, org, start, end, apps)
   }
 }
 
-/// Meeting cards: while a Teams call runs, the current calendar meeting has its own card in Doing;
+/// Meeting cards: while a call runs in one of a meeting's apps, that meeting has its own card in Doing;
 /// the card goes to Done once the call has been silent for `grace` seconds.
 public struct MeetingTracker: Codable, Equatable, Sendable {
   public enum Action: Equatable, Sendable {
@@ -45,6 +67,8 @@ public struct MeetingTracker: Codable, Equatable, Sendable {
   /// Event key -> card note file (each meeting card is its own note).
   public private(set) var files: [String: String] = [:]
   private var quietSince: Date?
+  /// The apps of the running call's event.
+  private var currentApps: Set<CallApp> = []
 
   public init() {}
 
@@ -54,26 +78,30 @@ public struct MeetingTracker: Codable, Equatable, Sendable {
       .max { $0.start < $1.start }
   }
 
+  /// `calls`: the apps that record from a microphone now.
   /// ```
-  /// call starts in event A          -> [create A]
-  /// call silent for grace           -> [finish A]
-  /// call again in A                 -> [resume A]
-  /// call moves into back-to-back B  -> [finish A, create B]
+  /// Teams call starts in Teams event A  -> [create A]
+  /// Meet call during Teams-only event A -> []
+  /// call silent for grace               -> [finish A]
+  /// call again in A                     -> [resume A]
+  /// call moves into back-to-back B      -> [finish A, create B]
   /// ```
-  public mutating func tick(now: Date, inCall: Bool, events: [MeetingEvent]) -> [Action] {
-    guard inCall else {
+  public mutating func tick(now: Date, calls: Set<CallApp>, events: [MeetingEvent]) -> [Action] {
+    let live = events.filter { !$0.apps.isDisjoint(with: calls) }
+    let holding = current != nil && !currentApps.isDisjoint(with: calls)
+    guard holding || Self.pick(live, now: now) != nil else {
       guard let key = current else { return [] }
       let since = quietSince ?? now
       quietSince = since
       guard now.timeIntervalSince(since) >= Self.grace else { return [] }
-      (current, quietSince) = (nil, nil)
+      (current, quietSince, currentApps) = (nil, nil, [])
       return files[key].map { [.finish(file: $0)] } ?? []
     }
     quietSince = nil
-    guard let event = Self.pick(events, now: now), event.key != current else { return [] }
+    guard let event = Self.pick(live, now: now), event.key != current else { return [] }
     var actions = current.flatMap { files[$0] }.map { [Action.finish(file: $0)] } ?? []
     actions.append(files[event.key].map { .resume(file: $0) } ?? .create(event))
-    current = event.key
+    (current, currentApps) = (event.key, event.apps)
     return actions
   }
 
