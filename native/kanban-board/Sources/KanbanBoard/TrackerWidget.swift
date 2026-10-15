@@ -5,6 +5,8 @@ import KanbanCore
 /// Settings keys for the tracker widget (Settings > Widget).
 enum WidgetKey {
   static let visible = "widget.visible"
+  /// Bundle ids, newline-separated, of apps that hide the widget while frontmost.
+  static let hideApps = "widget.hideApps"
   static let task = "widget.task", timer = "widget.timer", app = "widget.app"
   /// Bottom-left corner of the widget, `NSStringFromPoint`.
   static let origin = "widget.origin"
@@ -56,6 +58,7 @@ enum WidgetStyle {
 final class TrackerWidget {
   private let panel: NSPanel
   private var observer: NSObjectProtocol?
+  private var appObserver: NSObjectProtocol?
   private var monitors: [Any] = []
   let grip = WidgetGrip()
   /// Height the content needs (reported by `WidgetView`); the panel grows past the square to fit it.
@@ -120,6 +123,9 @@ final class TrackerWidget {
     observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.applySize(); self?.applyVisibility() }
     }
+    appObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { self?.applyVisibility() }
+    }
     applyVisibility()
     panel.ignoresMouseEvents = true
     // Global monitors see events aimed at other apps (the usual case, since the widget ignores the
@@ -165,8 +171,14 @@ final class TrackerWidget {
 
   func toggle() { UserDefaults.standard.set(!isVisible, forKey: WidgetKey.visible) }
 
+  /// The frontmost app is one listed under Settings > Widget > Hide while using.
+  private var hiddenByApp: Bool {
+    guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+    return (UserDefaults.standard.string(forKey: WidgetKey.hideApps) ?? "").split(separator: "\n").contains { $0 == id }
+  }
+
   private func applyVisibility() {
-    if isVisible { if !panel.isVisible { panel.orderFrontRegardless() } } else if panel.isVisible { panel.orderOut(nil) }
+    if isVisible && !hiddenByApp { if !panel.isVisible { panel.orderFrontRegardless() } } else if panel.isVisible { panel.orderOut(nil) }
   }
 }
 

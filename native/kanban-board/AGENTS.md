@@ -345,6 +345,8 @@ Before building or wording any UI, ask what Apple would do and do that.
   Each element (`WidgetPart`) has its own visibility, justification (`widget.<part>.align`), and font size
   (`widget.<part>.size`); font family and square size are global. Colour: task titles and timers take their card's
   project colour (light end of its `Monogram` gradient); everything else, and cards without a project, use the Text color setting.
+  Autohide: apps picked under Settings > Widget > Hide while using (`AppListRow`, bundle ids in `widget.hideApps`)
+  hide the panel while frontmost; `TrackerWidget` re-checks on `didActivateApplicationNotification`.
   Position: `widget.origin` (bottom-left, saved on every move, used only when still on a screen); no frame autosave. Settings > Widget renders the real
   `WidgetView` (live data, own `WidgetGrip`) on a sample wallpaper; the Settings scene gets the store's
   environment objects in `KanbanApp`.
@@ -413,6 +415,6 @@ Before building or wording any UI, ask what Apple would do and do that.
   pause separately; idle inside a break counts as the break. Reports show an Idle tile and split each card's
   "in Doing" into its idle part (`ReportNode.idle`). Estimates, Remaining, overrun and Logbook took use
   `Card.doingLessIdle` with `ActivityMonitor.idle(covering:)`: a day with no activity log has no idle (nothing is known).
-- Apps picked in Settings > Tracking (`KeepActiveAppsRow`, bundle ids in `tracking.keepActiveApps`) suspend the
+- Apps picked in Settings > Tracking (`AppListRow`, bundle ids in `tracking.keepActiveApps`) suspend the
   no-input check while any of them is running (`ActivityMonitor.keepActive`): the frontmost window keeps being logged,
   so no idle, no away park. Lock, sleep and display sleep still go away. This covers calls and videos without input.

@@ -73,6 +73,9 @@ struct WidgetSettings: View {
       }
       Section("Widget") {
         Toggle("Show widget", isOn: $visible)
+        AppListRow(WidgetKey.hideApps, title: "Hide while using",
+                   detail: "The widget hides while one of these apps is in front.")
+          .disabled(!visible)
         LabeledContent("Size") {
           HStack {
             Slider(value: $width, in: 160...480, step: 20)
@@ -180,7 +183,8 @@ struct TrackingSettings: View {
         if let none = regions.last { region(none).frame(minHeight: 120) }
         Divider().padding(.vertical, 4)
         BreakShortcutRow()
-        KeepActiveAppsRow()
+        AppListRow(ActivityMonitor.keepActiveKey, title: "Never idle while running",
+                   detail: "No input does not pause cards while one of these apps is open.")
         MeetingCalendarsRow()
         HStack {
           VStack(alignment: .leading, spacing: 2) {
@@ -401,9 +405,18 @@ private struct FloatingPill: View {
   }
 }
 
-/// Apps that keep the session active with no input (`ActivityMonitor.keepActive`), picked from Applications.
-struct KeepActiveAppsRow: View {
-  @AppStorage(ActivityMonitor.keepActiveKey) private var stored = ""
+/// A list of apps picked from Applications, stored as newline-separated bundle ids under `key`:
+/// `ActivityMonitor.keepActiveKey` (never idle) and `WidgetKey.hideApps` (widget autohide).
+struct AppListRow: View {
+  let title: String
+  let detail: String
+  @AppStorage private var stored: String
+
+  init(_ key: String, title: String, detail: String) {
+    self.title = title
+    self.detail = detail
+    _stored = AppStorage(wrappedValue: "", key)
+  }
 
   private var ids: [String] { stored.split(separator: "\n").map(String.init) }
 
@@ -411,8 +424,8 @@ struct KeepActiveAppsRow: View {
     VStack(alignment: .leading, spacing: 6) {
       HStack {
         VStack(alignment: .leading, spacing: 2) {
-          Text("Never idle while running")
-          Text("No input does not pause cards while one of these apps is open.").font(.callout).foregroundStyle(.secondary)
+          Text(title)
+          Text(detail).font(.callout).foregroundStyle(.secondary)
         }
         Spacer()
         Button("Add App…") { add() }
