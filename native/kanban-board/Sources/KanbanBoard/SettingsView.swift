@@ -515,7 +515,8 @@ struct MeetingCalendarsRow: View {
   }
 
   private func appChip(_ id: String, _ app: CallApp) -> some View {
-    let on = CalendarSource.apps(id).contains(app)
+    // Read the @State copy: SwiftUI redraws only for state the body reads, not for UserDefaults.
+    let on = allowed(id).contains(app)
     return Button { binding(id, app).wrappedValue.toggle() } label: {
       Text(app == .meet ? "Meet" : app.label)
         .font(.system(size: 11, weight: .medium))
@@ -530,9 +531,12 @@ struct MeetingCalendarsRow: View {
     .accessibilityAddTraits(on ? .isSelected : [])
   }
 
+  /// The calendar's call apps from the @State copy; the same default as `CalendarSource.apps(_:)`.
+  private func allowed(_ id: String) -> Set<CallApp> { apps[id] ?? [.teams] }
+
   private func binding(_ id: String, _ app: CallApp) -> Binding<Bool> {
-    Binding(get: { CalendarSource.apps(id).contains(app) }, set: { on in
-      var set = CalendarSource.apps(id)
+    Binding(get: { allowed(id).contains(app) }, set: { on in
+      var set = allowed(id)
       if on { set.insert(app) } else { set.remove(app) }
       apps[id] = set
       CalendarSource.apps = apps

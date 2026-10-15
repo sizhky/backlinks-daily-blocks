@@ -281,6 +281,9 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Gotchas
 
+- A view must read the state it shows. The Meeting cards app chips read `CalendarSource.apps` (UserDefaults) while
+  clicks wrote an unread `@State` copy, so SwiftUI never redrew them and the chips looked dead. Read the `@State` copy.
+
 - A Swift property's `didSet` does not run for assignments made inside `init`, so a value saved through
   `didSet` stays unsaved when it is set there. The work/break share once read 100% for that reason: its day base
   fell back to `workStart`, which moves at every break end. The base is now derived from today's first
