@@ -1,3 +1,4 @@
+import EventKit
 import SwiftUI
 import UniformTypeIdentifiers
 import KanbanCore
@@ -470,27 +471,63 @@ struct MeetingCalendarsRow: View {
       if source.access == .fullAccess && source.calendars.isEmpty {
         Text("No calendars. Add your Outlook account in System Settings > Internet Accounts.").font(.callout).foregroundStyle(.secondary)
       }
-      ForEach(source.calendars, id: \.calendarIdentifier) { cal in
-        HStack(spacing: 6) {
-          Circle().fill(Color(cgColor: cal.cgColor)).frame(width: 8, height: 8)
-          Text(cal.title)
-          Text(cal.source.title).foregroundStyle(.secondary)
-          Spacer()
-          ForEach(CallApp.allCases, id: \.self) { app in
-            Toggle(app.label, isOn: binding(cal.calendarIdentifier, app))
-              .toggleStyle(.button).controlSize(.small)
-              .disabled(orgs[cal.calendarIdentifier] == nil)
-              .help(app == .meet ? "A browser recording from the microphone counts as a Google Meet call" : "")
+      ForEach(accounts, id: \.self) { account in
+        VStack(alignment: .leading, spacing: 4) {
+          Text(account.uppercased()).font(.system(size: 10.5, weight: .semibold)).tracking(0.4).foregroundStyle(Palette.muted)
+          VStack(spacing: 0) {
+            let cals = source.calendars.filter { $0.source.title == account }
+            ForEach(Array(cals.enumerated()), id: \.element.calendarIdentifier) { i, cal in
+              if i > 0 { Divider().overlay(Palette.hairline) }
+              calendarRow(cal)
+            }
           }
-          Picker("Org", selection: binding(cal.calendarIdentifier)) {
-            Text("Off").tag("")
-            ForEach(store.orgs.map(\.name), id: \.self) { Text($0).tag($0) }
-          }
-          .labelsHidden().fixedSize()
+          .background(Color.white.opacity(0.02), in: .rect(cornerRadius: 6))
+          .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
         }
       }
     }
     .onAppear { if source.access == .fullAccess { source.load() } }
+  }
+
+  /// Account names (Exchange, Google, iCloud) in calendar order.
+  private var accounts: [String] {
+    source.calendars.map(\.source.title).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+  }
+
+  /// Dot and name on the left; the org picker in a fixed-width right column; app chips before it once mapped.
+  private func calendarRow(_ cal: EKCalendar) -> some View {
+    let id = cal.calendarIdentifier, mapped = orgs[id] != nil
+    return HStack(spacing: 8) {
+      Circle().fill(Color(cgColor: cal.cgColor)).frame(width: 7, height: 7)
+      Text(cal.title).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
+        .foregroundStyle(mapped ? Palette.text : Palette.secondary)
+      Spacer(minLength: 12)
+      if mapped {
+        HStack(spacing: 4) { ForEach(CallApp.allCases, id: \.self) { appChip(id, $0) } }
+      }
+      Picker("Org", selection: binding(id)) {
+        Text("Off").tag("")
+        ForEach(store.orgs.map(\.name), id: \.self) { Text($0).tag($0) }
+      }
+      .labelsHidden().controlSize(.small).frame(width: 130)
+    }
+    .padding(.horizontal, 10).frame(height: 34)
+  }
+
+  private func appChip(_ id: String, _ app: CallApp) -> some View {
+    let on = CalendarSource.apps(id).contains(app)
+    return Button { binding(id, app).wrappedValue.toggle() } label: {
+      Text(app == .meet ? "Meet" : app.label)
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(on ? Palette.text : Palette.muted)
+        .padding(.horizontal, 8).frame(height: 20)
+        .background(on ? Palette.indigo.opacity(0.35) : Color.clear, in: .capsule)
+        .overlay(Capsule().strokeBorder(on ? Palette.indigo.opacity(0.6) : Palette.hairline))
+        .contentShape(.capsule)
+    }
+    .buttonStyle(.plain)
+    .help(app == .meet ? "Google Meet: a browser recording from the microphone counts as a Meet call" : app.label)
+    .accessibilityAddTraits(on ? .isSelected : [])
   }
 
   private func binding(_ id: String, _ app: CallApp) -> Binding<Bool> {
