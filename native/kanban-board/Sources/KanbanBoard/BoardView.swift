@@ -810,9 +810,11 @@ struct GhostCard: View {
 }
 
 /// New card at the top of a column. Org and project start from the view (`BoardStore.newCardScope`);
-/// return creates the card and keeps the form open for the next; escape or return on an empty title closes it.
+/// return creates the card and keeps the form open for the next; escape, return on an empty title,
+/// or a click outside the form while the title is blank closes it.
 struct NewCardForm: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var menu: MenuController
   @AppStorage(Density.key) private var density: Density = .compact
   let column: String
   let close: () -> Void
@@ -820,6 +822,8 @@ struct NewCardForm: View {
   @State private var org: String?
   @State private var project: String?
   @FocusState private var focused: Bool
+  @State private var inside = false
+  @State private var clicks: Any?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -848,11 +852,19 @@ struct NewCardForm: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Palette.card, in: .rect(cornerRadius: 9))
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.indigo))
+    .onHover { inside = $0 }
     .onAppear {
       let scope = store.newCardScope
       org = scope.org; project = scope.project
       focused = true
+      // Pointer state, not focus: a click on empty board space does not take focus from the text field.
+      // A click on an org or project menu item lands while the menu is open, so it never closes the form.
+      clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
+        if !inside, !menu.isOpen, title.trimmingCharacters(in: .whitespaces).isEmpty { Task { @MainActor in close() } }
+        return event
+      }
     }
+    .onDisappear { if let clicks { NSEvent.removeMonitor(clicks) } }
   }
 
   private var orgItems: [MenuItem] {
