@@ -412,7 +412,6 @@ struct ColumnView: View {
       full.frame(width: density.columnWidth - 8).opacity(shrunk ? 0 : 1).allowsHitTesting(!shrunk)
       strip.opacity(shrunk ? 1 : 0).allowsHitTesting(shrunk)
     }
-    .onHover { hovering = $0 }
     .padding(4)
     .frame(width: shrunk ? Self.stripWidth : density.columnWidth, alignment: .top)
     // Deferred a turn: inside the drop's transaction (animations disabled) a nested withAnimation is also disabled.
@@ -420,6 +419,9 @@ struct ColumnView: View {
       Task { @MainActor in withAnimation(.spring(duration: 0.32, bounce: 0.08)) { self.shrunk = now } }
     }
     .clipped()
+    // After the width frame: the ZStack inside stays a full column wide while the column is a strip,
+    // so hover tracked there showed this column's + while the pointer was over the next column.
+    .onHover { hovering = $0 }
     .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
     .dragFrame(column.name, in: \.columns, drag.frames)

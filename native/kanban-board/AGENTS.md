@@ -285,6 +285,10 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 ## Gotchas
 
+- Track column hover (`ColumnView.onHover`) after the width frame and `.clipped()`. The ZStack inside keeps the full
+  column width while the column is a strip, and `.clipped()` does not clip hit testing, so hover tracked inside it
+  showed a strip column's `+` while the pointer was over the next column.
+
 - A view must read the state it shows. The Meeting cards app chips read `CalendarSource.apps` (UserDefaults) while
   clicks wrote an unread `@State` copy, so SwiftUI never redrew them and the chips looked dead. Read the `@State` copy.
 
