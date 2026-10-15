@@ -243,12 +243,13 @@ async function setScopeStatus(app, { org, project, active }, path = SCOPE_NOTE) 
   return `ok ${org}${project ? ` / ${project}` : ''}: ${active ? 'active' : 'inactive'}`;
 }
 
-// Values for the `source` frontmatter of an LLM-created task note.
-const TASK_SOURCES = ['claude', 'chatgpt'];
+// Values for the `source` frontmatter of a created task note: the LLM, or `calendar` for a meeting card.
+const TASK_SOURCES = ['claude', 'chatgpt', 'calendar'];
 
 function taskNote({ text, org, project, col, stamp, source }) {
   const body = String(text).replace(/\s+/g, ' ').trim();
-  return `---\norg:\n  - ${JSON.stringify(`[[${org}]]`)}\nprojects:\n  - ${JSON.stringify(`[[${project}]]`)}\nsource: ${source}\n---\n\n- [ ] ${body} #kb/${col.toLowerCase()}\n  %% kb ${stamp} Backlog > ${col} %%\n`;
+  const projects = project ? `projects:\n  - ${JSON.stringify(`[[${project}]]`)}\n` : '';
+  return `---\norg:\n  - ${JSON.stringify(`[[${org}]]`)}\n${projects}source: ${source}\n---\n\n- [ ] ${body} #kb/${col.toLowerCase()}\n  %% kb ${stamp} Backlog > ${col} %%\n`;
 }
 
 function relAge(iso) {
@@ -740,10 +741,14 @@ function buildApi(plugin) {
       const source = String(opts.source || '').toLowerCase();
       if (!TASK_SOURCES.includes(source)) throw new Error(`source must be one of: ${TASK_SOURCES.join(', ')}`);
       const rows = await scopeRows(plugin.app, { all: true, scopeNote: opts.scopeNote });
+      // No project: the org alone must exist and be active (meeting cards).
+      const noProject = !String(opts.project || '').trim();
       const row = rows.find(x => x.org.toLowerCase() === String(opts.org || '').toLowerCase()
-        && x.project.toLowerCase() === String(opts.project || '').toLowerCase());
+        && (noProject || x.project.toLowerCase() === String(opts.project || '').toLowerCase()));
       if (!row) throw new Error(`unknown scope: ${opts.org || '?'} / ${opts.project || '?'}`);
-      if (row.status === 'inactive') throw new Error(`inactive scope: ${row.org} / ${row.project}`);
+      if (noProject ? scopeOrgInactive(scopeRules(plugin.app, opts.scopeNote || SCOPE_NOTE), row.org) : row.status === 'inactive')
+        throw new Error(`inactive scope: ${row.org} / ${noProject ? '-' : row.project}`);
+      const project = noProject ? '' : row.project;
       const config = makeConfig({}, plugin);
       const col = config.columns.find(x => x.name.toLowerCase() === String(opts.col || 'Backlog').toLowerCase());
       if (!col) throw new Error('unknown col: ' + opts.col);
@@ -754,10 +759,10 @@ function buildApi(plugin) {
       }
       if (plugin.app.vault.getAbstractFileByPath(filePath)) throw new Error('no free daily-note timestamp');
       const stamp = stampWrite(stampNow());
-      const note = taskNote({ text, org: row.org, project: row.project, col: col.name, stamp, source });
+      const note = taskNote({ text, org: row.org, project, col: col.name, stamp, source });
       await plugin.app.vault.create(filePath, note);
       const line = note.split('\n').findIndex(x => x.startsWith('- [ ] '));
-      return `${filePath}\t${line}\t${row.org}\t${row.project}\t${col.name}\t${text}`;
+      return `${filePath}\t${line}\t${row.org}\t${project}\t${col.name}\t${text}`;
     },
 
     // List available methods.
@@ -778,7 +783,7 @@ function buildApi(plugin) {
         'scopes(opts?)            active org/project combinations; opts: all,query,scopeNote',
         'scopeCatalog()           orgs with projects and inherited activity settings',
         'setScopeStatus(opts)     set one organization or organization/project active state',
-        'createTask(opts)         create a validated task note; opts: text,org,project,source(claude|chatgpt),col',
+        'createTask(opts)         create a validated task note; opts: text,org,project(optional),source(claude|chatgpt|calendar),col',
         'moveTask(file,line,col)  move a task to a column',
         'moveTasks(refs,col)      move several file:line refs to a column',
         'rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first',

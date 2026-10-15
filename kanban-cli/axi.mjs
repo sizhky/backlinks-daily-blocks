@@ -214,11 +214,11 @@ function cmdScopes(argv) {
 
 function cmdCreate(argv) {
   const { f, pos } = parseFlags(argv);
-  if (f.help || !pos[0] || !f.org || !f.project || !f.source) return console.log(
-    'usage: kanban create <text> --org <name> --project <name> --source <claude|chatgpt> [--col <name>] [--scope-note <path>]\n' +
+  if (f.help || !pos[0] || !f.org || !f.source) return console.log(
+    'usage: kanban create <text> --org <name> [--project <name>] --source <claude|chatgpt|calendar> [--col <name>] [--scope-note <path>]\n' +
     'Create one task after validating its active organization/project combination.\n' +
     '--source names the LLM that creates the task; it is written as frontmatter `source`.');
-  const arg = { text: pos[0], org: f.org, project: f.project, source: f.source, col: f.col, scopeNote: f['scope-note'] };
+  const arg = { text: pos[0], org: f.org, project: f.project || '', source: f.source, col: f.col, scopeNote: f['scope-note'] };
   const [file, line, org, project, col, body] = kb(`createTask(${JSON.stringify(arg)})`).split('\t');
   console.log(toon('created', ['ref', 'org', 'project', 'col', 'body'], [{ ref: `${file}:${line}`, org, project, col, body }]));
 }

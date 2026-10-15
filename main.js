@@ -3602,15 +3602,16 @@ var require_api = __commonJS({
       });
       return `ok ${org}${project ? ` / ${project}` : ""}: ${active ? "active" : "inactive"}`;
     }
-    var TASK_SOURCES = ["claude", "chatgpt"];
+    var TASK_SOURCES = ["claude", "chatgpt", "calendar"];
     function taskNote({ text, org, project, col, stamp, source }) {
       const body = String(text).replace(/\s+/g, " ").trim();
+      const projects = project ? `projects:
+  - ${JSON.stringify(`[[${project}]]`)}
+` : "";
       return `---
 org:
   - ${JSON.stringify(`[[${org}]]`)}
-projects:
-  - ${JSON.stringify(`[[${project}]]`)}
-source: ${source}
+${projects}source: ${source}
 ---
 
 - [ ] ${body} #kb/${col.toLowerCase()}
@@ -4081,9 +4082,12 @@ source: ${source}
           const source = String(opts.source || "").toLowerCase();
           if (!TASK_SOURCES.includes(source)) throw new Error(`source must be one of: ${TASK_SOURCES.join(", ")}`);
           const rows = await scopeRows(plugin.app, { all: true, scopeNote: opts.scopeNote });
-          const row = rows.find((x) => x.org.toLowerCase() === String(opts.org || "").toLowerCase() && x.project.toLowerCase() === String(opts.project || "").toLowerCase());
+          const noProject = !String(opts.project || "").trim();
+          const row = rows.find((x) => x.org.toLowerCase() === String(opts.org || "").toLowerCase() && (noProject || x.project.toLowerCase() === String(opts.project || "").toLowerCase()));
           if (!row) throw new Error(`unknown scope: ${opts.org || "?"} / ${opts.project || "?"}`);
-          if (row.status === "inactive") throw new Error(`inactive scope: ${row.org} / ${row.project}`);
+          if (noProject ? scopeOrgInactive(scopeRules(plugin.app, opts.scopeNote || SCOPE_NOTE), row.org) : row.status === "inactive")
+            throw new Error(`inactive scope: ${row.org} / ${noProject ? "-" : row.project}`);
+          const project = noProject ? "" : row.project;
           const config = makeConfig2({}, plugin);
           const col = config.columns.find((x) => x.name.toLowerCase() === String(opts.col || "Backlog").toLowerCase());
           if (!col) throw new Error("unknown col: " + opts.col);
@@ -4094,10 +4098,10 @@ source: ${source}
           }
           if (plugin.app.vault.getAbstractFileByPath(filePath)) throw new Error("no free daily-note timestamp");
           const stamp = stampWrite(stampNow());
-          const note = taskNote({ text, org: row.org, project: row.project, col: col.name, stamp, source });
+          const note = taskNote({ text, org: row.org, project, col: col.name, stamp, source });
           await plugin.app.vault.create(filePath, note);
           const line = note.split("\n").findIndex((x) => x.startsWith("- [ ] "));
-          return `${filePath}	${line}	${row.org}	${row.project}	${col.name}	${text}`;
+          return `${filePath}	${line}	${row.org}	${project}	${col.name}	${text}`;
         },
         // List available methods.
         help() {
@@ -4117,7 +4121,7 @@ source: ${source}
             "scopes(opts?)            active org/project combinations; opts: all,query,scopeNote",
             "scopeCatalog()           orgs with projects and inherited activity settings",
             "setScopeStatus(opts)     set one organization or organization/project active state",
-            "createTask(opts)         create a validated task note; opts: text,org,project,source(claude|chatgpt),col",
+            "createTask(opts)         create a validated task note; opts: text,org,project(optional),source(claude|chatgpt|calendar),col",
             "moveTask(file,line,col)  move a task to a column",
             "moveTasks(refs,col)      move several file:line refs to a column",
             "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
