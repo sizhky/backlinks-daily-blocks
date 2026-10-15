@@ -36,6 +36,7 @@ struct KanbanBoardApp: App {
       }
       .coordinateSpace(.named(MenuController.space))
       .overlay { if store.paletteOpen { CommandPalette() } }
+      .overlay { if let column = store.newCardColumn { NewCardForm(column: column) } }
       .overlay { MenuHost() }
       .frame(width: geo.size.width / zoom, height: geo.size.height / zoom)
       .scaleEffect(zoom, anchor: .topLeading)

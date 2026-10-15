@@ -397,14 +397,12 @@ struct ColumnView: View {
 
   /// An empty column shrinks to a slim strip in place. A drag over it only highlights the strip;
   /// the column widens after the drop puts a card in it. A collapsed column (`BoardStore.isSink`) stays a strip.
-  private var collapsed: Bool { !composing && (column.cards.isEmpty || store.isSink(column)) }
+  private var collapsed: Bool { column.cards.isEmpty || store.isSink(column) }
 
   /// `collapsed` as last animated. A drop ends its transaction with animations off, so the shrink
   /// follows `collapsed` through its own `withAnimation` instead of the transaction that caused it.
   @State private var shrunk: Bool?
   @State private var hovering = false
-  /// The new-card form is open; it keeps an empty or collapsed column wide.
-  @State private var composing = false
 
   var body: some View {
     let shrunk = shrunk ?? collapsed
@@ -461,7 +459,6 @@ struct ColumnView: View {
       ScrollViewReader { proxy in
         ScrollView {
           LazyVStack(alignment: .leading, spacing: density.cardGap) {
-            if composing { NewCardForm(column: column.name) { composing = false } }
             ForEach(drag.rows(column, store)) { row in
               if let card = row.card {
                 IssueCard(card: card).dragFrame(card.id, in: \.cards, drag.frames)
@@ -482,15 +479,15 @@ struct ColumnView: View {
     }
   }
 
-  /// Shown while the pointer is over the column; opens the new-card form at the top.
+  /// Shown while the pointer is over the column; opens the new-card modal for this column.
   private var addButton: some View {
-    Button { composing = true } label: {
+    Button { store.newCardColumn = column.name } label: {
       Image(systemName: "plus").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
         .frame(width: 22, height: 22).contentShape(Rectangle())
     }
     .buttonStyle(.pointing).help("New card in \(column.name)").accessibilityLabel("New card")
-    .opacity(hovering && !composing && drag.session == nil ? 1 : 0)
-    .allowsHitTesting(hovering && !composing)
+    .opacity(hovering && drag.session == nil ? 1 : 0)
+    .allowsHitTesting(hovering)
   }
 
   /// Highlight only a column the drag is entering from elsewhere.
@@ -809,62 +806,61 @@ struct GhostCard: View {
   }
 }
 
-/// New card at the top of a column. Org and project start from the view (`BoardStore.newCardScope`);
-/// return creates the card and keeps the form open for the next; escape, return on an empty title,
-/// or a click outside the form while the title is blank closes it.
+/// New-card modal over the board (`BoardStore.newCardColumn`). Org and project start from the view
+/// (`BoardStore.newCardScope`). Return creates the card and closes; escape closes; a click on the dimmed
+/// board closes only while the title is blank, so typed text is not lost to a stray click.
 struct NewCardForm: View {
   @EnvironmentObject var store: BoardStore
-  @EnvironmentObject var menu: MenuController
-  @AppStorage(Density.key) private var density: Density = .compact
   let column: String
-  let close: () -> Void
   @State private var title = ""
   @State private var org: String?
   @State private var project: String?
   @FocusState private var focused: Bool
-  @State private var inside = false
-  @State private var clicks: Any?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      TextField("Title", text: $title)
-        .textFieldStyle(.plain).font(.system(size: density.titleSize, weight: .semibold)).foregroundStyle(Palette.text)
-        .focused($focused)
-        .onSubmit(submit)
-        .onKeyPress(.escape) { close(); return .handled }
-      HStack(spacing: 6) {
-        MenuTrigger(items: { orgItems }) {
-          Pill(text: org ?? "Organization", color: org == nil ? Palette.amber : Palette.secondary) {
-            if let org { OrgIcon(name: org, size: 13).clipShape(.circle) } else { Image(systemName: "building.2").imageScale(.small) }
-          }
-        }
-        .help("Organization")
-        MenuTrigger(items: { projectItems }) {
-          Pill(text: project ?? "No project") {
-            if let project { Monogram(name: project, size: 13) } else { Image(systemName: "folder").imageScale(.small) }
-          }
-        }
-        .disabled(org == nil).help("Project")
-        Spacer()
+    ZStack(alignment: .top) {
+      Color.black.opacity(0.4).ignoresSafeArea().onTapGesture {
+        if title.trimmingCharacters(in: .whitespaces).isEmpty { close() }
       }
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 6) {
+          StatusGlyph(column: column, size: 13)
+          Text(column).font(.system(size: 12)).foregroundStyle(Palette.secondary)
+        }
+        TextField("Title", text: $title)
+          .textFieldStyle(.plain).font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text)
+          .focused($focused)
+          .onSubmit(submit)
+          .onKeyPress(.escape) { close(); return .handled }
+        HStack(spacing: 6) {
+          MenuTrigger(items: { orgItems }) {
+            Pill(text: org ?? "Organization", color: org == nil ? Palette.amber : Palette.secondary) {
+              if let org { OrgIcon(name: org, size: 13).clipShape(.circle) } else { Image(systemName: "building.2").imageScale(.small) }
+            }
+          }
+          .help("Organization")
+          MenuTrigger(items: { projectItems }) {
+            Pill(text: project ?? "No project") {
+              if let project { Monogram(name: project, size: 13) } else { Image(systemName: "folder").imageScale(.small) }
+            }
+          }
+          .disabled(org == nil).help("Project")
+          Spacer()
+          Button("Create card", action: submit)
+            .buttonStyle(.borderedProminent).tint(Palette.indigo).controlSize(.small)
+            .disabled(org == nil || title.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+      }
+      .padding(18)
+      .frame(width: 520)
+      .glassEffect(.regular, in: .rect(cornerRadius: 22))
+      .padding(.top, 110)
     }
-    .padding(.horizontal, density.cardPadH).padding(.vertical, density.cardPadV)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Palette.card, in: .rect(cornerRadius: 9))
-    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.indigo))
-    .onHover { inside = $0 }
     .onAppear {
       let scope = store.newCardScope
       org = scope.org; project = scope.project
       focused = true
-      // Pointer state, not focus: a click on empty board space does not take focus from the text field.
-      // A click on an org or project menu item lands while the menu is open, so it never closes the form.
-      clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
-        if !inside, !menu.isOpen, title.trimmingCharacters(in: .whitespaces).isEmpty { Task { @MainActor in close() } }
-        return event
-      }
     }
-    .onDisappear { if let clicks { NSEvent.removeMonitor(clicks) } }
   }
 
   private var orgItems: [MenuItem] {
@@ -881,12 +877,14 @@ struct NewCardForm: View {
       + store.projects(in: org ?? "").map { name in .action(name, checked: name == project) { project = name } }
   }
 
+  private func close() { store.newCardColumn = nil }
+
   private func submit() {
     let text = title.trimmingCharacters(in: .whitespaces)
     guard !text.isEmpty else { close(); return }
     guard let org else { return }
     store.addCard(text, org: org, project: project, in: column)
-    title = ""
+    close()
   }
 }
 

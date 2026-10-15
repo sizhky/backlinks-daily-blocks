@@ -101,7 +101,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - The board script ends with `@sweep<TAB>From<TAB>To` rows from `kb.sweeps()`. Each becomes a
   header button on From that calls `kb.sweep(from, to, refs)` with the column's visible cards only.
 - Created time is parsed from the note file name `YYYYMMDD-HHmm`. There is no created field.
-- Hovering a column shows `+` (header, or the strip of an empty column); it opens `NewCardForm` at the column top.
+- Hovering a column shows `+` (header, or the strip of an empty column); it sets `BoardStore.newCardColumn`, which shows the
+  `NewCardForm` modal over the board (same overlay pattern as the command palette, under `MenuHost` so its menus show).
   Org and project start from `NewCard.scope` (one workspace in scope or one `org:` term; one `project:` term, names
   resolved against the board). Return calls `kb.createTask` with source `kanban`; no org means no create.
 - Vault name for `obsidian://` links is `Vault` (`Style.swift`). Org logos:

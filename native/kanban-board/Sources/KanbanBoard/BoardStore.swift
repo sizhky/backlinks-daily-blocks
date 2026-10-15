@@ -76,6 +76,8 @@ final class BoardStore: ObservableObject {
   var dragActive = false
   @Published private(set) var notes: [String: String] = [:]
   @Published var paletteOpen = false
+  /// Column the new-card modal adds to; nil while it is closed.
+  @Published var newCardColumn: String?
   @Published var focusFilter = 0
   @Published var filterFocused = false
   @Published var paletteText = ""
