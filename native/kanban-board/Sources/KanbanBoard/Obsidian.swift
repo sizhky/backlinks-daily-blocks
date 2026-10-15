@@ -197,31 +197,68 @@ struct ObsidianClient {
 
   private static let pending = "KBR:pending", done = "KBR:ok:", failed = "KBR:err:"
 
-  private func run(_ arguments: [String]) async throws -> String {
-    guard !NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").isEmpty else {
-      throw ObsidianError("Obsidian is not running.")
+  /// Every `obsidian eval` process registers as `md.obsidian`, so the bundle id alone cannot tell the app
+  /// from a CLI call. Only the app has a renderer helper; a CLI call that forwards to it starts just the
+  /// GPU and network helpers (checked 2026-10-15).
+  static func isApp(_ pid: pid_t) -> Bool {
+    var kids = [pid_t](repeating: 0, count: 64)
+    let n = Int(proc_listchildpids(pid, &kids, Int32(kids.count * MemoryLayout<pid_t>.size)))
+    var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+    return kids.prefix(max(0, min(n, kids.count))).contains {
+      $0 > 0 && proc_pidpath($0, &path, UInt32(path.count)) > 0 && String(cString: path).contains("(Renderer)")
     }
+  }
+
+  static var appIsRunning: Bool {
+    NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").contains { isApp($0.processIdentifier) }
+  }
+
+  private func run(_ arguments: [String]) async throws -> String {
+    guard Self.appIsRunning else { throw ObsidianError("Obsidian is not running.") }
     return try await withCheckedThrowingContinuation { continuation in
       DispatchQueue.global().async {
-        let process = Process(), out = Pipe(), err = Pipe()
+        let process = Process(), out = Pipe(), err = Pipe(), once = Once(continuation)
         process.executableURL = URL(fileURLWithPath: Self.executable)
         process.arguments = arguments
         process.standardOutput = out
         process.standardError = err
-        do { try process.run() } catch { continuation.resume(throwing: error); return }
-        let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        do { try process.run() } catch { once.resume(throwing: error); return }
+        // A call made while Obsidian quits starts the app itself; ending it would quit Obsidian again.
+        let timeout = DispatchWorkItem {
+          guard process.isRunning else { return }
+          if Self.isApp(process.processIdentifier) {
+            once.resume(throwing: ObsidianError("obsidian eval started Obsidian instead of answering."))
+          } else {
+            process.terminate()
+          }
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: timeout)
         let stdout = out.fileHandleForReading.readDataToEndOfFile()
         let stderr = err.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         timeout.cancel()
         if process.terminationStatus == 0 {
-          continuation.resume(returning: String(decoding: stdout, as: UTF8.self))
+          once.resume(returning: String(decoding: stdout, as: UTF8.self))
         } else {
           let message = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-          continuation.resume(throwing: ObsidianError(message.isEmpty ? "obsidian eval failed." : message))
+          once.resume(throwing: ObsidianError(message.isEmpty ? "obsidian eval failed." : message))
         }
       }
     }
+  }
+}
+
+/// Resumes a continuation at most once: the timeout and the process exit can both answer.
+private final class Once: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuation: CheckedContinuation<String, Error>?
+  init(_ continuation: CheckedContinuation<String, Error>) { self.continuation = continuation }
+  func resume(returning value: String) { take()?.resume(returning: value) }
+  func resume(throwing error: Error) { take()?.resume(throwing: error) }
+  private func take() -> CheckedContinuation<String, Error>? {
+    lock.lock(); defer { lock.unlock() }
+    let c = continuation
+    continuation = nil
+    return c
   }
 }

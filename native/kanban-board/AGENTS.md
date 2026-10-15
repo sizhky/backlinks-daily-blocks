@@ -308,6 +308,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   and keeps reporting its frame; with one shared slot the drop flew back to the home column first.
 - Board shortcuts (`BoardView.board`) fire for any focused descendant, including the Inspector note editor. They return
   `.ignored` while an `NSTextView` is first responder; otherwise Return opened Obsidian mid-typing.
+- Every `obsidian eval` process registers as `md.obsidian`, and a call made while Obsidian quits starts the full
+  app itself. The old 30 s timeout then ended that process, which quit Obsidian, and the next call started it again
+  (Obsidian restarted every few minutes, 2026-10-15). `ObsidianClient.isApp` (a renderer helper child) is the app test:
+  `run` needs a running app, and its timeout never ends a process that became the app.
 - `make run` can fail with launch error -600 if `open` races `pkill`; the Makefile sleeps 1 s.
 - Scroll views clip overlays (the rail badge); give the content side padding.
 - A bare `Color.clear.frame(width:)` in an HStack is flexible in height and steals space from a sibling
