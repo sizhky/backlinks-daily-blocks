@@ -397,18 +397,22 @@ struct ColumnView: View {
 
   /// An empty column shrinks to a slim strip in place. A drag over it only highlights the strip;
   /// the column widens after the drop puts a card in it. A collapsed column (`BoardStore.isSink`) stays a strip.
-  private var collapsed: Bool { column.cards.isEmpty || store.isSink(column) }
+  private var collapsed: Bool { !composing && (column.cards.isEmpty || store.isSink(column)) }
 
   /// `collapsed` as last animated. A drop ends its transaction with animations off, so the shrink
   /// follows `collapsed` through its own `withAnimation` instead of the transaction that caused it.
   @State private var shrunk: Bool?
+  @State private var hovering = false
+  /// The new-card form is open; it keeps an empty or collapsed column wide.
+  @State private var composing = false
 
   var body: some View {
     let shrunk = shrunk ?? collapsed
     ZStack(alignment: .top) {
       full.frame(width: density.columnWidth - 8).opacity(shrunk ? 0 : 1).allowsHitTesting(!shrunk)
-      strip.opacity(shrunk ? 1 : 0).allowsHitTesting(shrunk && store.isSink(column))
+      strip.opacity(shrunk ? 1 : 0).allowsHitTesting(shrunk)
     }
+    .onHover { hovering = $0 }
     .padding(4)
     .frame(width: shrunk ? Self.stripWidth : density.columnWidth, alignment: .top)
     // Deferred a turn: inside the drop's transaction (animations disabled) a nested withAnimation is also disabled.
@@ -431,13 +435,14 @@ struct ColumnView: View {
       if !column.cards.isEmpty {
         Text("\(column.cards.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
       }
+      addButton
     }
     // Own width, not maxWidth: the ZStack is a full column wide and `.clipped()` does not clip hit testing,
     // so a wider strip took clicks on the neighbouring columns and expanded itself.
     .frame(width: Self.stripWidth - 8, alignment: .top).frame(maxHeight: .infinity, alignment: .top)
     .contentShape(Rectangle())
     .onTapGesture { store.setSink(column, false) }
-    .help("Expand column")
+    .help(store.isSink(column) ? "Expand column" : "")
   }
 
   private var full: some View {
@@ -447,12 +452,14 @@ struct ColumnView: View {
         Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
         Text("\(column.cards.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.muted)
         Spacer()
+        addButton
         ColumnMenu(column: column)
       }
       .padding(.horizontal, 8).padding(.top, 6)
       ScrollViewReader { proxy in
         ScrollView {
           LazyVStack(alignment: .leading, spacing: density.cardGap) {
+            if composing { NewCardForm(column: column.name) { composing = false } }
             ForEach(drag.rows(column, store)) { row in
               if let card = row.card {
                 IssueCard(card: card).dragFrame(card.id, in: \.cards, drag.frames)
@@ -471,6 +478,17 @@ struct ColumnView: View {
         }
       }
     }
+  }
+
+  /// Shown while the pointer is over the column; opens the new-card form at the top.
+  private var addButton: some View {
+    Button { composing = true } label: {
+      Image(systemName: "plus").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
+        .frame(width: 22, height: 22).contentShape(Rectangle())
+    }
+    .buttonStyle(.pointing).help("New card in \(column.name)").accessibilityLabel("New card")
+    .opacity(hovering && !composing && drag.session == nil ? 1 : 0)
+    .allowsHitTesting(hovering && !composing)
   }
 
   /// Highlight only a column the drag is entering from elsewhere.
@@ -786,6 +804,75 @@ struct GhostCard: View {
       .frame(height: drag.session?.size.height ?? 78)
       .dragFrame(column, in: \.ghosts, drag.frames)
       .transition(.opacity)
+  }
+}
+
+/// New card at the top of a column. Org and project start from the view (`BoardStore.newCardScope`);
+/// return creates the card and keeps the form open for the next; escape or return on an empty title closes it.
+struct NewCardForm: View {
+  @EnvironmentObject var store: BoardStore
+  @AppStorage(Density.key) private var density: Density = .compact
+  let column: String
+  let close: () -> Void
+  @State private var title = ""
+  @State private var org: String?
+  @State private var project: String?
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      TextField("Title", text: $title)
+        .textFieldStyle(.plain).font(.system(size: density.titleSize, weight: .semibold)).foregroundStyle(Palette.text)
+        .focused($focused)
+        .onSubmit(submit)
+        .onKeyPress(.escape) { close(); return .handled }
+      HStack(spacing: 6) {
+        MenuTrigger(items: { orgItems }) {
+          Pill(text: org ?? "Organization", color: org == nil ? Palette.amber : Palette.secondary) {
+            if let org { OrgIcon(name: org, size: 13).clipShape(.circle) } else { Image(systemName: "building.2").imageScale(.small) }
+          }
+        }
+        .help("Organization")
+        MenuTrigger(items: { projectItems }) {
+          Pill(text: project ?? "No project") {
+            if let project { Monogram(name: project, size: 13) } else { Image(systemName: "folder").imageScale(.small) }
+          }
+        }
+        .disabled(org == nil).help("Project")
+        Spacer()
+      }
+    }
+    .padding(.horizontal, density.cardPadH).padding(.vertical, density.cardPadV)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Palette.card, in: .rect(cornerRadius: 9))
+    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.indigo))
+    .onAppear {
+      let scope = store.newCardScope
+      org = scope.org; project = scope.project
+      focused = true
+    }
+  }
+
+  private var orgItems: [MenuItem] {
+    store.orgs.map(\.name).filter { $0 != Filter.noOrg }.map { name in
+      .action(name, checked: name == org) {
+        org = name
+        if let p = project, !store.projects(in: name).contains(p) { project = nil }
+      }
+    }
+  }
+
+  private var projectItems: [MenuItem] {
+    [.action("No project", checked: project == nil) { project = nil }, .separator]
+      + store.projects(in: org ?? "").map { name in .action(name, checked: name == project) { project = name } }
+  }
+
+  private func submit() {
+    let text = title.trimmingCharacters(in: .whitespaces)
+    guard !text.isEmpty else { close(); return }
+    guard let org else { return }
+    store.addCard(text, org: org, project: project, in: column)
+    title = ""
   }
 }
 

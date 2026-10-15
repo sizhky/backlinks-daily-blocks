@@ -652,6 +652,26 @@ final class BoardStore: ObservableObject {
   }
 
 
+  /// Org and project a new card takes from the workspace scope and the filter (`NewCard.scope`).
+  var newCardScope: (org: String?, project: String?) {
+    NewCard.scope(orgScope: activeOrgs, terms: Query.parse(query), cards: columns.flatMap(\.cards))
+  }
+
+  /// Projects seen on the board under `org`, for the new-card project menu.
+  func projects(in org: String) -> [String] {
+    Set(columns.flatMap(\.cards).filter { $0.orgs.contains(org) }.flatMap(\.projects)).sorted()
+  }
+
+  /// Creates a card in `column`; the refresh after it shows the card.
+  func addCard(_ title: String, org: String, project: String?, in column: String) {
+    writeGen += 1
+    Task {
+      do { _ = try await client.createCard(title: title, org: org, project: project, column: column) }
+      catch { self.error = error.localizedDescription }
+      await refresh()
+    }
+  }
+
   /// Sweeps the cards visible in `column` (current scope and filter) to `target`.
   func sweep(_ column: Column, to target: String) {
     guard !column.cards.isEmpty else { return }

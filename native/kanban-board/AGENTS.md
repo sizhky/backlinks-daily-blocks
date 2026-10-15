@@ -23,6 +23,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
                        DayLine logs in <vault>/.activity/: ActiveStretch (YYYYMMDD-active.jsonl, card was active),
                        BreakSpan (YYYYMMDD-breaks.jsonl, break key / cup); parseLines/splitByDay/activeParts
+  NewCard.swift        NewCard.scope: org and project a card added on the board takes from the workspace scope and filter
   Meeting.swift        MeetingEvent (occurrence key, apps, next/when), CallApp, MeetingTracker (call -> create/resume/finish a meeting card)
   Report.swift         ReportCard.parse, Report.attribute/series/tree, Allocation, ReportNode; Stretch, Report.states/desktops (Reports tab)
 Sources/KanbanBoard/   SwiftUI app
@@ -100,6 +101,9 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - The board script ends with `@sweep<TAB>From<TAB>To` rows from `kb.sweeps()`. Each becomes a
   header button on From that calls `kb.sweep(from, to, refs)` with the column's visible cards only.
 - Created time is parsed from the note file name `YYYYMMDD-HHmm`. There is no created field.
+- Hovering a column shows `+` (header, or the strip of an empty column); it opens `NewCardForm` at the column top.
+  Org and project start from `NewCard.scope` (one workspace in scope or one `org:` term; one `project:` term, names
+  resolved against the board). Return calls `kb.createTask` with source `kanban`; no org means no create.
 - Vault name for `obsidian://` links is `Vault` (`Style.swift`). Org logos:
   `~/Vault/40-49 Areas/43 Orgs/<Org>/Logo.<ext>`, folder name equals the org name.
 - A change to `kb` output needs `kanban-cli/SKILL.md` updated in the plugin root.

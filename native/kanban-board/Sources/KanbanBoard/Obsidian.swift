@@ -129,10 +129,16 @@ struct ObsidianClient {
 
   /// Creates a meeting card in Doing (kb.createTask, source `calendar`, org only); returns its note file.
   func createMeeting(title: String, org: String) async throws -> String {
-    let opts: [String: String] = ["text": title, "org": org, "source": "calendar", "col": "Doing"]
+    try await createCard(title: title, org: org, project: nil, column: "Doing", source: "calendar")
+  }
+
+  /// Creates a card (kb.createTask) in `column`; nil project leaves the note without one. Returns its note file.
+  func createCard(title: String, org: String, project: String?, column: String, source: String = "kanban") async throws -> String {
+    var opts: [String: String] = ["text": title, "org": org, "source": source, "col": column]
+    if let project { opts["project"] = project }
     let out = try await eval("kb.createTask(\(try js(opts)))")
     let file = (out.hasPrefix("=> ") ? String(out.dropFirst(3)) : out).split(separator: "\t").first.map(String.init) ?? ""
-    guard file.hasSuffix(".md") else { throw ObsidianError("No meeting card: " + String(out.prefix(120))) }
+    guard file.hasSuffix(".md") else { throw ObsidianError("No card created: " + String(out.prefix(120))) }
     return file
   }
 

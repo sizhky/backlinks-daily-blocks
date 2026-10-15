@@ -285,7 +285,7 @@ Inactive combinations are hidden unless `opts.all` is true. `opts.query` filters
 
 ### `kb.createTask(opts)` — create one validated task note
 Requires `text`, `org`, and `source`; `project` is optional; `col` defaults to `Backlog`.
-`source` names the creator: `claude`, `chatgpt`, or `calendar` (Kanban Board meeting cards). It is written as frontmatter `source`.
+`source` names the creator: `claude`, `chatgpt`, `calendar` (Kanban Board meeting cards), or `kanban` (a card added from a Kanban Board column). It is written as frontmatter `source`.
 The organization/project combination must exist and remain active in `kb.scopes()`. Without `project`,
 the org must exist and be active, and the note gets no `projects` frontmatter.
 Returns `file<TAB>line<TAB>org<TAB>project<TAB>column<TAB>body`.

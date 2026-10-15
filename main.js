@@ -3602,7 +3602,7 @@ var require_api = __commonJS({
       });
       return `ok ${org}${project ? ` / ${project}` : ""}: ${active ? "active" : "inactive"}`;
     }
-    var TASK_SOURCES = ["claude", "chatgpt", "calendar"];
+    var TASK_SOURCES = ["claude", "chatgpt", "calendar", "kanban"];
     function taskNote({ text, org, project, col, stamp, source }) {
       const body = String(text).replace(/\s+/g, " ").trim();
       const projects = project ? `projects:
@@ -4121,7 +4121,7 @@ ${projects}source: ${source}
             "scopes(opts?)            active org/project combinations; opts: all,query,scopeNote",
             "scopeCatalog()           orgs with projects and inherited activity settings",
             "setScopeStatus(opts)     set one organization or organization/project active state",
-            "createTask(opts)         create a validated task note; opts: text,org,project(optional),source(claude|chatgpt|calendar),col",
+            "createTask(opts)         create a validated task note; opts: text,org,project(optional),source(claude|chatgpt|calendar|kanban),col",
             "moveTask(file,line,col)  move a task to a column",
             "moveTasks(refs,col)      move several file:line refs to a column",
             "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
