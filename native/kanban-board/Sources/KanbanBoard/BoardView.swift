@@ -12,6 +12,7 @@ struct BoardView: View {
     HStack(spacing: 0) {
       VStack(spacing: 0) {
         BoardHeader()
+        TodayMeetings()
         Group { switch store.mode { case .board: ColumnsScroller(); case .list: ListMode(); case .logbook: LogbookMode() } }
           .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(DragController.space))
             .onChanged { drag.changed($0) }
@@ -58,6 +59,45 @@ struct BoardView: View {
     if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
     action()
     return .handled
+  }
+}
+
+/// Today's calendar meetings (`CalendarSource.today`) as one row of chips under the header: past ones
+/// dim, the running one marked, the next one with its countdown. Hidden when today has none.
+struct TodayMeetings: View {
+  @ObservedObject private var calendar = CalendarSource.shared
+
+  var body: some View {
+    if !calendar.today.isEmpty {
+      TimelineView(.periodic(from: .now, by: 30)) { ctx in
+        let next = MeetingEvent.next(calendar.today, now: ctx.date)
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 6) {
+            Text("TODAY").font(.system(size: 10.5, weight: .semibold)).tracking(0.4).foregroundStyle(Palette.muted)
+            ForEach(calendar.today, id: \.key) { m in chip(m, now: ctx.date, next: m.key == next?.key) }
+          }
+          .padding(.horizontal, 16).padding(.vertical, 6)
+        }
+        .overlay(alignment: .bottom) { Divider().overlay(Palette.hairline) }
+      }
+    }
+  }
+
+  private func chip(_ m: MeetingEvent, now: Date, next: Bool) -> some View {
+    let running = m.start <= now && now < m.end
+    let tint = Color(ProjectHues.pair(m.org).light)
+    return HStack(spacing: 5) {
+      Image(systemName: running ? "dot.radiowaves.left.and.right" : "calendar").foregroundStyle(tint)
+      Text(TimelineRowView.clock(m.start)).monospacedDigit().foregroundStyle(Palette.muted)
+      Text(m.title).lineLimit(1).foregroundStyle(running ? Palette.text : Palette.secondary)
+      if next { Text(m.when(now)).monospacedDigit().foregroundStyle(tint) }
+    }
+    .font(.system(size: 11.5, weight: .medium))
+    .padding(.horizontal, 7).padding(.vertical, 3.5)
+    .background(running ? tint.opacity(0.12) : Color.white.opacity(0.02), in: .rect(cornerRadius: 5))
+    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(running ? tint.opacity(0.5) : Palette.hairline))
+    .opacity(m.end <= now ? 0.45 : 1)
+    .help("\(m.title)\n\(m.org) · \(TimelineRowView.clock(m.start))–\(TimelineRowView.clock(m.end))")
   }
 }
 

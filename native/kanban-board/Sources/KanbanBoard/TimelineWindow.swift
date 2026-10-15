@@ -306,6 +306,7 @@ final class TimelineModel: ObservableObject {
 
 struct TimelineScreen: View {
   @EnvironmentObject var model: TimelineModel
+  @ObservedObject private var calendar = CalendarSource.shared
   @AppStorage("timeline.mode") private var mode = "calendar"
   @FocusState private var filterFocused: Bool
 
@@ -321,7 +322,7 @@ struct TimelineScreen: View {
         header.zIndex(1)
         Divider().overlay(Palette.hairline)
         CalendarDay(days: model.days, layouts: model.layouts, zoom: model.zoom, open: model.open(ref:), moveItems: model.moveItems,
-                    edit: { model.editStint($0, $1, to: $2) }, deleteBreak: model.deleteBreak)
+                    edit: { model.editStint($0, $1, to: $2) }, deleteBreak: model.deleteBreak, meetings: calendar.today)
           .overlay(alignment: .bottomLeading) { zoom.padding(12) }
       }
     }
@@ -549,6 +550,8 @@ struct CalendarDay: View {
   let edit: (DoingStint, StintEdge?, Date?) -> Void
   /// Deletes a finished break; right-click on its band.
   let deleteBreak: (BreakSpan) -> Void
+  /// Today's calendar meetings (`CalendarSource.today`), drawn as dashed outlines in today's Doing lane.
+  var meetings: [MeetingEvent] = []
   static let gutter = 64.0
   /// Fill of the parts of a Doing block when its card was the active task; the rest fills at 0.28.
   static let activeFill = 0.6
@@ -752,6 +755,15 @@ struct CalendarDay: View {
         block(gc, r, tint: Self.breakTint, title: r.width >= 60 ? b.title : nil, icon: nil,
               dur: TimelineScreen.dur(end.timeIntervalSince(b.start)) + (b.end > now ? "+" : ""), fill: 0.7)
       }
+      // Meetings: dashed outlines behind the stints, today only
+      if Calendar.current.isDateInToday(day) {
+        for m in meetings {
+          let y0 = y(m.start, day), y1 = y(m.end, day)
+          guard y1 > y0, visible(y0, y1) else { continue }
+          let r = CGRect(x: s.dx, y: y0 - top, width: s.dw, height: y1 - y0).insetBy(dx: 0.5, dy: 0.5)
+          meeting(gc, r, m, done: m.end <= now)
+        }
+      }
       // Doing
       for (k, base) in layout.stints.enumerated() {
         let st = preview(base, day)
@@ -777,6 +789,20 @@ struct CalendarDay: View {
         }
       }
     }
+  }
+
+  /// A calendar meeting: org-tinted dashed outline, faint fill, title and start time; past ones dimmer.
+  private func meeting(_ gc: GraphicsContext, _ r: CGRect, _ m: MeetingEvent, done: Bool) {
+    let tint = Color(ProjectHues.pair(m.org).light).opacity(done ? 0.45 : 0.9)
+    let shape = Path(roundedRect: r, cornerRadius: min(4, r.height / 2), style: .continuous)
+    gc.fill(shape, with: .color(tint.opacity(0.06)))
+    gc.stroke(shape, with: .color(tint), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+    guard r.height >= 16, r.width >= 60 else { return }
+    var inner = gc
+    inner.clip(to: shape)
+    let label = Text(Image(systemName: "calendar")) + Text(" " + TimelineRowView.clock(m.start) + "  " + m.title)
+    inner.draw(label.font(.system(size: 11, weight: .medium)).foregroundStyle(tint),
+               in: CGRect(x: r.minX + 6, y: r.minY + 3, width: r.width - 12, height: 14))
   }
 
   private func block(_ gc: GraphicsContext, _ r: CGRect, tint: Color, title: String?, icon: String?, dur: String, fill: Double = 0.22,
@@ -926,6 +952,7 @@ struct CalendarDay: View {
     case activity(ActivityBlock, day: Date)
     case doing(DoingStint, others: Int, day: Date)
     case pause(BreakSpan, day: Date)
+    case meeting(MeetingEvent)
   }
 
   private func item(at p: CGPoint) -> Item? {
@@ -946,6 +973,7 @@ struct CalendarDay: View {
       }
       // Break bands sit behind the stints, so a stint over one wins.
       if let b = layout.marks.breaks.first(where: { $0.start <= t && min($0.end, Date()) >= t }) { return .pause(b, day: days[i]) }
+      if Calendar.current.isDateInToday(days[i]), let m = meetings.first(where: { $0.start <= t && $0.end >= t }) { return .meeting(m) }
     }
     return nil
   }
@@ -958,6 +986,8 @@ struct CalendarDay: View {
     case .doing(let st, _, let day):
       let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
       return "\(st.title)\n\(when)\(TimelineRowView.clock(st.start))–\(TimelineRowView.clock(st.end)) · \(TimelineScreen.dur(st.end.timeIntervalSince(st.start)))\(st.open ? " (running)" : "")"
+    case .meeting(let m):
+      return "\(m.title)\n\(m.org) · \(TimelineRowView.clock(m.start))–\(TimelineRowView.clock(m.end)) · \(m.when(Date()))"
     case .pause(let b, let day):
       let when = single ? "" : day.formatted(.dateTime.weekday(.abbreviated).day()) + " "
       let end = min(b.end, Date())

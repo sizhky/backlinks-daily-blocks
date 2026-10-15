@@ -23,7 +23,7 @@ Sources/KanbanCore/    pure logic, no UI, fully unit-tested
   Timeline.swift       ActivityLog.parse/rows/totals/unionSeconds/stints/blocks/sessions/lanes, TimelineRow, DoingStint
                        DayLine logs in <vault>/.activity/: ActiveStretch (YYYYMMDD-active.jsonl, card was active),
                        BreakSpan (YYYYMMDD-breaks.jsonl, break key / cup); parseLines/splitByDay/activeParts
-  Meeting.swift        MeetingEvent (occurrence key, isTeams), MeetingTracker (call -> create/resume/finish a meeting card)
+  Meeting.swift        MeetingEvent (occurrence key, apps, next/when), CallApp, MeetingTracker (call -> create/resume/finish a meeting card)
   Report.swift         ReportCard.parse, Report.attribute/series/tree, Allocation, ReportNode; Stretch, Report.states/desktops (Reports tab)
 Sources/KanbanBoard/   SwiftUI app
   Obsidian.swift       the only file that talks to Obsidian (ObsidianClient)
@@ -395,6 +395,10 @@ Before building or wording any UI, ask what Apple would do and do that.
 - `CallDetector.calls`: the apps with a process that records input (`kAudioProcessPropertyIsRunningInput`), matched by
   bundle prefix (`CallDetector.bundles`). Teams recorded as `com.microsoft.teams2.modulehost` on 2026-10-15. Meet is any
   `Probe.browsers` browser or Safari's `com.apple.WebKit.GPU` recording, so a browser call of another kind counts as Meet.
+- Today's meetings: `CalendarSource.today` holds every timed event of today on a mapped calendar (call apps or not),
+  reloaded each refresh (`loadToday`). The Timeline draws them as dashed org-tinted outlines in today's Doing lane,
+  behind the stints; the board shows them as a TODAY chip row under the header (`TodayMeetings`); the widget's
+  "Next meeting" part (`WidgetPart.meeting`) shows the running or next one (`MeetingEvent.next`, `when`).
 - Each refresh, `MeetingTracker.tick` creates the card in Doing (`kb.createTask`, source `calendar`, no project),
   resumes it on a rejoin, and moves it to Done after 60 s with no call in the event's apps. The call card beats pins and rules in
   `Focus.active` and takes over at once; a call also counts as keep-active, so no input is not idle.

@@ -519,6 +519,7 @@ final class BoardStore: ObservableObject {
   /// A call in one of a calendar meeting's apps puts that meeting's card in Doing; a silent call moves it to Done.
   private func trackMeetings() {
     let now = Date()
+    calendar.loadToday(now: now)
     let actions = meetings.tick(now: now, calls: CallDetector.calls, events: calendar.events(around: now))
     saveMeetings()
     guard !actions.isEmpty else { return }

@@ -31,6 +31,7 @@ final class CalendarSource: ObservableObject {
   func load() {
     store.refreshSourcesIfNecessary()
     calendars = store.calendars(for: .event).sorted { ($0.source.title, $0.title) < ($1.source.title, $1.title) }
+    loadToday()
   }
 
   static var orgs: [String: String] {
@@ -52,18 +53,34 @@ final class CalendarSource: ObservableObject {
 
   static func apps(_ calendar: String) -> Set<CallApp> { apps[calendar] ?? [.teams] }
 
-  /// Meetings around `now` on calendars mapped to an org, each with the call apps it can be held in.
+  /// Today's timed events on calendars mapped to an org, past and upcoming (`loadToday`); the Timeline,
+  /// the board strip and the widget show them. An event with no call apps still shows.
+  @Published private(set) var today: [MeetingEvent] = []
+
+  func loadToday(now: Date = Date()) {
+    let start = Calendar.current.startOfDay(for: now)
+    let fresh = fetch(from: start, to: Calendar.current.date(byAdding: .day, value: 1, to: start) ?? now)
+      .sorted { ($0.start, $0.title) < ($1.start, $1.title) }
+    if fresh != today { today = fresh }
+  }
+
+  /// Meetings around `now` that a call can hold: those with at least one call app.
   func events(around now: Date) -> [MeetingEvent] {
+    let pad = MeetingTracker.late + 3600
+    return fetch(from: now.addingTimeInterval(-pad), to: now.addingTimeInterval(pad)).filter { !$0.apps.isEmpty }
+  }
+
+  /// Timed events between `from` and `to` on calendars mapped to an org, each with the call apps it can be held in.
+  private func fetch(from: Date, to: Date) -> [MeetingEvent] {
     let orgs = Self.orgs
     guard access == .fullAccess, !orgs.isEmpty else { return [] }
     let cals = store.calendars(for: .event).filter { orgs[$0.calendarIdentifier] != nil }
     guard !cals.isEmpty else { return [] }
-    let pad = MeetingTracker.late + 3600
-    let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-pad), end: now.addingTimeInterval(pad), calendars: cals)
+    let predicate = store.predicateForEvents(withStart: from, end: to, calendars: cals)
     return store.events(matching: predicate).compactMap { e in
       let cal = e.calendar.calendarIdentifier
+      guard !e.isAllDay, let org = orgs[cal] else { return nil }
       let apps = CallApp.apps([e.url?.absoluteString, e.location, e.notes], allowed: Self.apps(cal))
-      guard !e.isAllDay, let org = orgs[cal], !apps.isEmpty else { return nil }
       let id = e.calendarItemExternalIdentifier ?? e.calendarItemIdentifier
       return MeetingEvent(id: id, title: e.title ?? "Meeting", org: org, start: e.startDate, end: e.endDate, apps: apps)
     }

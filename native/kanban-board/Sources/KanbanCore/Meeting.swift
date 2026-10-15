@@ -45,6 +45,24 @@ public struct MeetingEvent: Equatable, Codable, Sendable {
   }
 }
 
+extension MeetingEvent {
+  /// The running meeting, else the next one today: what the widget and board strip lead with.
+  /// ```
+  /// 10:00-10:30, 11:00-11:30 at 10:10 -> 10:00; at 10:40 -> 11:00; at 11:40 -> nil
+  /// ```
+  public static func next(_ events: [MeetingEvent], now: Date) -> MeetingEvent? {
+    events.filter { $0.end > now }.min { ($0.start, $0.end) < ($1.start, $1.end) }
+  }
+
+  /// A short clock relation to `now`: "in 25m", "now · 12m left", "ended".
+  public func when(_ now: Date) -> String {
+    if now >= end { return "ended" }
+    let mins = { (t: TimeInterval) in Int((t / 60).rounded(.up)) }
+    func span(_ m: Int) -> String { m < 60 ? "\(m)m" : "\(m / 60)h" + (m % 60 == 0 ? "" : " \(m % 60)m") }
+    return now >= start ? "now · \(span(mins(end.timeIntervalSince(now)))) left" : "in \(span(mins(start.timeIntervalSince(now))))"
+  }
+}
+
 /// Meeting cards: while a call runs in one of a meeting's apps, that meeting has its own card in Doing;
 /// the card goes to Done once the call has been silent for `grace` seconds.
 public struct MeetingTracker: Codable, Equatable, Sendable {

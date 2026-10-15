@@ -11,6 +11,8 @@ enum WidgetKey {
   static let title = "widget.title", desktop = "widget.desktop", url = "widget.url"
   /// The finish time of the Doing cards' remaining guesses.
   static let finish = "widget.finish"
+  /// The running or next calendar meeting of today (`CalendarSource.today`).
+  static let meeting = "widget.meeting"
   /// The desktop number in small type under a named desktop.
   static let desktopNumber = "widget.desktop.number"
   static let width = "widget.width"
@@ -176,6 +178,7 @@ struct WidgetView: View {
   /// Reports the height the content needs; nil in previews.
   var onHeight: ((CGFloat) -> Void)? = nil
   @ObservedObject private var prefs = WidgetPrefs.shared
+  @ObservedObject private var calendar = CalendarSource.shared
   @AppStorage(WidgetKey.width) private var width = 240.0
   @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
   @AppStorage(WidgetKey.font) private var family = ""
@@ -201,6 +204,7 @@ struct WidgetView: View {
     // height (measured) sets how far the panel grows when it needs more than the square.
     VStack(spacing: width * 0.04) {
       header
+      meeting
       session
       finish
       hero
@@ -257,6 +261,20 @@ struct WidgetView: View {
         .truncationMode(p == .window || p == .url ? .middle : .tail)
         .multilineTextAlignment(a.text)
         .frame(maxWidth: .infinity, alignment: a.frame)
+    }
+  }
+
+  /// Today's running or next meeting: start, title, and how far off it is.
+  @ViewBuilder private var meeting: some View {
+    if prefs.shown(.meeting), !calendar.today.isEmpty {
+      TimelineView(.periodic(from: .now, by: 30)) { ctx in
+        if let m = MeetingEvent.next(calendar.today, now: ctx.date) {
+          part(.meeting, lines: 2) {
+            Text(Image(systemName: "calendar")) + Text(" \(TimelineRowView.clock(m.start)) \(m.title) · \(m.when(ctx.date))")
+          }
+          .opacity(0.75)
+        }
+      }
     }
   }
 

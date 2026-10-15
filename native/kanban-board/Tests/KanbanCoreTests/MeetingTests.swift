@@ -23,6 +23,16 @@ final class MeetingTests: XCTestCase {
     XCTAssertEqual(m.tick(now: at(3.5), calls: [.zoom], events: [a]), [.finish(file: "a.md")])
   }
 
+  func testNextIsRunningElseUpcoming() {
+    XCTAssertEqual(MeetingEvent.next([b, a], now: at(10))?.key, a.key)
+    XCTAssertEqual(MeetingEvent.next([b, a], now: at(30))?.key, b.key, "a ended at 30")
+    XCTAssertNil(MeetingEvent.next([a, b], now: at(60)))
+    XCTAssertEqual(a.when(at(-25)), "in 25m")
+    XCTAssertEqual(a.when(at(-90)), "in 1h 30m")
+    XCTAssertEqual(a.when(at(18)), "now · 12m left")
+    XCTAssertEqual(a.when(at(30)), "ended")
+  }
+
   func testPickUsesPaddedWindowAndLatestStart() {
     XCTAssertEqual(MeetingTracker.pick([a], now: at(-4))?.key, a.key, "call opened 4 min early")
     XCTAssertNil(MeetingTracker.pick([a], now: at(-6)))
