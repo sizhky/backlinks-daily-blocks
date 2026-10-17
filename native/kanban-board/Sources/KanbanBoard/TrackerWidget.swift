@@ -251,6 +251,7 @@ struct WidgetView: View {
     }
     .animation(.spring(duration: 0.3, bounce: 0.15), value: toast)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    .onPreferenceChange(WidgetTargets.self) { grip.targets = $0 }
     .onChange(of: store.widgetToast?.gen) {
       guard let t = store.widgetToast else { return }
       toast = t.changes
@@ -567,7 +568,7 @@ final class WidgetGrip: ObservableObject {
   @Published var armed = false
   /// The task under the pointer while armed.
   @Published var hovered: String?
-  /// Task frames by `Card.id` in window coordinates; not observed.
+  /// Task frames by `Card.id` in window coordinates (`WidgetTargets`); not observed.
   var targets: [String: CGRect] = [:]
   var onPick: ((String, NSEvent.ModifierFlags) -> Void)?
 
@@ -593,8 +594,17 @@ private struct WidgetTarget: ViewModifier {
       .brightness(hovered ? 0.25 : 0)
       .animation(.easeOut(duration: 0.12), value: hovered)
       .matchedGeometryEffect(id: id, in: slots)
-      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { grip.targets[id] = $0 }
-      .onDisappear { grip.targets[id] = nil }
+      .background(GeometryReader { Color.clear.preference(key: WidgetTargets.self, value: [id: $0.frame(in: .global)]) })
+  }
+}
+
+/// Frames of the targets on screen now, collected from the view tree on every layout. Per-view
+/// writes left stale frames when a card moved between the hero and the paused rows, so a click on
+/// one card could resolve to the other (2026-10-17).
+struct WidgetTargets: PreferenceKey {
+  static let defaultValue: [String: CGRect] = [:]
+  static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+    value.merge(nextValue()) { _, new in new }
   }
 }
 
