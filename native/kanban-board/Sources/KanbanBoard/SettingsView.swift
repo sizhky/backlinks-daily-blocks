@@ -19,7 +19,7 @@ enum Density: String, CaseIterable, Identifiable {
   var cardInner: CGFloat { pick(5, 8, 10) }
   var titleSize: CGFloat { pick(13, 14, 16) }
   var metaSize: CGFloat { pick(11.5, 12.5, 14) }
-  var columnWidth: CGFloat { pick(316, 340, 380) }
+  var columnWidth: CGFloat { pick(288, 312, 350) }
   var rowHeight: CGFloat { pick(38, 46, 54) }
 }
 

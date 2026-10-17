@@ -45,6 +45,7 @@ struct KanbanBoardApp: App {
       .background {
         Group {
           Button("") { store.showSidebar.toggle() }.keyboardShortcut("\\", modifiers: .command)
+          Button("") { store.showSidebar.toggle() }.keyboardShortcut("b", modifiers: .command)
           Button("") { store.paletteOpen.toggle() }.keyboardShortcut("k", modifiers: .command)
           Button("") { setZoom(zoom + 0.1) }.keyboardShortcut("=", modifiers: .command)
         }
