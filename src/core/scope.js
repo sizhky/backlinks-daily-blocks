@@ -34,6 +34,13 @@ function inlineProjects(body) {
   return [...String(body || '').matchAll(INLINE_RE)].map(m => m[1].trim()).filter(Boolean);
 }
 
+// Task title without its inline project marks (the project shows as the card scope instead).
+//   withoutProjects('Create the Trading bench @[[Trading]]') -> 'Create the Trading bench'
+//   withoutProjects('Work through [[Sutragana]]') -> 'Work through [[Sutragana]]'
+function withoutProjects(body) {
+  return String(body || '').replace(INLINE_RE, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 // Project of the deepest enclosing project heading above `line`; a same-or-higher heading closes it.
 //   heads [{line:0,level:2,project:'A'},{line:4,level:3,project:null}], line 6 -> 'A'
 //   heads [{line:0,level:2,project:'A'},{line:4,level:2,project:null}], line 6 -> null
@@ -133,4 +140,4 @@ function fileScopes(app, file, bodies = []) {
   return [...pairs.values()];
 }
 
-module.exports = { inlineProjects, PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };
+module.exports = { inlineProjects, withoutProjects, PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };

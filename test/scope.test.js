@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { inlineProjects, names, headingScopes, headingProjectAt, projectName, scopeAt, fileScopes } = require('../src/core/scope');
+const { inlineProjects, withoutProjects, names, headingScopes, headingProjectAt, projectName, scopeAt, fileScopes } = require('../src/core/scope');
 
 const pos = (line, col, endCol) => ({ start: { line, col }, end: { line, col: endCol } });
 
@@ -90,4 +90,10 @@ test('an inline project beats the heading and takes its project note org', () =>
   assert.deepEqual(scopeAt(app, file, 3, null, 'Plain [[HTP]] link'), { orgs: ['Personal'], projects: ['Sutragana'] });
   assert.deepEqual(fileScopes(app, file, ['- [ ] Train @[[HTP]]']).map(p => `${p.org}/${p.project}`),
     ['Personal/Meta', 'Personal/Sutragana', 'Personal/Kanban App', 'PenguinAI/HTP']);
+});
+
+test('titles drop inline project marks and keep plain links', () => {
+  assert.equal(withoutProjects('Create the Trading bench @[[Trading]]'), 'Create the Trading bench');
+  assert.equal(withoutProjects('Fix @[[A]] parser #kb/doing'), 'Fix parser #kb/doing');
+  assert.equal(withoutProjects('Work through [[Sutragana]]'), 'Work through [[Sutragana]]');
 });

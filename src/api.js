@@ -7,7 +7,7 @@ const { activitySummary } = require('./activity');
 const { saveTemplate } = require('./templates');
 const { parkAll } = require('./sleep');
 const { openFileAtLine } = require('./core/render');
-const { PROJECT_ROOT, projectFile, projectFm, projectActive, scopeAt, fileScopes, names } = require('./core/scope');
+const { PROJECT_ROOT, projectFile, projectFm, projectActive, scopeAt, fileScopes, names, withoutProjects } = require('./core/scope');
 
 // Frontmatter keys a task's card scope answers (core/scope.js): inline @[[Project]], heading, then note frontmatter.
 const SCOPE_KEYS = { org: 'orgs', projects: 'projects' };
@@ -150,12 +150,12 @@ function matchVal(vals, want, contains) {
 
 // trailing "\tkey=a|b; key2=c" of selected frontmatter keys for a file path.
 // keys = comma-sep string (opts.fm). Missing value renders "·". "" when no keys.
-function fmSuffix(app, path, keys, line, body) {
+// scope = the row's { orgs, projects } (card scope), used for the org/projects keys.
+function fmSuffix(app, path, keys, scope) {
   if (!keys) return '';
   const fm = app.metadataCache.getCache(path)?.frontmatter;
   const list = String(keys).split(',').map(s => s.trim()).filter(Boolean);
   if (!list.length) return '';
-  const scope = list.some(k => SCOPE_KEYS[k]) ? refScope(app, `${path}:${line}`, body) : null;
   return '\t' + list.map(k => `${k}=${(SCOPE_KEYS[k] ? scope[SCOPE_KEYS[k]] : fmVals(fm, k) || []).join('|') || '·'}`).join('; ');
 }
 
@@ -456,7 +456,9 @@ function cardJson(card, col) {
   return {
     file: card.file.path,
     line: card.line,
-    body: card.body,
+    body: withoutProjects(card.body),
+    orgs: card.orgs || [],
+    projects: card.projects || [],
     col: col.name,
     tags: card.tags,
     rank: card.rank ?? null,
@@ -506,7 +508,7 @@ function buildApi(plugin) {
       }
       rows = filterSince(rows, opts.since);
       if (opts.limit) rows = rows.slice(0, opts.limit);
-      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${opts.rank ? `\t${r.rank ?? ''}` : ''}${opts.desktop ? `\t${r.desktop ?? ''}` : ''}${fmSuffix(plugin.app, r.file, opts.fm, r.line, r.body)}`).join('\n');
+      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${opts.rank ? `\t${r.rank ?? ''}` : ''}${opts.desktop ? `\t${r.desktop ?? ''}` : ''}${opts.scope ? `\t${r.orgs.join('|')}\t${r.projects.join('|')}` : ''}${fmSuffix(plugin.app, r.file, opts.fm, r)}`).join('\n');
     },
 
     // Every configured column and its tasks. The `full` column is unfiltered;
@@ -521,7 +523,7 @@ function buildApi(plugin) {
         lines.push(`@column\t${col.name}`);
         let rows = (byCol.get(col.key) || []).map(card => cardJson(card, col));
         if (col.name.toLowerCase() !== full) rows = filterSince(rows, since);
-        lines.push(...rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}`));
+        lines.push(...rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${opts.scope ? `\t${r.orgs.join('|')}\t${r.projects.join('|')}` : ''}`));
       }
       return '\n' + lines.join('\n');
     },
@@ -574,7 +576,7 @@ function buildApi(plugin) {
         .flatMap(col => (byCol.get(col.key) || [])
           .map(card => ({ card, move: card.history.find(h => h.stamp.startsWith(dateStr) && h.to === col.name) }))
           .filter(({ move }) => move)
-          .map(({ card, move }) => `${col.name}\t${card.file.path}:${card.line}\t${card.body}\t${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card.line, card.body)}`)
+          .map(({ card, move }) => `${col.name}\t${card.file.path}:${card.line}\t${withoutProjects(card.body)}\t${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card)}`)
         );
       return '\n' + rows.join('\n');
     },
@@ -591,10 +593,10 @@ function buildApi(plugin) {
         let tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
         if (want) tasks = tasks.filter(t => t.history.some(h => h.to.toLowerCase() === want));
         const rows = tasks.map(t => {
-          const suf = fmSuffix(plugin.app, t.file.path, opts.fm, t.line, t.body);
-          if (want) return `${t.file.path}:${t.line}\t${t.body}\t${colSegments(t.history, want, dateStr)}${suf}`;
+          const suf = fmSuffix(plugin.app, t.file.path, opts.fm, refScope(plugin.app, `${t.file.path}:${t.line}`, t.body));
+          if (want) return `${t.file.path}:${t.line}\t${withoutProjects(t.body)}\t${colSegments(t.history, want, dateStr)}${suf}`;
           const moves = t.history.map(h => `${hhmm(h.stamp)} ${h.from || '·'}>${h.to}`).join('  ');
-          return `${t.file.path}:${t.line}\t${t.body}\t${moves}${suf}`;
+          return `${t.file.path}:${t.line}\t${withoutProjects(t.body)}\t${moves}${suf}`;
         });
         if (multi) out.push(`== ${dateStr} ==`, ...(rows.length ? rows : ['(none)']));
         else out.push(...rows);
@@ -989,13 +991,15 @@ function buildApi(plugin) {
       if (project && typeof project === 'object') { opts = project; project = null; } // opts-first call
       const prop = opts.prop || 'projects';
       let rows = (await this.active({
+        scope: true,
         col: opts.col,
         includePaused: true,
         limit: opts.limit,
         since: opts.since,
       })).split('\n').filter(Boolean);
       if (project && SCOPE_KEYS[prop]) {
-        rows = rows.filter(l => matchVal(refScope(plugin.app, l.split('\t')[1] || '', l.split('\t')[2])[SCOPE_KEYS[prop]], project, opts.contains));
+        const at = prop === 'org' ? 4 : 5; // active({scope}) rows: col, ref, body, age, orgs, projects
+        rows = rows.filter(l => matchVal((l.split('\t')[at] || '').split('|').filter(Boolean), project, opts.contains));
       } else if (project) { // filter to notes whose frontmatter `prop` matches `project`
         const files = await fmFiles(plugin.app, opts.paths, opts.since, false);
         const set = new Set(files
@@ -1006,6 +1010,7 @@ function buildApi(plugin) {
           .map(f => f.path));
         rows = rows.filter(l => set.has((l.split('\t')[1] || '').split(':')[0]));
       }
+      rows = rows.map(l => l.split('\t').slice(0, 4).join('\t'));
       return '\n' + rows.join('\n');
     },
 

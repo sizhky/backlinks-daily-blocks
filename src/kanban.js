@@ -5,7 +5,7 @@
 const { MarkdownRenderChild, Menu, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
 const { desktopRef, chrono, HIST_RE } = require('./core/activity');
-const { headingScopes, scopeAt } = require('./core/scope');
+const { headingScopes, scopeAt, withoutProjects } = require('./core/scope');
 
 // Filter and lane keys that a task's card scope answers (core/scope.js), not the note frontmatter.
 const SCOPE_KEYS = { org: 'orgs', projects: 'projects' };
@@ -549,7 +549,7 @@ function countDescendants(card) {
 }
 
 function cleanText(body) {
-  return body.replace(KB_TAG_GLOBAL_RE, '').replace(STAMP_RE, '')
+  return withoutProjects(body).replace(KB_TAG_GLOBAL_RE, '').replace(STAMP_RE, '')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim();
 }
 

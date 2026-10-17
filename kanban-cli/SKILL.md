@@ -2,7 +2,7 @@
 name: kanban-cli
 description: Query and mutate the backlinks-daily-blocks kanban board from the shell via `obsidian eval`. Use when an LLM needs to read the user's task plate, see what was done on a date, get a day's move timeline, create a task, or move a task between columns without opening Obsidian.
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # Kanban CLI
@@ -298,6 +298,10 @@ project and wins for a frontmatter project. One day note can hold tasks of many 
 
 Board filters and lanes on `org`/`projects`, `fm:"org,projects"`, `summary`/`time` `by`, `plate`,
 `reportCards`, `task`, and the Kanban Board app all read this card scope.
+
+Every title the api returns (`active`, `board`, `getDone`, `getReport`, `chronicle`, `summary`, `task`, ...)
+comes without its `@[[Project]]` marks. `active` and `board` take `opts.scope: true` to append
+`orgs a|b<TAB>projects a|b` to each row; the Kanban Board app reads the scope from there.
 
 ### `kb.scope(ref, body?)` — card scope of one task (sync)
 Returns `orgs a|b<TAB>projects a|b` for `file:line`. Pass the task text as `body` for its inline

@@ -414,6 +414,9 @@ var require_scope = __commonJS({
     function inlineProjects(body) {
       return [...String(body || "").matchAll(INLINE_RE)].map((m) => m[1].trim()).filter(Boolean);
     }
+    function withoutProjects(body) {
+      return String(body || "").replace(INLINE_RE, "").replace(/\s{2,}/g, " ").trim();
+    }
     function headingProjectAt(heads, line) {
       const stack = [];
       for (const h of heads) {
@@ -483,7 +486,7 @@ var require_scope = __commonJS({
       for (const body of bodies) if (inlineProjects(body).length) add(scopeAt(app2, file, 0, [], body));
       return [...pairs.values()];
     }
-    module2.exports = { inlineProjects, PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };
+    module2.exports = { inlineProjects, withoutProjects, PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };
   }
 });
 
@@ -891,7 +894,7 @@ var require_kanban = __commonJS({
     var { MarkdownRenderChild, Menu, Notice: Notice2, Platform, setIcon } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
     var { desktopRef, chrono, HIST_RE: HIST_RE2 } = require_activity();
-    var { headingScopes, scopeAt } = require_scope();
+    var { headingScopes, scopeAt, withoutProjects } = require_scope();
     var SCOPE_KEYS = { org: "orgs", projects: "projects" };
     var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
@@ -1336,7 +1339,7 @@ var require_kanban = __commonJS({
       return card.children.reduce((n, child) => n + 1 + countDescendants(child), 0);
     }
     function cleanText(body) {
-      return body.replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
+      return withoutProjects(body).replace(KB_TAG_GLOBAL_RE, "").replace(STAMP_RE, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
     }
     function addTitleCopy(titleEl, text) {
       const btn = titleEl.createSpan({ cls: "bdb-title-copy", attr: { "aria-label": "Copy title" } });
@@ -3517,7 +3520,7 @@ var require_api = __commonJS({
     var { saveTemplate } = require_templates();
     var { parkAll } = require_sleep();
     var { openFileAtLine } = require_render();
-    var { PROJECT_ROOT, projectFile, projectFm, projectActive, scopeAt, fileScopes, names } = require_scope();
+    var { PROJECT_ROOT, projectFile, projectFm, projectActive, scopeAt, fileScopes, names, withoutProjects } = require_scope();
     var SCOPE_KEYS = { org: "orgs", projects: "projects" };
     var DEFAULT_COLS = "columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-";
     var HABIT_COLS = "columns: Idle~, Doing!";
@@ -3629,12 +3632,11 @@ var require_api = __commonJS({
         return contains ? x.includes(w) : x === w;
       });
     }
-    function fmSuffix(app2, path, keys, line, body) {
+    function fmSuffix(app2, path, keys, scope) {
       if (!keys) return "";
       const fm = app2.metadataCache.getCache(path)?.frontmatter;
       const list = String(keys).split(",").map((s) => s.trim()).filter(Boolean);
       if (!list.length) return "";
-      const scope = list.some((k) => SCOPE_KEYS[k]) ? refScope(app2, `${path}:${line}`, body) : null;
       return "	" + list.map((k) => `${k}=${(SCOPE_KEYS[k] ? scope[SCOPE_KEYS[k]] : fmVals(fm, k) || []).join("|") || "\xB7"}`).join("; ");
     }
     function refScope(app2, ref, body) {
@@ -3912,7 +3914,9 @@ ${orgs}${projects}source: ${source}
       return {
         file: card.file.path,
         line: card.line,
-        body: card.body,
+        body: withoutProjects(card.body),
+        orgs: card.orgs || [],
+        projects: card.projects || [],
         col: col.name,
         tags: card.tags,
         rank: card.rank ?? null,
@@ -3954,7 +3958,7 @@ ${orgs}${projects}source: ${source}
           }
           rows = filterSince(rows, opts.since);
           if (opts.limit) rows = rows.slice(0, opts.limit);
-          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${opts.desktop ? `	${r.desktop ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm, r.line, r.body)}`).join("\n");
+          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${opts.desktop ? `	${r.desktop ?? ""}` : ""}${opts.scope ? `	${r.orgs.join("|")}	${r.projects.join("|")}` : ""}${fmSuffix(plugin.app, r.file, opts.fm, r)}`).join("\n");
         },
         // Every configured column and its tasks. The `full` column is unfiltered;
         // other columns only include tasks seen within `hours` (default 24).
@@ -3968,7 +3972,7 @@ ${orgs}${projects}source: ${source}
             lines.push(`@column	${col.name}`);
             let rows = (byCol.get(col.key) || []).map((card) => cardJson(card, col));
             if (col.name.toLowerCase() !== full) rows = filterSince(rows, since);
-            lines.push(...rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}`));
+            lines.push(...rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.scope ? `	${r.orgs.join("|")}	${r.projects.join("|")}` : ""}`));
           }
           return "\n" + lines.join("\n");
         },
@@ -4015,7 +4019,7 @@ ${orgs}${projects}source: ${source}
           const config = makeConfig2(opts);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const rows = config.columns.filter((c) => c.state && (!want || c.name.toLowerCase() === want)).flatMap(
-            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card.line, card.body)}`)
+            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${withoutProjects(card.body)}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card)}`)
           );
           return "\n" + rows.join("\n");
         },
@@ -4031,10 +4035,10 @@ ${orgs}${projects}source: ${source}
             let tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
             if (want) tasks = tasks.filter((t) => t.history.some((h) => h.to.toLowerCase() === want));
             const rows = tasks.map((t) => {
-              const suf = fmSuffix(plugin.app, t.file.path, opts.fm, t.line, t.body);
-              if (want) return `${t.file.path}:${t.line}	${t.body}	${colSegments(t.history, want, dateStr)}${suf}`;
+              const suf = fmSuffix(plugin.app, t.file.path, opts.fm, refScope(plugin.app, `${t.file.path}:${t.line}`, t.body));
+              if (want) return `${t.file.path}:${t.line}	${withoutProjects(t.body)}	${colSegments(t.history, want, dateStr)}${suf}`;
               const moves = t.history.map((h) => `${hhmm(h.stamp)} ${h.from || "\xB7"}>${h.to}`).join("  ");
-              return `${t.file.path}:${t.line}	${t.body}	${moves}${suf}`;
+              return `${t.file.path}:${t.line}	${withoutProjects(t.body)}	${moves}${suf}`;
             });
             if (multi) out.push(`== ${dateStr} ==`, ...rows.length ? rows : ["(none)"]);
             else out.push(...rows);
@@ -4418,13 +4422,15 @@ ${orgs}${projects}source: ${source}
           }
           const prop = opts.prop || "projects";
           let rows = (await this.active({
+            scope: true,
             col: opts.col,
             includePaused: true,
             limit: opts.limit,
             since: opts.since
           })).split("\n").filter(Boolean);
           if (project && SCOPE_KEYS[prop]) {
-            rows = rows.filter((l) => matchVal(refScope(plugin.app, l.split("	")[1] || "", l.split("	")[2])[SCOPE_KEYS[prop]], project, opts.contains));
+            const at = prop === "org" ? 4 : 5;
+            rows = rows.filter((l) => matchVal((l.split("	")[at] || "").split("|").filter(Boolean), project, opts.contains));
           } else if (project) {
             const files = await fmFiles(plugin.app, opts.paths, opts.since, false);
             const set = new Set(files.filter((f) => {
@@ -4433,6 +4439,7 @@ ${orgs}${projects}source: ${source}
             }).map((f) => f.path));
             rows = rows.filter((l) => set.has((l.split("	")[1] || "").split(":")[0]));
           }
+          rows = rows.map((l) => l.split("	").slice(0, 4).join("	"));
           return "\n" + rows.join("\n");
         },
         // Move a task to a column

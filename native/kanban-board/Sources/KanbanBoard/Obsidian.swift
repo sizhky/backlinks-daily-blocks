@@ -12,7 +12,7 @@ struct ObsidianClient {
   static let executable = "/Applications/Obsidian.app/Contents/MacOS/obsidian"
 
   /// Live columns come from kb.active (all ages, paused included); done columns from kb.board (recent).
-  /// Appends the card scope (kb.scope: inline `@[[Project]]`, `## [[Project]]` heading, then org/projects frontmatter) to each row, then the task's 1-based ordinal among the
+  /// Appends the card scope (kb `scope` rows: inline `@[[Project]]`, `## [[Project]]` heading, then org/projects frontmatter; titles come without the inline mark) to each row, then the task's 1-based ordinal among the
   /// note's checkbox list items (metadata cache) and their count, which `Card.identifier` uses; done (`=x`) rows carry the ISO done time,
   /// then est and took (always two fields), then the ISO time a live card entered its column (`Card.since`),
   /// active seconds, column seconds, and the closed Doing stints of a card with a guess (`Card.doingStints`).
@@ -22,17 +22,17 @@ struct ObsidianClient {
     const P=app.plugins.plugins["backlinks-daily-blocks"];
     const defs=String(P.settings.kanban.columns).split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean).map(s=>{const n=s.split(/\s+@/)[0];return{name:n.replace(/=.$/,"").replace(/[~!]$/,""),term:/=.$/.test(n),x:/=x$/.test(n)}});
     const rows=s=>s.split("\n").map(l=>l.split("\t")).filter(c=>c.length>=4&&c[0]!=="@column");
-    const act=rows(await kb.active({includePaused:true,timestamps:true,rank:true,desktop:true})).map(c=>[c[0],c[1],c[2],c[3],c[5],c[6],c[4]]);
+    const act=rows(await kb.active({includePaused:true,timestamps:true,rank:true,desktop:true,scope:true})).map(c=>[c[0],c[1],c[2],c[3],c[5],c[6],c[4],c[7],c[8]]);
     const est=new Map(String(await kb.estimates()).split("\n").filter(Boolean).map(l=>{const p=l.split("\t");return[p[0],p.slice(1)]}));
     const actv=new Map(String(await kb.activeTimes()).split("\n").filter(Boolean).map(l=>l.split("\t")));
     const ct=new Map(String(await kb.columnTimes()).split("\n").filter(Boolean).map(l=>l.split("\t")));
-    const brd=rows(await kb.board({hours:\#(doneHours),full:"Doing",timestamps:true}));
+    const brd=rows(await kb.board({hours:\#(doneHours),full:"Doing",timestamps:true,scope:true})).map(c=>[c[0],c[1],c[2],c[3],c[4],"","",c[5],c[6]]);
     const out=[];
     for(const d of defs){out.push("@column\t"+d.name+"\t"+(d.term?"done":"live"));
     for(const c of (d.term?brd:act).filter(c=>c[0].toLowerCase()===d.name.toLowerCase())){
     const m=app.metadataCache.getCache(c[1].replace(/:\d+$/,"")),ln=+c[1].split(":").pop();
     const ts=(m?.listItems||[]).filter(i=>i.task!==undefined),n=ts.findIndex(i=>i.position.start.line===ln)+1;
-    out.push([c[0],c[1],c[2],c[3],...kb.scope(c[1],c[2]).split("\t"),d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||"",n?ts.length:"",d.x?(c[4]||""):""].concat((est.get(c[1])||["",""]).slice(0,2),[d.term?"":(c[6]||""),actv.get(c[1])||"",ct.get(c[1])||"",(est.get(c[1])||[])[2]||""]).join("\t"));}}
+    out.push([c[0],c[1],c[2],c[3],c[7]||"",c[8]||"",d.term?"":(c[4]||""),d.term?"":(c[5]||""),n||"",n?ts.length:"",d.x?(c[4]||""):""].concat((est.get(c[1])||["",""]).slice(0,2),[d.term?"":(c[6]||""),actv.get(c[1])||"",ct.get(c[1])||"",(est.get(c[1])||[])[2]||""]).join("\t"));}}
     for(const r of kb.sweeps().split("\n").filter(Boolean))out.push("@sweep\t"+r);
     return out.join("\n")})()
     """#.replacingOccurrences(of: "\n", with: " ")
