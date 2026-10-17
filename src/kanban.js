@@ -5,6 +5,10 @@
 const { MarkdownRenderChild, Menu, Notice, Platform, setIcon } = require('obsidian');
 const { renderInteractive, openFileAtLine } = require('./core/render');
 const { desktopRef, chrono, HIST_RE } = require('./core/activity');
+const { headingScopes, scopeAt } = require('./core/scope');
+
+// Filter and lane keys that a task's card scope answers (core/scope.js), not the note frontmatter.
+const SCOPE_KEYS = { org: 'orgs', projects: 'projects' };
 
 // Persisted marker for "no lanes selected". Kept distinct from a cleared
 // `lanes:` line (= all) and from the "(none)" no-frontmatter pool lane.
@@ -98,7 +102,10 @@ function fmValues(cache, key) {
 }
 
 function passesFilter(cache, f) {
-  const vals = fmValues(cache, f.key);
+  return passesValues(fmValues(cache, f.key), f);
+}
+
+function passesValues(vals, f) {
   if (f.absent) return !vals.length;
   if (!f.values.length) return vals.length > 0;
   const hit = vals.some(v => f.values.includes(v.toLowerCase()));
@@ -211,8 +218,11 @@ async function scanKanbanTasks(app, config, opts = {}) {
     if (!cache?.listItems?.some(it => it.task != null)) return false;
     const cacheFilter = opts.cacheFilter || config.cacheFilter;
     if (cacheFilter && !cacheFilter(cache, f)) return false;
-    return config.filters.every(fl => passesFilter(cache, fl));
+    return config.filters.every(fl => SCOPE_KEYS[fl.key] || passesFilter(cache, fl));
   });
+  const cardFilters = config.filters.filter(fl => SCOPE_KEYS[fl.key]);
+  const cardFilter = opts.cardFilter || config.cardFilter;
+  const scopeLane = key => key && SCOPE_KEYS[key];
 
   for (const file of files) {
     const cache = app.metadataCache.getFileCache(file);
@@ -221,6 +231,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
     // File-level default desktop (frontmatter `kbdesktop: 2`); a task's own %% kbdesktop N %% beats it.
     const fileDesktop = desktopRef(fmValues(cache, 'kbdesktop')[0]);
     const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
+    const heads = headingScopes(cache);
     // Ancestor chain by indent: tasks at any depth become cards; history,
     // ei stamps and tag lines attach to the deepest task above them with
     // shallower indent. Column membership is decided after the file is read
@@ -254,7 +265,10 @@ async function scanKanbanTasks(app, config, opts = {}) {
         const card = {
           file, line: i, body: tm[4], state: tm[2], parent, lane, group: laneGroup, isGroup,
           children: [], history: [], eiHistory: [], tags: [], who: [], color: null, icon: null,
+          ...scopeAt(app, file, i, heads),
         };
+        if (scopeLane(config.lane)) card.lane = card[scopeLane(config.lane)][0] || null;
+        if (scopeLane(config.groupby)) card.group = card[scopeLane(config.groupby)][0] || null;
         if (parent) parent.children.push(card);
         stack.push({ indent, card });
         fileCards.push(card);
@@ -347,6 +361,8 @@ async function scanKanbanTasks(app, config, opts = {}) {
     }
 
     for (const card of fileCards) {
+      if (!cardFilters.every(fl => passesValues(card[SCOPE_KEYS[fl.key]], fl))) continue;
+      if (cardFilter && !cardFilter(card)) continue;
       if (card.desktop == null && fileDesktop) card.desktop = fileDesktop;
       let col;
       if (card.state === ' ' || card.state === '!') { // `!` = group header, lives like an open card
@@ -765,9 +781,8 @@ async function renderKanbanBlock(plugin, src, el, ctx) {
   el.empty();
   const scopeFilter = config => {
     if (config.includeInactive) return config;
-    const previous = config.cacheFilter;
-    config.cacheFilter = (cache, file) => (!previous || previous(cache, file))
-      && plugin.api.scopeFrontmatterActive(cache?.frontmatter);
+    const previous = config.cardFilter;
+    config.cardFilter = card => (!previous || previous(card)) && plugin.api.scopeCardActive(card);
     return config;
   };
   const config = scopeFilter(resolveKanbanConfig(plugin, src, ctx.sourcePath));

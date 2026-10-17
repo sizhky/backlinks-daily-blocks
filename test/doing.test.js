@@ -44,6 +44,7 @@ function loadKanban() {
       if (id === 'obsidian') return { MarkdownRenderChild: class {}, Notice: class {}, Platform: {}, setIcon() {} };
       if (id === './core/render') return { renderInteractive() {}, openFileAtLine() {} };
       if (id === './core/activity') return require('../src/core/activity');
+      if (id === './core/scope') return require('../src/core/scope');
       throw new Error(`Unexpected module: ${id}`);
     },
   };

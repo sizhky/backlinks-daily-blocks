@@ -2,7 +2,7 @@
 name: kanban-cli
 description: Query and mutate the backlinks-daily-blocks kanban board from the shell via `obsidian eval`. Use when an LLM needs to read the user's task plate, see what was done on a date, get a day's move timeline, create a task, or move a task between columns without opening Obsidian.
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Kanban CLI
@@ -279,12 +279,39 @@ Tab lines `From<TAB>To`, one per configured route (settings `kanban.sweep`).
 Opens the source note, moves the editor cursor to the task line, and scrolls it into view.
 Returns `ok opened file:line`.
 
+### Card scope — org and project of one task
+
+A task's project is the deepest `## [[Project]]` heading above it whose whole text is one wikilink;
+a same-or-higher-level heading ends it. Without one, the note's `projects` frontmatter applies.
+The org comes from the project note, `40-49 Areas/43 Orgs/<Org>/<Project>.md` or
+`.../<Org>/<Project>/<Project>.md`; the note's own `org` frontmatter is the fallback for a heading
+project and wins for a frontmatter project. One day note can hold tasks of many projects:
+
+```
+### [[Horizontal Training Pipeline]]
+- [ ] Get up to speed on OCR training
+### [[Butler]]
+- [ ] Get butler to work through [[Sutragana]]
+```
+
+Board filters and lanes on `org`/`projects`, `fm:"org,projects"`, `summary`/`time` `by`, `plate`,
+`reportCards`, `task`, and the Kanban Board app all read this card scope.
+
+### `kb.scope(ref)` — card scope of one task (sync)
+Returns `orgs a|b<TAB>projects a|b` for `file:line`.
+
+### `kb.migrateProjects(opts?)` — move org and status into project notes
+Dry run unless `opts.apply`. Lines `action<TAB>project<TAB>org<TAB>active<TAB>path`, where action is
+`keep`, `update` (adds missing `org`/`active`), `create` (new project note), `move` (a same-named note
+outside `43 Orgs`; left in place), or `skip` (`''`, `?`, paths, org names). Ran once on 2026-10-17.
+
 ### `kb.scopes(opts?)` — active organization/project combinations
 Returns `org<TAB>project<TAB>count<TAB>status`, ranked by observed task-note count.
 Inactive combinations are hidden unless `opts.all` is true. `opts.query` filters both names.
 
 ### `kb.createTask(opts)` — create one validated task note
-Requires `text`, `org`, and `source`; `project` is optional; `col` defaults to `Backlog`.
+Requires `text` and `source`; `org` is optional when the project note has exactly one `org` (the new
+note then carries only `projects`); `project` is optional; `col` defaults to `Backlog`.
 `source` names the creator: `claude`, `chatgpt`, `calendar` (Kanban Board meeting cards), or `kanban` (a card added from a Kanban Board column). It is written as frontmatter `source`.
 The organization/project combination must exist and remain active in `kb.scopes()`. Without `project`,
 the org must exist and be active, and the note gets no `projects` frontmatter.
@@ -308,9 +335,10 @@ the span. Lets an LLM or a UI button log work without opening the board.
 Use `kanban create` or `kb.createTask`; do not construct task Markdown in an agent.
 Pass `--source claude` (Claude) or `--source chatgpt` (ChatGPT/Codex) so the note records which LLM created it.
 
-Manage active organizations and projects in the `scopes` code block in
-`90-99 Obsidian Meta/Kanban Scopes.md`. Organization status applies to all its projects.
-Project status remains saved while its organization is inactive. Legacy inactive frontmatter rules remain supported:
+Project status lives in the project note frontmatter (`active: true|false`, beside `org:`); the
+`scopes` code block in `90-99 Obsidian Meta/Kanban Scopes.md` toggles it. A project without a project
+note keeps its status in that registry's `kanban-scope-statuses`. Organization status
+(`kanban-inactive-orgs`) applies to all its projects. Legacy inactive frontmatter rules remain supported:
 
 ```yaml
 kanban-inactive-orgs:
@@ -324,7 +352,7 @@ kanban-inactive-scopes:
 A task remains a **checkbox line inside a note**, never a standalone file with a `# heading` or `Status::` prop. The API creates:
 
 1. New note path: `~/Vault/$(date +%Y%m%d-%H%M).md` (a daily note). Keep the hyphen between date and time.
-2. Frontmatter carries the project (and org) the board filters on:
+2. Frontmatter carries the project the board filters on (org only when the project note does not own it):
    ```
    ---
    org:

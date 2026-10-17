@@ -395,6 +395,92 @@ var require_activity = __commonJS({
   }
 });
 
+// src/core/scope.js
+var require_scope = __commonJS({
+  "src/core/scope.js"(exports2, module2) {
+    function names(raw) {
+      if (raw == null) return [];
+      return (Array.isArray(raw) ? raw : [raw]).filter((v) => v != null && typeof v !== "object").map((v) => String(v).trim().replace(/^\[\[([^\]]*)\]\]$/, "$1").split("|")[0].trim()).filter(Boolean);
+    }
+    function headingScopes(cache) {
+      const links = cache?.links || [];
+      return (cache?.headings || []).map((h) => {
+        const at = h.position.start, end = h.position.end;
+        const link = links.find((l) => l.position.start.line === at.line && l.position.end.col === end.col && l.position.start.col <= at.col + h.level + 2);
+        return { line: at.line, level: h.level, project: link ? link.link.split("#")[0].trim() || null : null };
+      }).sort((a, b) => a.line - b.line);
+    }
+    function headingProjectAt(heads, line) {
+      const stack = [];
+      for (const h of heads) {
+        if (h.line >= line) break;
+        while (stack.length && stack[stack.length - 1].level >= h.level) stack.pop();
+        stack.push(h);
+      }
+      for (let i = stack.length - 1; i >= 0; i--) if (stack[i].project) return stack[i].project;
+      return null;
+    }
+    var PROJECT_ROOT = "40-49 Areas/43 Orgs";
+    function projectName(path) {
+      if (!path.startsWith(PROJECT_ROOT + "/") || !path.endsWith(".md")) return null;
+      const parts = path.slice(PROJECT_ROOT.length + 1, -3).split("/");
+      if (parts.length === 2) return parts[1] === parts[0] ? null : parts[1];
+      if (parts.length === 3 && parts[1] === parts[2]) return parts[2];
+      return null;
+    }
+    var index = { at: 0, app: null, map: /* @__PURE__ */ new Map() };
+    function projectIndex(app2) {
+      if (index.app === app2 && Date.now() - index.at < 1e3) return index.map;
+      const map = /* @__PURE__ */ new Map();
+      for (const f of app2.vault.getMarkdownFiles()) {
+        const name = projectName(f.path);
+        if (name && !map.has(name.toLowerCase())) map.set(name.toLowerCase(), f);
+      }
+      index = { at: Date.now(), app: app2, map };
+      return map;
+    }
+    function projectFile(app2, project) {
+      return projectIndex(app2).get(String(project).split("/").pop().toLowerCase()) || null;
+    }
+    function projectFm(app2, project) {
+      const file = projectFile(app2, project);
+      return file ? app2.metadataCache.getFileCache(file)?.frontmatter || {} : null;
+    }
+    function projectActive(app2, project) {
+      const active = projectFm(app2, project)?.active;
+      return typeof active === "boolean" ? active : null;
+    }
+    function projectOrgs(app2, projects) {
+      return [...new Set(projects.flatMap((p) => names(projectFm(app2, p)?.org)))];
+    }
+    function scopeAt(app2, file, line, heads) {
+      const cache = app2.metadataCache.getFileCache(file);
+      const fm = cache?.frontmatter;
+      const own = names(fm?.org);
+      const hp = headingProjectAt(heads || headingScopes(cache), line);
+      if (hp) {
+        const orgs = projectOrgs(app2, [hp]);
+        return { orgs: orgs.length ? orgs : own, projects: [hp] };
+      }
+      const projects = names(fm?.projects);
+      return { orgs: own.length ? own : projectOrgs(app2, projects), projects };
+    }
+    function fileScopes(app2, file) {
+      const cache = app2.metadataCache.getFileCache(file);
+      const pairs = /* @__PURE__ */ new Map();
+      const add = ({ orgs, projects }) => {
+        for (const org of orgs) for (const project of projects) pairs.set(`${org}	${project}`.toLowerCase(), { org, project });
+      };
+      const top = scopeAt(app2, file, 0, []);
+      if (!top.projects.length && cache?.frontmatter && "projects" in cache.frontmatter) top.projects = [""];
+      add(top);
+      for (const h of headingScopes(cache)) if (h.project) add(scopeAt(app2, file, h.line + 1, [h]));
+      return [...pairs.values()];
+    }
+    module2.exports = { PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };
+  }
+});
+
 // src/habits.js
 var require_habits = __commonJS({
   "src/habits.js"(exports2, module2) {
@@ -799,6 +885,8 @@ var require_kanban = __commonJS({
     var { MarkdownRenderChild, Menu, Notice: Notice2, Platform, setIcon } = require("obsidian");
     var { renderInteractive, openFileAtLine } = require_render();
     var { desktopRef, chrono, HIST_RE: HIST_RE2 } = require_activity();
+    var { headingScopes, scopeAt } = require_scope();
+    var SCOPE_KEYS = { org: "orgs", projects: "projects" };
     var LANE_NONE = "__none__";
     var KB_TAG_GLOBAL_RE = /#kb\/[\w-]+/g;
     var KB_TAG_RE = /#kb\/([\w-]+)/;
@@ -860,7 +948,9 @@ var require_kanban = __commonJS({
       return v.filter((x) => x != null).map((x) => String(x).replace(/^\[\[|\]\]$/g, "").trim()).filter(Boolean);
     }
     function passesFilter(cache, f) {
-      const vals = fmValues(cache, f.key);
+      return passesValues(fmValues(cache, f.key), f);
+    }
+    function passesValues(vals, f) {
       if (f.absent) return !vals.length;
       if (!f.values.length) return vals.length > 0;
       const hit = vals.some((v) => f.values.includes(v.toLowerCase()));
@@ -951,14 +1041,18 @@ var require_kanban = __commonJS({
         if (!cache?.listItems?.some((it) => it.task != null)) return false;
         const cacheFilter = opts.cacheFilter || config.cacheFilter;
         if (cacheFilter && !cacheFilter(cache, f)) return false;
-        return config.filters.every((fl) => passesFilter(cache, fl));
+        return config.filters.every((fl) => SCOPE_KEYS[fl.key] || passesFilter(cache, fl));
       });
+      const cardFilters = config.filters.filter((fl) => SCOPE_KEYS[fl.key]);
+      const cardFilter = opts.cardFilter || config.cardFilter;
+      const scopeLane = (key) => key && SCOPE_KEYS[key];
       for (const file of files) {
         const cache = app2.metadataCache.getFileCache(file);
         const lane = config.lane ? fmValues(cache, config.lane)[0] || null : null;
         const laneGroup = config.groupby ? fmValues(cache, config.groupby)[0] || null : null;
         const fileDesktop = desktopRef(fmValues(cache, "kbdesktop")[0]);
         const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
+        const heads = headingScopes(cache);
         const fileCards = [];
         const stack = [];
         let group = null;
@@ -997,8 +1091,11 @@ var require_kanban = __commonJS({
               tags: [],
               who: [],
               color: null,
-              icon: null
+              icon: null,
+              ...scopeAt(app2, file, i, heads)
             };
+            if (scopeLane(config.lane)) card.lane = card[scopeLane(config.lane)][0] || null;
+            if (scopeLane(config.groupby)) card.group = card[scopeLane(config.groupby)][0] || null;
             if (parent) parent.children.push(card);
             stack.push({ indent, card });
             fileCards.push(card);
@@ -1080,6 +1177,8 @@ var require_kanban = __commonJS({
           if (!/^\s/.test(text)) stack.length = 0;
         }
         for (const card of fileCards) {
+          if (!cardFilters.every((fl) => passesValues(card[SCOPE_KEYS[fl.key]], fl))) continue;
+          if (cardFilter && !cardFilter(card)) continue;
           if (card.desktop == null && fileDesktop) card.desktop = fileDesktop;
           let col;
           if (card.state === " " || card.state === "!") {
@@ -1413,8 +1512,8 @@ var require_kanban = __commonJS({
       el.empty();
       const scopeFilter = (config2) => {
         if (config2.includeInactive) return config2;
-        const previous = config2.cacheFilter;
-        config2.cacheFilter = (cache, file) => (!previous || previous(cache, file)) && plugin.api.scopeFrontmatterActive(cache?.frontmatter);
+        const previous = config2.cardFilter;
+        config2.cardFilter = (card) => (!previous || previous(card)) && plugin.api.scopeCardActive(card);
         return config2;
       };
       const config = scopeFilter(resolveKanbanConfig(plugin, src, ctx.sourcePath));
@@ -3412,6 +3511,8 @@ var require_api = __commonJS({
     var { saveTemplate } = require_templates();
     var { parkAll } = require_sleep();
     var { openFileAtLine } = require_render();
+    var { PROJECT_ROOT, projectFile, projectFm, projectActive, scopeAt, fileScopes, names } = require_scope();
+    var SCOPE_KEYS = { org: "orgs", projects: "projects" };
     var DEFAULT_COLS = "columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-";
     var HABIT_COLS = "columns: Idle~, Doing!";
     var SCOPE_NOTE = "90-99 Obsidian Meta/Kanban Scopes.md";
@@ -3522,12 +3623,22 @@ var require_api = __commonJS({
         return contains ? x.includes(w) : x === w;
       });
     }
-    function fmSuffix(app2, path, keys) {
+    function fmSuffix(app2, path, keys, line) {
       if (!keys) return "";
       const fm = app2.metadataCache.getCache(path)?.frontmatter;
       const list = String(keys).split(",").map((s) => s.trim()).filter(Boolean);
       if (!list.length) return "";
-      return "	" + list.map((k) => `${k}=${(fmVals(fm, k) || []).join("|") || "\xB7"}`).join("; ");
+      const scope = list.some((k) => SCOPE_KEYS[k]) ? refScope(app2, `${path}:${line}`) : null;
+      return "	" + list.map((k) => `${k}=${(SCOPE_KEYS[k] ? scope[SCOPE_KEYS[k]] : fmVals(fm, k) || []).join("|") || "\xB7"}`).join("; ");
+    }
+    function refScope(app2, ref) {
+      const i = String(ref).lastIndexOf(":");
+      const file = app2.vault.getAbstractFileByPath(String(ref).slice(0, i));
+      return file ? scopeAt(app2, file, Number(String(ref).slice(i + 1))) : { orgs: [], projects: [] };
+    }
+    function cardVals(app2, card, key) {
+      if (SCOPE_KEYS[key]) return card[SCOPE_KEYS[key]];
+      return fmVals(app2.metadataCache.getCache(card.file.path)?.frontmatter, key) || [];
     }
     function scopeRules(app2, path = SCOPE_NOTE) {
       const file = app2.vault.getAbstractFileByPath(path);
@@ -3544,8 +3655,8 @@ var require_api = __commonJS({
       const has = (key, value) => (fmVals(rules, key) || []).some((x) => x.toLowerCase() === value.toLowerCase());
       return !has("kanban-inactive-projects", project) && !has("kanban-inactive-scopes", `${org} / ${project}`);
     }
-    function scopeInactive(rules, org, project) {
-      return scopeOrgInactive(rules, org) || !scopeProjectActive(rules, org, project);
+    function scopeInactive(rules, org, project, noteActive = null) {
+      return scopeOrgInactive(rules, org) || !(noteActive ?? scopeProjectActive(rules, org, project));
     }
     async function scopeRows(app2, opts = {}) {
       const scopeNote = opts.scopeNote || SCOPE_NOTE;
@@ -3553,8 +3664,7 @@ var require_api = __commonJS({
       const files = await fmFiles(app2, opts.paths, opts.since, opts.tasks === true);
       const counts = /* @__PURE__ */ new Map();
       for (const file of files) {
-        const fm = app2.metadataCache.getFileCache(file)?.frontmatter;
-        for (const org of fmVals(fm, "org") || []) for (const project of fmVals(fm, "projects") || []) {
+        for (const { org, project } of fileScopes(app2, file)) {
           const key = `${org.toLowerCase()}	${project.toLowerCase()}`;
           const row = counts.get(key) || { org, project, count: 0 };
           row.count++;
@@ -3563,7 +3673,8 @@ var require_api = __commonJS({
       }
       const query = String(opts.query || "").toLowerCase();
       const allRows = [...counts].map(([, { org, project, count }]) => {
-        return { org, project, count, status: scopeInactive(rules, org, project) ? "inactive" : "active" };
+        const noteActive = project ? projectActive(app2, project) : null;
+        return { org, project, count, status: scopeInactive(rules, org, project, noteActive) ? "inactive" : "active" };
       }).sort((a, b) => a.org.localeCompare(b.org) || a.project.localeCompare(b.project));
       return allRows.filter((row) => (opts.all || row.status === "active") && (!query || `${row.org} ${row.project}`.toLowerCase().includes(query))).sort((a, b) => b.count - a.count || a.org.localeCompare(b.org) || a.project.localeCompare(b.project));
     }
@@ -3572,6 +3683,7 @@ var require_api = __commonJS({
       if (!file) throw new Error(`scope registry not found: ${path}`);
       const rows = await scopeRows(app2, { all: true, scopeNote: path });
       const members = rows.filter((row) => row.org.toLowerCase() === String(org).toLowerCase());
+      const written = /* @__PURE__ */ new Map();
       await app2.fileManager.processFrontMatter(file, (fm) => {
         const inactiveOrgs = fm["kanban-inactive-orgs"];
         const inactive = inactiveOrgs == null ? [] : Array.isArray(inactiveOrgs) ? inactiveOrgs : [inactiveOrgs];
@@ -3585,22 +3697,85 @@ var require_api = __commonJS({
         const affected = project ? members.filter((row) => row.project.toLowerCase() === project.toLowerCase()) : members;
         const affectedNames = new Set(affected.map((row) => row.project.toLowerCase()));
         const kept = entries.filter((item) => !item || typeof item !== "object" || unwrap(item.org).toLowerCase() !== org.toLowerCase() || !affectedNames.has(unwrap(item.project).toLowerCase()));
-        for (const row of affected) kept.push({
-          org: row.org,
-          project: row.project,
-          active: !!active
-        });
+        for (const row of affected) {
+          kept.push({ org: row.org, project: row.project, active: !!active });
+          written.set(row.project.toLowerCase(), { project: row.project, active: !!active });
+        }
         if (project && active) fm["kanban-inactive-orgs"] = activeOrgs;
         if (project && !active && !members.some((row) => row.project.toLowerCase() !== project.toLowerCase() && row.status === "active")) {
           fm["kanban-inactive-orgs"] = [...activeOrgs, `[[${org}]]`];
           for (const row of members) {
             const entry = kept.find((item) => item && typeof item === "object" && unwrap(item.org).toLowerCase() === org.toLowerCase() && unwrap(item.project).toLowerCase() === row.project.toLowerCase());
             if (entry) entry.active = false;
+            written.set(row.project.toLowerCase(), { project: row.project, active: false });
           }
         }
         fm["kanban-scope-statuses"] = kept;
       });
+      for (const item of written.values()) {
+        const note = item.project && projectFile(app2, item.project);
+        const owners = note ? names(projectFm(app2, item.project)?.org).map((x) => x.toLowerCase()) : [];
+        const named = project && item.project.toLowerCase() === String(project).toLowerCase();
+        if (!named && owners.length && !owners.includes(String(org).toLowerCase())) continue;
+        if (note && projectActive(app2, item.project) !== item.active)
+          await app2.fileManager.processFrontMatter(note, (fm) => {
+            fm.active = item.active;
+          });
+      }
       return `ok ${org}${project ? ` / ${project}` : ""}: ${active ? "active" : "inactive"}`;
+    }
+    var JUNK_PROJECT_RE = /^$|^\?+$|\/|\.md$/;
+    async function migrateProjects(app2, opts = {}) {
+      const rows = await scopeRows(app2, { all: true });
+      const byProject = /* @__PURE__ */ new Map();
+      for (const row of rows) {
+        const key = row.project.toLowerCase();
+        if (!byProject.has(key)) byProject.set(key, { name: row.project, rows: [] });
+        byProject.get(key).rows.push(row);
+      }
+      const root = app2.vault.getAbstractFileByPath(PROJECT_ROOT);
+      const orgFolder = (org) => (root?.children || []).find((c) => c.children && c.name.toLowerCase() === org.toLowerCase())?.name || org;
+      const out = [];
+      for (const { name, rows: list } of [...byProject.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+        const isOrg = (root?.children || []).some((c) => c.children && c.name.toLowerCase() === name.toLowerCase());
+        if (JUNK_PROJECT_RE.test(name) || isOrg) {
+          out.push(["skip", name, list.map((r) => r.org).join("|"), "", ""]);
+          continue;
+        }
+        const rank = (rs) => rs.filter((r) => r.org).sort((a, b) => b.count - a.count)[0];
+        const top = rank(list.filter((r) => r.status === "active")) || rank(list) || list[0];
+        const file = projectFile(app2, name);
+        const fm = file ? app2.metadataCache.getFileCache(file)?.frontmatter || {} : {};
+        const folder = file && file.path.slice(PROJECT_ROOT.length + 1).split("/")[0];
+        const folderOrg = folder && (list.find((r) => r.org.toLowerCase() === folder.toLowerCase())?.org || folder);
+        const org = names(fm.org)[0] || folderOrg || top.org;
+        const active = typeof fm.active === "boolean" ? fm.active : list.some((r) => r.status === "active");
+        if (file) {
+          const needs = !names(fm.org).length || typeof fm.active !== "boolean";
+          out.push([needs ? "update" : "keep", name, org, String(active), file.path]);
+          if (needs && opts.apply) await app2.fileManager.processFrontMatter(file, (f) => {
+            if (!names(f.org).length) f.org = [`[[${org}]]`];
+            if (typeof f.active !== "boolean") f.active = active;
+          });
+          continue;
+        }
+        const elsewhere = app2.metadataCache.getFirstLinkpathDest(name, "");
+        if (elsewhere && elsewhere.basename === name) {
+          out.push(["move", name, org, String(active), `${elsewhere.path} -> ${PROJECT_ROOT}/${orgFolder(org)}/${name}/${name}.md`]);
+          continue;
+        }
+        const dir = `${PROJECT_ROOT}/${orgFolder(org)}/${name}`;
+        out.push(["create", name, org, String(active), `${dir}/${name}.md`]);
+        if (!opts.apply) continue;
+        if (!app2.vault.getAbstractFileByPath(dir)) await app2.vault.createFolder(dir);
+        await app2.vault.create(`${dir}/${name}.md`, `---
+org:
+  - ${JSON.stringify(`[[${org}]]`)}
+active: ${active}
+---
+`);
+      }
+      return "\n" + out.map((r) => r.join("	")).join("\n");
     }
     var TASK_SOURCES = ["claude", "chatgpt", "calendar", "kanban"];
     function taskNote({ text, org, project, col, stamp, source }) {
@@ -3608,10 +3783,11 @@ var require_api = __commonJS({
       const projects = project ? `projects:
   - ${JSON.stringify(`[[${project}]]`)}
 ` : "";
-      return `---
-org:
+      const orgs = org ? `org:
   - ${JSON.stringify(`[[${org}]]`)}
-${projects}source: ${source}
+` : "";
+      return `---
+${orgs}${projects}source: ${source}
 ---
 
 - [ ] ${body} #kb/${col.toLowerCase()}
@@ -3765,7 +3941,7 @@ ${projects}source: ${source}
           }
           rows = filterSince(rows, opts.since);
           if (opts.limit) rows = rows.slice(0, opts.limit);
-          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${opts.desktop ? `	${r.desktop ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm)}`).join("\n");
+          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${opts.desktop ? `	${r.desktop ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm, r.line)}`).join("\n");
         },
         // Every configured column and its tasks. The `full` column is unfiltered;
         // other columns only include tasks seen within `hours` (default 24).
@@ -3826,7 +4002,7 @@ ${projects}source: ${source}
           const config = makeConfig2(opts);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const rows = config.columns.filter((c) => c.state && (!want || c.name.toLowerCase() === want)).flatMap(
-            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm)}`)
+            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card.line)}`)
           );
           return "\n" + rows.join("\n");
         },
@@ -3842,7 +4018,7 @@ ${projects}source: ${source}
             let tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
             if (want) tasks = tasks.filter((t) => t.history.some((h) => h.to.toLowerCase() === want));
             const rows = tasks.map((t) => {
-              const suf = fmSuffix(plugin.app, t.file.path, opts.fm);
+              const suf = fmSuffix(plugin.app, t.file.path, opts.fm, t.line);
               if (want) return `${t.file.path}:${t.line}	${t.body}	${colSegments(t.history, want, dateStr)}${suf}`;
               const moves = t.history.map((h) => `${hhmm(h.stamp)} ${h.from || "\xB7"}>${h.to}`).join("  ");
               return `${t.file.path}:${t.line}	${t.body}	${moves}${suf}`;
@@ -3871,7 +4047,7 @@ ${projects}source: ${source}
             if (!col.state || want && col.name.toLowerCase() !== want) continue;
             for (const card of byCol.get(col.key) || []) {
               if (!card.history.some((h) => h.to === col.name && dateSet.has(h.stamp.slice(0, 8)))) continue;
-              const vals = fmVals(plugin.app.metadataCache.getCache(card.file.path)?.frontmatter, by);
+              const vals = cardVals(plugin.app, card, by);
               for (const g of vals && vals.length ? vals : ["(none)"]) {
                 const e = groups.get(g) || { n: 0, bodies: [] };
                 e.n++;
@@ -3920,7 +4096,7 @@ ${projects}source: ${source}
               }
               if (!ivals.length) continue;
               allIvals.push(...ivals);
-              const vals = fmVals(plugin.app.metadataCache.getCache(card.file.path)?.frontmatter, by);
+              const vals = cardVals(plugin.app, card, by);
               for (const g of vals && vals.length ? vals : ["(none)"]) {
                 const e = groups.get(g) || { ivals: [], cards: /* @__PURE__ */ new Set(), bodies: [] };
                 e.ivals.push(...ivals);
@@ -3955,7 +4131,7 @@ ${projects}source: ${source}
             const openEnd = (s) => today ? Date.now() : endOfDayMs(s);
             for (const [key, list] of byCol) for (const card of list) {
               for (const x of stints(card.history, want, lo, hi, openEnd, key === want)) {
-                const project = (fmVals(plugin.app.metadataCache.getCache(card.file.path)?.frontmatter, "projects") || [])[0] || "";
+                const project = card.projects[0] || "";
                 segs.push({ ...x, open: x.open && today, body: cleanText(card.body), ref: `${card.file.path}:${card.line}`, project });
               }
             }
@@ -3995,13 +4171,12 @@ ${projects}source: ${source}
             const doneIn = doneMs != null && doneMs >= lo && doneMs <= hi;
             if (!inRange.length && !doneIn) continue;
             const life = stints(card.history, "doing", 0, now, openEnd, key === "doing").reduce((t, x) => t + x.e - x.s, 0);
-            const fm = plugin.app.metadataCache.getCache(card.file.path)?.frontmatter;
             const ah = adhoc(card.history, birthMs(card.file.name), mull);
             rows.push([
               `${card.file.path}:${card.line}`,
               cleanText(card.body),
-              (fmVals(fm, "org") || []).join("|"),
-              (fmVals(fm, "projects") || []).join("|"),
+              card.orgs.join("|"),
+              card.projects.join("|"),
               card.desktop ?? "",
               ah == null ? "-" : ah ? "1" : "0",
               doneIn ? String(sec(doneMs)) : "-",
@@ -4065,12 +4240,26 @@ ${projects}source: ${source}
           }
           return [...groups.values()].sort((a, b) => a.org.localeCompare(b.org));
         },
-        scopeFrontmatterActive(frontmatter) {
-          const orgs = fmVals(frontmatter, "org") || [];
-          const projects = fmVals(frontmatter, "projects") || [];
+        // Is a scanned card's { orgs, projects } scope active? Unscoped cards stay on the board.
+        scopeCardActive({ orgs = [], projects = [] }) {
           if (!orgs.length || !projects.length) return true;
           const rules = scopeRules(plugin.app);
-          return orgs.some((org) => projects.some((project) => !scopeInactive(rules, org, project)));
+          return orgs.some((org) => projects.some((project) => !scopeInactive(rules, org, project, projectActive(plugin.app, project))));
+        },
+        // Card scope of one "file:line" ref: "orgs a|b<TAB>projects a|b" (sync; the Kanban Board app reads it per card).
+        scope(ref) {
+          const { orgs, projects } = refScope(plugin.app, ref);
+          return `${orgs.join("|")}	${projects.join("|")}`;
+        },
+        // One-time move of project status and org into project notes under PROJECT_ROOT.
+        // Dry run unless opts.apply. Lines: action<TAB>project<TAB>org<TAB>active<TAB>path
+        //   keep    note already has org and active
+        //   update  note gets the missing org and/or active
+        //   create  no note anywhere: a new note at PROJECT_ROOT/<Org>/<Project>/<Project>.md
+        //   move    a same-named note exists outside PROJECT_ROOT; left in place, move it by hand
+        //   skip    not a project name ('', '?', paths, note names)
+        async migrateProjects(opts = {}) {
+          return migrateProjects(plugin.app, opts);
         },
         async setScopeStatus(opts = {}) {
           return setScopeStatus(plugin.app, opts);
@@ -4083,8 +4272,18 @@ ${projects}source: ${source}
           if (!TASK_SOURCES.includes(source)) throw new Error(`source must be one of: ${TASK_SOURCES.join(", ")}`);
           const rows = await scopeRows(plugin.app, { all: true, scopeNote: opts.scopeNote });
           const noProject = !String(opts.project || "").trim();
-          const row = rows.find((x) => x.org.toLowerCase() === String(opts.org || "").toLowerCase() && (noProject || x.project.toLowerCase() === String(opts.project || "").toLowerCase()));
-          if (!row) throw new Error(`unknown scope: ${opts.org || "?"} / ${opts.project || "?"}`);
+          const noteOrgs = noProject ? [] : names(projectFm(plugin.app, String(opts.project).trim())?.org);
+          let org = String(opts.org || "").trim();
+          if (!org && noteOrgs.length !== 1)
+            throw new Error(noProject || !noteOrgs.length ? "org is required (or set org in the project note)" : `project ${opts.project} has orgs ${noteOrgs.join(", ")}; pass org`);
+          if (!org) org = noteOrgs[0];
+          let row = rows.find((x) => x.org.toLowerCase() === org.toLowerCase() && (noProject || x.project.toLowerCase() === String(opts.project || "").toLowerCase()));
+          if (!row && noteOrgs.some((x) => x.toLowerCase() === org.toLowerCase())) {
+            const project2 = String(opts.project).trim();
+            const inactive = scopeInactive(scopeRules(plugin.app, opts.scopeNote || SCOPE_NOTE), org, project2, projectActive(plugin.app, project2));
+            row = { org: noteOrgs.find((x) => x.toLowerCase() === org.toLowerCase()), project: project2, status: inactive ? "inactive" : "active" };
+          }
+          if (!row) throw new Error(`unknown scope: ${org || "?"} / ${opts.project || "?"}`);
           if (noProject ? scopeOrgInactive(scopeRules(plugin.app, opts.scopeNote || SCOPE_NOTE), row.org) : row.status === "inactive")
             throw new Error(`inactive scope: ${row.org} / ${noProject ? "-" : row.project}`);
           const project = noProject ? "" : row.project;
@@ -4098,7 +4297,8 @@ ${projects}source: ${source}
           }
           if (plugin.app.vault.getAbstractFileByPath(filePath)) throw new Error("no free daily-note timestamp");
           const stamp = stampWrite(stampNow());
-          const note = taskNote({ text, org: row.org, project, col: col.name, stamp, source });
+          const ownsOrg = noteOrgs.length === 1 && noteOrgs[0].toLowerCase() === row.org.toLowerCase();
+          const note = taskNote({ text, org: ownsOrg ? null : row.org, project, col: col.name, stamp, source });
           await plugin.app.vault.create(filePath, note);
           const line = note.split("\n").findIndex((x) => x.startsWith("- [ ] "));
           return `${filePath}	${line}	${row.org}	${project}	${col.name}	${text}`;
@@ -4121,7 +4321,9 @@ ${projects}source: ${source}
             "scopes(opts?)            active org/project combinations; opts: all,query,scopeNote",
             "scopeCatalog()           orgs with projects and inherited activity settings",
             "setScopeStatus(opts)     set one organization or organization/project active state",
-            "createTask(opts)         create a validated task note; opts: text,org,project(optional),source(claude|chatgpt|calendar|kanban),col",
+            "createTask(opts)         create a validated task note; opts: text,org(optional with a project note),project(optional),source(claude|chatgpt|calendar|kanban),col",
+            "scope(ref)               card scope of file:line: orgs<TAB>projects (## [[Project]] heading, then frontmatter)",
+            "migrateProjects(opts?)   dry-run (opts.apply writes) of org/active into project notes under " + PROJECT_ROOT,
             "moveTask(file,line,col)  move a task to a column",
             "moveTasks(refs,col)      move several file:line refs to a column",
             "rankTasks(pairs,col?)    set manual order [[file:line, rank]], moving into col first",
@@ -4207,7 +4409,9 @@ ${projects}source: ${source}
             limit: opts.limit,
             since: opts.since
           })).split("\n").filter(Boolean);
-          if (project) {
+          if (project && SCOPE_KEYS[prop]) {
+            rows = rows.filter((l) => matchVal(refScope(plugin.app, l.split("	")[1] || "")[SCOPE_KEYS[prop]], project, opts.contains));
+          } else if (project) {
             const files = await fmFiles(plugin.app, opts.paths, opts.since, false);
             const set = new Set(files.filter((f) => {
               const vals = fmVals(plugin.app.metadataCache.getFileCache(f)?.frontmatter, prop);
@@ -4386,8 +4590,6 @@ ${projects}source: ${source}
           }
           if (!found) return `
 ${id}	${file.path}:${line}		(not on the board)`;
-          const fm = plugin.app.metadataCache.getFileCache(file)?.frontmatter || {};
-          const list = (k) => [].concat(fm[k] ?? []).map((v) => String(v).replace(/^\[\[|\]\]$/g, "").split("|")[0]).join("|");
           const times = Object.entries(columnSeconds(found.history)).map(([c, sec]) => `${c}=${Math.round(sec)}`).join("|");
           return "\n" + [
             id,
@@ -4395,8 +4597,8 @@ ${id}	${file.path}:${line}		(not on the board)`;
             r.col,
             cleanText(r.body),
             relAge(r.since),
-            list("org"),
-            list("projects"),
+            found.orgs.join("|"),
+            found.projects.join("|"),
             r.desktop ?? "",
             found.est ?? "",
             found.activeSec ?? "",

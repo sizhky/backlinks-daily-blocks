@@ -51,3 +51,17 @@ test('parseTaskId maps a Kanban Board ID to its note and task ordinal', () => {
   assert.deepEqual({ ...parseTaskId('ow-260613-1844') }, { key: 'OW', base: '20260613-1844', ordinal: 1 });
   assert.equal(parseTaskId('TAS-K3F9'), null);
 });
+
+test('a project note status beats the registry; an inactive org still wins', () => {
+  const { scopeInactive } = loadApi();
+  assert.equal(scopeInactive({ 'kanban-inactive-projects': ['[[P]]'] }, 'O', 'P', true), false);
+  assert.equal(scopeInactive({}, 'O', 'P', false), true);
+  assert.equal(scopeInactive({ 'kanban-inactive-orgs': ['[[O]]'] }, 'O', 'P', true), true);
+});
+
+test('taskNote leaves the org line out when the project note owns the org', () => {
+  const { taskNote } = loadApi();
+  const note = taskNote({ text: 't', org: null, project: 'P', col: 'Backlog', stamp: '20261017-1200', source: 'claude' });
+  assert.ok(!note.includes('org:'));
+  assert.ok(note.includes('projects:\n  - "[[P]]"'));
+});
