@@ -9,7 +9,7 @@ const { parkAll } = require('./sleep');
 const { openFileAtLine } = require('./core/render');
 const { PROJECT_ROOT, projectFile, projectFm, projectActive, scopeAt, fileScopes, names } = require('./core/scope');
 
-// Frontmatter keys a task's card scope answers (core/scope.js): heading project, then note frontmatter.
+// Frontmatter keys a task's card scope answers (core/scope.js): inline @[[Project]], heading, then note frontmatter.
 const SCOPE_KEYS = { org: 'orgs', projects: 'projects' };
 
 const DEFAULT_COLS = 'columns: Backlog~, Todo, Doing!, Parked~, Done=x, Cancelled=-';
@@ -150,20 +150,20 @@ function matchVal(vals, want, contains) {
 
 // trailing "\tkey=a|b; key2=c" of selected frontmatter keys for a file path.
 // keys = comma-sep string (opts.fm). Missing value renders "·". "" when no keys.
-function fmSuffix(app, path, keys, line) {
+function fmSuffix(app, path, keys, line, body) {
   if (!keys) return '';
   const fm = app.metadataCache.getCache(path)?.frontmatter;
   const list = String(keys).split(',').map(s => s.trim()).filter(Boolean);
   if (!list.length) return '';
-  const scope = list.some(k => SCOPE_KEYS[k]) ? refScope(app, `${path}:${line}`) : null;
+  const scope = list.some(k => SCOPE_KEYS[k]) ? refScope(app, `${path}:${line}`, body) : null;
   return '\t' + list.map(k => `${k}=${(SCOPE_KEYS[k] ? scope[SCOPE_KEYS[k]] : fmVals(fm, k) || []).join('|') || '·'}`).join('; ');
 }
 
-// { orgs, projects } of a "file:line" ref (core/scope.js); empty when the file is gone.
-function refScope(app, ref) {
+// { orgs, projects } of a "file:line" ref with its task text (core/scope.js); empty when the file is gone.
+function refScope(app, ref, body) {
   const i = String(ref).lastIndexOf(':');
   const file = app.vault.getAbstractFileByPath(String(ref).slice(0, i));
-  return file ? scopeAt(app, file, Number(String(ref).slice(i + 1))) : { orgs: [], projects: [] };
+  return file ? scopeAt(app, file, Number(String(ref).slice(i + 1)), null, body) : { orgs: [], projects: [] };
 }
 
 // Values of `key` for a scanned card: card scope for org/projects, else note frontmatter.
@@ -199,13 +199,22 @@ function scopeInactive(rules, org, project, noteActive = null) {
   return scopeOrgInactive(rules, org) || !(noteActive ?? scopeProjectActive(rules, org, project));
 }
 
+// Task texts of a file that may carry an inline @[[Project]]: read only when a task line holds a link.
+async function inlineBodies(app, file) {
+  const cache = app.metadataCache.getFileCache(file);
+  const taskLines = new Set((cache?.listItems || []).filter(i => i.task != null).map(i => i.position.start.line));
+  if (!(cache?.links || []).some(l => taskLines.has(l.position.start.line))) return [];
+  const lines = (await app.vault.cachedRead(file)).split(/\r?\n/);
+  return [...taskLines].map(i => lines[i] || '').filter(t => t.includes('@[['));
+}
+
 async function scopeRows(app, opts = {}) {
   const scopeNote = opts.scopeNote || SCOPE_NOTE;
   const rules = scopeRules(app, scopeNote);
   const files = await fmFiles(app, opts.paths, opts.since, opts.tasks === true);
   const counts = new Map();
   for (const file of files) {
-    for (const { org, project } of fileScopes(app, file)) {
+    for (const { org, project } of fileScopes(app, file, await inlineBodies(app, file))) {
       const key = `${org.toLowerCase()}\t${project.toLowerCase()}`;
       const row = counts.get(key) || { org, project, count: 0 };
       row.count++;
@@ -497,7 +506,7 @@ function buildApi(plugin) {
       }
       rows = filterSince(rows, opts.since);
       if (opts.limit) rows = rows.slice(0, opts.limit);
-      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${opts.rank ? `\t${r.rank ?? ''}` : ''}${opts.desktop ? `\t${r.desktop ?? ''}` : ''}${fmSuffix(plugin.app, r.file, opts.fm, r.line)}`).join('\n');
+      return '\n' + rows.map(r => `${r.col}\t${r.file}:${r.line}\t${r.body}\t${relAge(r.since)}${opts.timestamps ? `\t${r.since || ''}` : ''}${opts.rank ? `\t${r.rank ?? ''}` : ''}${opts.desktop ? `\t${r.desktop ?? ''}` : ''}${fmSuffix(plugin.app, r.file, opts.fm, r.line, r.body)}`).join('\n');
     },
 
     // Every configured column and its tasks. The `full` column is unfiltered;
@@ -565,7 +574,7 @@ function buildApi(plugin) {
         .flatMap(col => (byCol.get(col.key) || [])
           .map(card => ({ card, move: card.history.find(h => h.stamp.startsWith(dateStr) && h.to === col.name) }))
           .filter(({ move }) => move)
-          .map(({ card, move }) => `${col.name}\t${card.file.path}:${card.line}\t${card.body}\t${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card.line)}`)
+          .map(({ card, move }) => `${col.name}\t${card.file.path}:${card.line}\t${card.body}\t${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card.line, card.body)}`)
         );
       return '\n' + rows.join('\n');
     },
@@ -582,7 +591,7 @@ function buildApi(plugin) {
         let tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
         if (want) tasks = tasks.filter(t => t.history.some(h => h.to.toLowerCase() === want));
         const rows = tasks.map(t => {
-          const suf = fmSuffix(plugin.app, t.file.path, opts.fm, t.line);
+          const suf = fmSuffix(plugin.app, t.file.path, opts.fm, t.line, t.body);
           if (want) return `${t.file.path}:${t.line}\t${t.body}\t${colSegments(t.history, want, dateStr)}${suf}`;
           const moves = t.history.map(h => `${hhmm(h.stamp)} ${h.from || '·'}>${h.to}`).join('  ');
           return `${t.file.path}:${t.line}\t${t.body}\t${moves}${suf}`;
@@ -811,8 +820,9 @@ function buildApi(plugin) {
     },
 
     // Card scope of one "file:line" ref: "orgs a|b<TAB>projects a|b" (sync; the Kanban Board app reads it per card).
-    scope(ref) {
-      const { orgs, projects } = refScope(plugin.app, ref);
+    // body = the task text, for an inline @[[Project]]; without it only headings and frontmatter count.
+    scope(ref, body) {
+      const { orgs, projects } = refScope(plugin.app, ref, body);
       return `${orgs.join('|')}\t${projects.join('|')}`;
     },
 
@@ -895,7 +905,7 @@ function buildApi(plugin) {
         'scopeCatalog()           orgs with projects and inherited activity settings',
         'setScopeStatus(opts)     set one organization or organization/project active state',
         'createTask(opts)         create a validated task note; opts: text,org(optional with a project note),project(optional),source(claude|chatgpt|calendar|kanban),col',
-        'scope(ref)               card scope of file:line: orgs<TAB>projects (## [[Project]] heading, then frontmatter)',
+        'scope(ref, body?)        card scope of file:line: orgs<TAB>projects (@[[Project]] in body, ## [[Project]] heading, then frontmatter)',
         'migrateProjects(opts?)   dry-run (opts.apply writes) of org/active into project notes under ' + PROJECT_ROOT,
         'moveTask(file,line,col)  move a task to a column',
         'moveTasks(refs,col)      move several file:line refs to a column',
@@ -985,7 +995,7 @@ function buildApi(plugin) {
         since: opts.since,
       })).split('\n').filter(Boolean);
       if (project && SCOPE_KEYS[prop]) {
-        rows = rows.filter(l => matchVal(refScope(plugin.app, l.split('\t')[1] || '')[SCOPE_KEYS[prop]], project, opts.contains));
+        rows = rows.filter(l => matchVal(refScope(plugin.app, l.split('\t')[1] || '', l.split('\t')[2])[SCOPE_KEYS[prop]], project, opts.contains));
       } else if (project) { // filter to notes whose frontmatter `prop` matches `project`
         const files = await fmFiles(plugin.app, opts.paths, opts.since, false);
         const set = new Set(files

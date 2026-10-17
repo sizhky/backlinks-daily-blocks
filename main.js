@@ -410,6 +410,10 @@ var require_scope = __commonJS({
         return { line: at.line, level: h.level, project: link ? link.link.split("#")[0].trim() || null : null };
       }).sort((a, b) => a.line - b.line);
     }
+    var INLINE_RE = /(?:^|\s)@\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+    function inlineProjects(body) {
+      return [...String(body || "").matchAll(INLINE_RE)].map((m) => m[1].trim()).filter(Boolean);
+    }
     function headingProjectAt(heads, line) {
       const stack = [];
       for (const h of heads) {
@@ -453,19 +457,20 @@ var require_scope = __commonJS({
     function projectOrgs(app2, projects) {
       return [...new Set(projects.flatMap((p) => names(projectFm(app2, p)?.org)))];
     }
-    function scopeAt(app2, file, line, heads) {
+    function scopeAt(app2, file, line, heads, body) {
       const cache = app2.metadataCache.getFileCache(file);
       const fm = cache?.frontmatter;
       const own = names(fm?.org);
-      const hp = headingProjectAt(heads || headingScopes(cache), line);
-      if (hp) {
-        const orgs = projectOrgs(app2, [hp]);
-        return { orgs: orgs.length ? orgs : own, projects: [hp] };
+      const inline = inlineProjects(body);
+      const hp = inline.length ? inline : [headingProjectAt(heads || headingScopes(cache), line)].filter(Boolean);
+      if (hp.length) {
+        const orgs = projectOrgs(app2, hp);
+        return { orgs: orgs.length ? orgs : own, projects: hp };
       }
       const projects = names(fm?.projects);
       return { orgs: own.length ? own : projectOrgs(app2, projects), projects };
     }
-    function fileScopes(app2, file) {
+    function fileScopes(app2, file, bodies = []) {
       const cache = app2.metadataCache.getFileCache(file);
       const pairs = /* @__PURE__ */ new Map();
       const add = ({ orgs, projects }) => {
@@ -475,9 +480,10 @@ var require_scope = __commonJS({
       if (!top.projects.length && cache?.frontmatter && "projects" in cache.frontmatter) top.projects = [""];
       add(top);
       for (const h of headingScopes(cache)) if (h.project) add(scopeAt(app2, file, h.line + 1, [h]));
+      for (const body of bodies) if (inlineProjects(body).length) add(scopeAt(app2, file, 0, [], body));
       return [...pairs.values()];
     }
-    module2.exports = { PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };
+    module2.exports = { inlineProjects, PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };
   }
 });
 
@@ -1092,7 +1098,7 @@ var require_kanban = __commonJS({
               who: [],
               color: null,
               icon: null,
-              ...scopeAt(app2, file, i, heads)
+              ...scopeAt(app2, file, i, heads, tm[4])
             };
             if (scopeLane(config.lane)) card.lane = card[scopeLane(config.lane)][0] || null;
             if (scopeLane(config.groupby)) card.group = card[scopeLane(config.groupby)][0] || null;
@@ -3623,18 +3629,18 @@ var require_api = __commonJS({
         return contains ? x.includes(w) : x === w;
       });
     }
-    function fmSuffix(app2, path, keys, line) {
+    function fmSuffix(app2, path, keys, line, body) {
       if (!keys) return "";
       const fm = app2.metadataCache.getCache(path)?.frontmatter;
       const list = String(keys).split(",").map((s) => s.trim()).filter(Boolean);
       if (!list.length) return "";
-      const scope = list.some((k) => SCOPE_KEYS[k]) ? refScope(app2, `${path}:${line}`) : null;
+      const scope = list.some((k) => SCOPE_KEYS[k]) ? refScope(app2, `${path}:${line}`, body) : null;
       return "	" + list.map((k) => `${k}=${(SCOPE_KEYS[k] ? scope[SCOPE_KEYS[k]] : fmVals(fm, k) || []).join("|") || "\xB7"}`).join("; ");
     }
-    function refScope(app2, ref) {
+    function refScope(app2, ref, body) {
       const i = String(ref).lastIndexOf(":");
       const file = app2.vault.getAbstractFileByPath(String(ref).slice(0, i));
-      return file ? scopeAt(app2, file, Number(String(ref).slice(i + 1))) : { orgs: [], projects: [] };
+      return file ? scopeAt(app2, file, Number(String(ref).slice(i + 1)), null, body) : { orgs: [], projects: [] };
     }
     function cardVals(app2, card, key) {
       if (SCOPE_KEYS[key]) return card[SCOPE_KEYS[key]];
@@ -3658,13 +3664,20 @@ var require_api = __commonJS({
     function scopeInactive(rules, org, project, noteActive = null) {
       return scopeOrgInactive(rules, org) || !(noteActive ?? scopeProjectActive(rules, org, project));
     }
+    async function inlineBodies(app2, file) {
+      const cache = app2.metadataCache.getFileCache(file);
+      const taskLines = new Set((cache?.listItems || []).filter((i) => i.task != null).map((i) => i.position.start.line));
+      if (!(cache?.links || []).some((l) => taskLines.has(l.position.start.line))) return [];
+      const lines = (await app2.vault.cachedRead(file)).split(/\r?\n/);
+      return [...taskLines].map((i) => lines[i] || "").filter((t) => t.includes("@[["));
+    }
     async function scopeRows(app2, opts = {}) {
       const scopeNote = opts.scopeNote || SCOPE_NOTE;
       const rules = scopeRules(app2, scopeNote);
       const files = await fmFiles(app2, opts.paths, opts.since, opts.tasks === true);
       const counts = /* @__PURE__ */ new Map();
       for (const file of files) {
-        for (const { org, project } of fileScopes(app2, file)) {
+        for (const { org, project } of fileScopes(app2, file, await inlineBodies(app2, file))) {
           const key = `${org.toLowerCase()}	${project.toLowerCase()}`;
           const row = counts.get(key) || { org, project, count: 0 };
           row.count++;
@@ -3941,7 +3954,7 @@ ${orgs}${projects}source: ${source}
           }
           rows = filterSince(rows, opts.since);
           if (opts.limit) rows = rows.slice(0, opts.limit);
-          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${opts.desktop ? `	${r.desktop ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm, r.line)}`).join("\n");
+          return "\n" + rows.map((r) => `${r.col}	${r.file}:${r.line}	${r.body}	${relAge(r.since)}${opts.timestamps ? `	${r.since || ""}` : ""}${opts.rank ? `	${r.rank ?? ""}` : ""}${opts.desktop ? `	${r.desktop ?? ""}` : ""}${fmSuffix(plugin.app, r.file, opts.fm, r.line, r.body)}`).join("\n");
         },
         // Every configured column and its tasks. The `full` column is unfiltered;
         // other columns only include tasks seen within `hours` (default 24).
@@ -4002,7 +4015,7 @@ ${orgs}${projects}source: ${source}
           const config = makeConfig2(opts);
           const byCol = await scanKanbanTasks(plugin.app, config);
           const rows = config.columns.filter((c) => c.state && (!want || c.name.toLowerCase() === want)).flatMap(
-            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card.line)}`)
+            (col) => (byCol.get(col.key) || []).map((card) => ({ card, move: card.history.find((h) => h.stamp.startsWith(dateStr) && h.to === col.name) })).filter(({ move }) => move).map(({ card, move }) => `${col.name}	${card.file.path}:${card.line}	${card.body}	${hhmm(move.stamp)}${fmSuffix(plugin.app, card.file.path, opts.fm, card.line, card.body)}`)
           );
           return "\n" + rows.join("\n");
         },
@@ -4018,7 +4031,7 @@ ${orgs}${projects}source: ${source}
             let tasks = await collectDayTasks(plugin.app, dateStr, config.paths);
             if (want) tasks = tasks.filter((t) => t.history.some((h) => h.to.toLowerCase() === want));
             const rows = tasks.map((t) => {
-              const suf = fmSuffix(plugin.app, t.file.path, opts.fm, t.line);
+              const suf = fmSuffix(plugin.app, t.file.path, opts.fm, t.line, t.body);
               if (want) return `${t.file.path}:${t.line}	${t.body}	${colSegments(t.history, want, dateStr)}${suf}`;
               const moves = t.history.map((h) => `${hhmm(h.stamp)} ${h.from || "\xB7"}>${h.to}`).join("  ");
               return `${t.file.path}:${t.line}	${t.body}	${moves}${suf}`;
@@ -4247,8 +4260,9 @@ ${orgs}${projects}source: ${source}
           return orgs.some((org) => projects.some((project) => !scopeInactive(rules, org, project, projectActive(plugin.app, project))));
         },
         // Card scope of one "file:line" ref: "orgs a|b<TAB>projects a|b" (sync; the Kanban Board app reads it per card).
-        scope(ref) {
-          const { orgs, projects } = refScope(plugin.app, ref);
+        // body = the task text, for an inline @[[Project]]; without it only headings and frontmatter count.
+        scope(ref, body) {
+          const { orgs, projects } = refScope(plugin.app, ref, body);
           return `${orgs.join("|")}	${projects.join("|")}`;
         },
         // One-time move of project status and org into project notes under PROJECT_ROOT.
@@ -4322,7 +4336,7 @@ ${orgs}${projects}source: ${source}
             "scopeCatalog()           orgs with projects and inherited activity settings",
             "setScopeStatus(opts)     set one organization or organization/project active state",
             "createTask(opts)         create a validated task note; opts: text,org(optional with a project note),project(optional),source(claude|chatgpt|calendar|kanban),col",
-            "scope(ref)               card scope of file:line: orgs<TAB>projects (## [[Project]] heading, then frontmatter)",
+            "scope(ref, body?)        card scope of file:line: orgs<TAB>projects (@[[Project]] in body, ## [[Project]] heading, then frontmatter)",
             "migrateProjects(opts?)   dry-run (opts.apply writes) of org/active into project notes under " + PROJECT_ROOT,
             "moveTask(file,line,col)  move a task to a column",
             "moveTasks(refs,col)      move several file:line refs to a column",
@@ -4410,7 +4424,7 @@ ${orgs}${projects}source: ${source}
             since: opts.since
           })).split("\n").filter(Boolean);
           if (project && SCOPE_KEYS[prop]) {
-            rows = rows.filter((l) => matchVal(refScope(plugin.app, l.split("	")[1] || "")[SCOPE_KEYS[prop]], project, opts.contains));
+            rows = rows.filter((l) => matchVal(refScope(plugin.app, l.split("	")[1] || "", l.split("	")[2])[SCOPE_KEYS[prop]], project, opts.contains));
           } else if (project) {
             const files = await fmFiles(plugin.app, opts.paths, opts.since, false);
             const set = new Set(files.filter((f) => {

@@ -11,7 +11,7 @@ src/main.js            plugin class; registers blocks + Bases views (names/optio
 src/blocks.js          ```backlinks``` and ```daily``` code block renderers
 src/core/notes.js      prepareNote: read → strip frontmatter → truncate (%% more %%)
 src/core/tasks.js      setTaskOnLine — THE one place that flips a checkbox in a file
-src/core/scope.js      card scope: `## [[Project]]` heading > note frontmatter; project notes own org + active
+src/core/scope.js      card scope: inline `@[[Project]]` > `## [[Project]]` heading > note frontmatter; project notes own org + active
 src/core/render.js     renderInteractive, wireTaskCheckboxes, openFileAtLine
 src/views/base.js      BdbBasesView: getOption, fileEntries(), waveSeparator
 src/views/chronicle.js "Chronicle" — content feed of filtered files
@@ -33,7 +33,7 @@ styles.css             all styling incl. wave separators; no inline styles, no i
   left the column is not running. Both bugs once showed ~40 finished cards as Doing all day.
 - New content rendering goes through `core/notes.js` + `core/render.js`.
 - A card's org/projects come from `core/scope.js` (`card.orgs`/`card.projects`, `kb.scope`), never from
-  note frontmatter directly: a `## [[Project]]` heading overrides it, and project notes under
+  note frontmatter directly: an inline `@[[Project]]` or a `## [[Project]]` heading overrides it, and project notes under
   `40-49 Areas/43 Orgs` own the org and `active` status.
 - Daily-note filename contract: `YYYYMMDD-HHmm.md` (optionally `.excalidraw.md`).
 - Atlas mutates frontmatter of the host note — respect `bdb-disable-sync: true` and template skips.

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { names, headingScopes, headingProjectAt, projectName, scopeAt, fileScopes } = require('../src/core/scope');
+const { inlineProjects, names, headingScopes, headingProjectAt, projectName, scopeAt, fileScopes } = require('../src/core/scope');
 
 const pos = (line, col, endCol) => ({ start: { line, col }, end: { line, col: endCol } });
 
@@ -74,4 +74,20 @@ test('a frontmatter project without a note org takes the project note org', () =
   } finally {
     cache.frontmatter = { org: ['[[Personal]]'], projects: ['[[Meta]]'] };
   }
+});
+
+test('only an @-marked link on the task line names a project', () => {
+  assert.deepEqual(inlineProjects('Improve parser @[[Sutragana]]'), ['Sutragana']);
+  assert.deepEqual(inlineProjects('Work through [[Sutragana]]'), []);
+  assert.deepEqual(inlineProjects('mail a@[[x]]'), []);
+  assert.deepEqual(inlineProjects('@[[A|x]] and @[[B#h]]'), ['A', 'B']);
+});
+
+test('an inline project beats the heading and takes its project note org', () => {
+  const app = fakeApp({ '40-49 Areas/43 Orgs/PenguinAI/HTP/HTP.md': { org: '[[PenguinAI]]' } });
+  const file = { path: 'day.md' };
+  assert.deepEqual(scopeAt(app, file, 3, null, 'Train OCR @[[HTP]]'), { orgs: ['PenguinAI'], projects: ['HTP'] });
+  assert.deepEqual(scopeAt(app, file, 3, null, 'Plain [[HTP]] link'), { orgs: ['Personal'], projects: ['Sutragana'] });
+  assert.deepEqual(fileScopes(app, file, ['- [ ] Train @[[HTP]]']).map(p => `${p.org}/${p.project}`),
+    ['Personal/Meta', 'Personal/Sutragana', 'Personal/Kanban App', 'PenguinAI/HTP']);
 });

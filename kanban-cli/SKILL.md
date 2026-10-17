@@ -2,7 +2,7 @@
 name: kanban-cli
 description: Query and mutate the backlinks-daily-blocks kanban board from the shell via `obsidian eval`. Use when an LLM needs to read the user's task plate, see what was done on a date, get a day's move timeline, create a task, or move a task between columns without opening Obsidian.
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # Kanban CLI
@@ -281,13 +281,15 @@ Returns `ok opened file:line`.
 
 ### Card scope — org and project of one task
 
-A task's project is the deepest `## [[Project]]` heading above it whose whole text is one wikilink;
-a same-or-higher-level heading ends it. Without one, the note's `projects` frontmatter applies.
-The org comes from the project note, `40-49 Areas/43 Orgs/<Org>/<Project>.md` or
+A task's project is, in order: an inline `@[[Project]]` on the task line (a bare `[[link]]` is not a
+project); else the deepest `## [[Project]]` heading above it whose whole text is one wikilink (a
+same-or-higher-level heading ends it); else the note's `projects` frontmatter.
+An inline or heading project takes its org from the project note, `40-49 Areas/43 Orgs/<Org>/<Project>.md` or
 `.../<Org>/<Project>/<Project>.md`; the note's own `org` frontmatter is the fallback for a heading
-project and wins for a frontmatter project. One day note can hold tasks of many projects:
+project and wins for a frontmatter project. One day note can hold tasks of many projects, with no frontmatter:
 
 ```
+- [ ] Create the Trading bench @[[Trading]]
 ### [[Horizontal Training Pipeline]]
 - [ ] Get up to speed on OCR training
 ### [[Butler]]
@@ -297,8 +299,9 @@ project and wins for a frontmatter project. One day note can hold tasks of many 
 Board filters and lanes on `org`/`projects`, `fm:"org,projects"`, `summary`/`time` `by`, `plate`,
 `reportCards`, `task`, and the Kanban Board app all read this card scope.
 
-### `kb.scope(ref)` — card scope of one task (sync)
-Returns `orgs a|b<TAB>projects a|b` for `file:line`.
+### `kb.scope(ref, body?)` — card scope of one task (sync)
+Returns `orgs a|b<TAB>projects a|b` for `file:line`. Pass the task text as `body` for its inline
+`@[[Project]]`; without it only headings and frontmatter count.
 
 ### `kb.migrateProjects(opts?)` — move org and status into project notes
 Dry run unless `opts.apply`. Lines `action<TAB>project<TAB>org<TAB>active<TAB>path`, where action is

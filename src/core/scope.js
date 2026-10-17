@@ -1,5 +1,5 @@
 // Card scope: the org and projects of one task line.
-// Implements: a `## [[Project]]` heading scopes the tasks under it; the project note's
+// Implements: an inline `@[[Project]]` on the task line wins; a `## [[Project]]` heading scopes the tasks under it; the project note's
 // frontmatter owns its `org` and `active`; note frontmatter `org`/`projects` is the fallback.
 
 // Frontmatter value -> names, brackets and alias off.
@@ -22,6 +22,16 @@ function headingScopes(cache) {
       && l.position.end.col === end.col && l.position.start.col <= at.col + h.level + 2);
     return { line: at.line, level: h.level, project: link ? link.link.split('#')[0].trim() || null : null };
   }).sort((a, b) => a.line - b.line);
+}
+
+const INLINE_RE = /(?:^|\s)@\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+
+// Projects marked inline on a task line; a bare [[link]] is not a project.
+//   inlineProjects('Improve parser @[[Sutragana]]') -> ['Sutragana']
+//   inlineProjects('Work through [[Sutragana]]') -> []
+//   inlineProjects('@[[A|x]] and @[[B#h]]') -> ['A', 'B']
+function inlineProjects(body) {
+  return [...String(body || '').matchAll(INLINE_RE)].map(m => m[1].trim()).filter(Boolean);
 }
 
 // Project of the deepest enclosing project heading above `line`; a same-or-higher heading closes it.
@@ -88,24 +98,27 @@ function projectOrgs(app, projects) {
   return [...new Set(projects.flatMap(p => names(projectFm(app, p)?.org)))];
 }
 
-// { orgs, projects } of the task at `line`. A heading project takes its project note's org
-// (the note's own `org` when the project note has none); a frontmatter project keeps the
-// note's explicit `org`, else its project note's org.
-function scopeAt(app, file, line, heads) {
+// { orgs, projects } of the task at `line` with task text `body` (omit body to skip inline marks).
+// An inline or heading project takes its project note's org (the note's own `org` when the
+// project note has none); a frontmatter project keeps the note's explicit `org`, else its
+// project note's org.
+function scopeAt(app, file, line, heads, body) {
   const cache = app.metadataCache.getFileCache(file);
   const fm = cache?.frontmatter;
   const own = names(fm?.org);
-  const hp = headingProjectAt(heads || headingScopes(cache), line);
-  if (hp) {
-    const orgs = projectOrgs(app, [hp]);
-    return { orgs: orgs.length ? orgs : own, projects: [hp] };
+  const inline = inlineProjects(body);
+  const hp = inline.length ? inline : [headingProjectAt(heads || headingScopes(cache), line)].filter(Boolean);
+  if (hp.length) {
+    const orgs = projectOrgs(app, hp);
+    return { orgs: orgs.length ? orgs : own, projects: hp };
   }
   const projects = names(fm?.projects);
   return { orgs: own.length ? own : projectOrgs(app, projects), projects };
 }
 
-// Every { org, project } pair a file's tasks can carry: frontmatter pairs, then heading pairs.
-function fileScopes(app, file) {
+// Every { org, project } pair a file's tasks can carry: frontmatter, heading, then inline pairs.
+// bodies = the file's task texts, for inline marks.
+function fileScopes(app, file, bodies = []) {
   const cache = app.metadataCache.getFileCache(file);
   const pairs = new Map();
   const add = ({ orgs, projects }) => {
@@ -116,7 +129,8 @@ function fileScopes(app, file) {
   if (!top.projects.length && cache?.frontmatter && 'projects' in cache.frontmatter) top.projects = [''];
   add(top);
   for (const h of headingScopes(cache)) if (h.project) add(scopeAt(app, file, h.line + 1, [h]));
+  for (const body of bodies) if (inlineProjects(body).length) add(scopeAt(app, file, 0, [], body));
   return [...pairs.values()];
 }
 
-module.exports = { PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };
+module.exports = { inlineProjects, PROJECT_ROOT, projectName, projectFile, names, headingScopes, headingProjectAt, projectFm, projectActive, scopeAt, fileScopes };

@@ -265,7 +265,7 @@ async function scanKanbanTasks(app, config, opts = {}) {
         const card = {
           file, line: i, body: tm[4], state: tm[2], parent, lane, group: laneGroup, isGroup,
           children: [], history: [], eiHistory: [], tags: [], who: [], color: null, icon: null,
-          ...scopeAt(app, file, i, heads),
+          ...scopeAt(app, file, i, heads, tm[4]),
         };
         if (scopeLane(config.lane)) card.lane = card[scopeLane(config.lane)][0] || null;
         if (scopeLane(config.groupby)) card.group = card[scopeLane(config.groupby)][0] || null;
