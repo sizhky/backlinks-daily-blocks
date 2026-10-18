@@ -128,22 +128,31 @@ final class TrackerWidget {
     }
     applyVisibility()
     panel.ignoresMouseEvents = true
-    // Global monitors see events aimed at other apps (the usual case, since the widget ignores the
-    // mouse); local monitors see them while the widget itself is grabbed.
-    let mask: NSEvent.EventTypeMask = [.flagsChanged, .mouseMoved, .leftMouseUp]
-    if let g = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
-      MainActor.assumeIsolated { self?.updateGrip() }
-    }) { monitors.append(g) }
-    if let l = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] e in
-      MainActor.assumeIsolated { self?.updateGrip() }
-      return e
-    }) { monitors.append(l) }
+    monitors = Self.monitors(for: .flagsChanged) { [weak self] in self?.updateGrip() }
+  }
+
+  /// Global monitors see events aimed at other apps (the usual case, since the widget ignores the
+  /// mouse); local monitors see them while the widget itself is grabbed.
+  private static func monitors(for mask: NSEvent.EventTypeMask, _ handler: @escaping @MainActor () -> Void) -> [Any] {
+    [NSEvent.addGlobalMonitorForEvents(matching: mask) { _ in MainActor.assumeIsolated { handler() } },
+     NSEvent.addLocalMonitorForEvents(matching: mask) { e in MainActor.assumeIsolated { handler() }; return e }].compactMap { $0 }
+  }
+
+  /// Mouse moves are watched only while Fn or Control is held. A standing global mouseMoved monitor made
+  /// the app handle every mouse move on the Mac, each with a WindowServer round trip for the pointer.
+  private var mouseMonitors: [Any] = []
+  private func trackMouse(_ on: Bool) {
+    guard on != !mouseMonitors.isEmpty else { return }
+    mouseMonitors.forEach(NSEvent.removeMonitor)
+    mouseMonitors = on ? Self.monitors(for: [.mouseMoved, .leftMouseUp]) { [weak self] in self?.updateGrip() } : []
   }
 
   /// Armed = Fn held with the pointer over the widget; only then does it take the mouse.
   /// Control held with the pointer over it fades the widget out to show the text underneath.
   private func updateGrip() {
-    let over = panel.frame.contains(NSEvent.mouseLocation), flags = NSEvent.modifierFlags
+    let flags = NSEvent.modifierFlags
+    trackMouse(flags.contains(.function) || flags.contains(.control))
+    let over = panel.frame.contains(NSEvent.mouseLocation)
     let alpha: CGFloat = over && flags.contains(.control) ? 0 : 1
     if alpha != peekAlpha {
       peekAlpha = alpha
