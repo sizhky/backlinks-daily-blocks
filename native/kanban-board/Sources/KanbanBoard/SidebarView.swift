@@ -4,7 +4,6 @@ import SwiftUI
 /// Linear-style sidebar: workspace title, then collapsible Views, Projects, Labels.
 struct SidebarView: View {
   @EnvironmentObject var store: BoardStore
-  @EnvironmentObject var win: BoardWindow
   @State private var collapsed: Set<String> = []
   @State private var expanded: Set<String> = []
 
@@ -14,21 +13,21 @@ struct SidebarView: View {
         HStack(spacing: 8) {
           Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Palette.text).lineLimit(1)
           Spacer()
-          IconButton(icon: "magnifyingglass", help: "Commands (⌘K)") { win.paletteOpen = true }
+          IconButton(icon: "magnifyingglass", help: "Commands (⌘K)") { store.paletteOpen = true }
         }
         .padding(.horizontal, 8).padding(.bottom, 10)
 
-        item("All issues", icon: "tray.full", active: win.query.isEmpty, count: nil) { win.query = "" }
+        item("All issues", icon: "tray.full", active: store.query.isEmpty, count: nil) { store.query = "" }
 
-        section("Views", add: { win.newView() }) {
-          ForEach(win.visibleViews) { view in
-            item(view.name, leading: viewIcon(view), active: win.activeView?.id == view.id, count: nil) {
-              win.apply(view)
+        section("Views", add: { store.newView() }) {
+          ForEach(store.visibleViews) { view in
+            item(view.name, leading: viewIcon(view), active: store.activeView?.id == view.id, count: nil) {
+              store.apply(view)
             }
             .rightClickMenu {
               [
-                .action("Edit…", symbol: "pencil") { win.edit(view) },
-                .action("Update to current filter", symbol: "arrow.triangle.2.circlepath") { win.updateToCurrent(view) },
+                .action("Edit…", symbol: "pencil") { store.edit(view) },
+                .action("Update to current filter", symbol: "arrow.triangle.2.circlepath") { store.updateToCurrent(view) },
                 .separator,
                 .action("Delete view", symbol: "trash", destructive: true) { store.delete(view) },
               ]
@@ -36,29 +35,29 @@ struct SidebarView: View {
           }
         }
         section("Projects") {
-          ForEach(nonEmpty(win.facets(\.projects), "Projects"), id: \.name) { f in
+          ForEach(nonEmpty(store.facets(\.projects), "Projects"), id: \.name) { f in
             item(f.name, leading: AnyView(Monogram(name: f.name, size: 18)), active: false, count: f.count) {
-              win.append("project:" + store.quote(f.name))
+              store.append("project:" + store.quote(f.name))
             }
             .rightClickMenu {
               [.submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name)),
                .submenu("Color", symbol: "paintpalette", store.colorItems(project: f.name))]
             }
           }
-          ForEach(nonEmpty(win.facets { $0.projects.isEmpty ? ["Unassigned"] : [] }, "Projects"), id: \.name) { f in
-            item(f.name, icon: "tray", active: win.query.contains("no:project"), count: f.count) {
-              win.append("no:project")
+          ForEach(nonEmpty(store.facets { $0.projects.isEmpty ? ["Unassigned"] : [] }, "Projects"), id: \.name) { f in
+            item(f.name, icon: "tray", active: store.query.contains("no:project"), count: f.count) {
+              store.append("no:project")
             }
           }
-          showAll(win.facets(\.projects), "Projects")
+          showAll(store.facets(\.projects), "Projects")
         }
         section("Labels") {
-          ForEach(nonEmpty(Array(win.facets(\.tags).prefix(15)), "Labels"), id: \.name) { f in
+          ForEach(nonEmpty(Array(store.facets(\.tags).prefix(15)), "Labels"), id: \.name) { f in
             item(String(f.name.dropFirst()), leading: AnyView(labelDot(f.name).frame(width: 16)), active: false, count: f.count) {
-              win.append("tag:" + f.name.dropFirst())
+              store.append("tag:" + f.name.dropFirst())
             }
           }
-          showAll(Array(win.facets(\.tags).prefix(15)), "Labels")
+          showAll(Array(store.facets(\.tags).prefix(15)), "Labels")
         }
       }
       .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 16)
@@ -82,10 +81,10 @@ struct SidebarView: View {
   }
 
   private var title: String {
-    switch win.activeOrgs.count {
+    switch store.activeOrgs.count {
     case 0: "All workspaces"
-    case 1: OrgPicker.label(win.activeOrgs[0])
-    default: "\(win.activeOrgs.count) workspaces"
+    case 1: OrgPicker.label(store.activeOrgs[0])
+    default: "\(store.activeOrgs.count) workspaces"
     }
   }
 

@@ -4,7 +4,6 @@ import SwiftUI
 /// Issue peek: identifier, title, property rows, and the task note as editable raw text.
 struct Inspector: View {
   @EnvironmentObject var store: BoardStore
-  @EnvironmentObject var win: BoardWindow
   let card: Card
   /// The note as raw text; saved to Obsidian when the editor loses focus or the card changes.
   @State private var draft = ""
@@ -16,7 +15,7 @@ struct Inspector: View {
         CopyIDButton(card: card, font: .system(size: 12, design: .monospaced))
         Spacer()
         IconButton(icon: "arrow.up.forward.app", help: "Open in Obsidian (↵)") { store.open(card) }
-        IconButton(icon: "xmark", help: "Close (esc)") { win.select(nil) }
+        IconButton(icon: "xmark", help: "Close (esc)") { store.select(nil) }
       }
       .padding(.horizontal, 14).frame(height: 46)
       Divider().overlay(Palette.hairline)
@@ -93,7 +92,6 @@ struct Inspector: View {
 /// Time per column as one stacked bar plus rows, and active time; instant hover cards on the bar.
 struct TimeBreakdown: View {
   @EnvironmentObject var store: BoardStore
-  @EnvironmentObject var win: BoardWindow
   let card: Card
   @State private var pointer: CGPoint?
 

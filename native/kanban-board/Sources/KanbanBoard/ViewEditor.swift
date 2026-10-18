@@ -4,7 +4,6 @@ import SwiftUI
 /// Create or edit a saved view: name, query, and the workspace it belongs to.
 struct ViewEditor: View {
   @EnvironmentObject var store: BoardStore
-  @EnvironmentObject var win: BoardWindow
   @State var draft: ViewDraft
   @FocusState private var nameFocused: Bool
   private let presets = ["created:today", "created:week", "stale:7d", "-col:done,cancelled", "no:project", "col:Doing"]
@@ -37,8 +36,8 @@ struct ViewEditor: View {
         Text("\(store.matchCount(query: draft.query, orgs: draft.orgs)) issues match")
           .font(.system(size: 12)).foregroundStyle(Palette.muted)
         Spacer()
-        Button("Cancel") { win.editing = nil }.keyboardShortcut(.cancelAction)
-        Button(draft.existing ? "Save" : "Create view") { win.saveDraft(draft) }
+        Button("Cancel") { store.editing = nil }.keyboardShortcut(.cancelAction)
+        Button(draft.existing ? "Save" : "Create view") { store.saveDraft(draft) }
           .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent).pointerStyle(.link)
           .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
       }

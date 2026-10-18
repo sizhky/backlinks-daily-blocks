@@ -5,7 +5,6 @@ import SwiftUI
 /// Nothing selected means all workspaces.
 struct OrgPicker: View {
   @EnvironmentObject var store: BoardStore
-  @EnvironmentObject var win: BoardWindow
   @Binding var selected: [String]
   @State private var text = ""
   @State private var highlight = 0
