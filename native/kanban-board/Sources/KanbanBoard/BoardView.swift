@@ -4,6 +4,7 @@ import SwiftUI
 /// Main panel: an inset rounded sheet holding header, board or list, and the issue peek.
 struct BoardView: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   @EnvironmentObject var drag: DragController
   @FocusState private var boardFocus: Bool
   @State private var estimateText = ""
@@ -13,13 +14,13 @@ struct BoardView: View {
       VStack(spacing: 0) {
         BoardHeader()
         TodayMeetings()
-        Group { switch store.mode { case .board: ColumnsScroller(); case .list: ListMode(); case .logbook: LogbookMode() } }
+        Group { switch win.mode { case .board: ColumnsScroller(); case .list: ListMode(); case .logbook: LogbookMode() } }
           .simultaneousGesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(DragController.space))
             .onChanged { drag.changed($0) }
             .onEnded { _ in drag.ended() })
         StatusLine()
       }
-      if let card = store.selectedCard {
+      if let card = win.selectedCard {
         Rectangle().fill(Palette.hairline).frame(width: 1)
         Inspector(card: card).transition(.move(edge: .trailing).combined(with: .opacity))
       }
@@ -40,18 +41,18 @@ struct BoardView: View {
       Button("Skip", role: .cancel) { estimateText = "" }
     } message: { Text(store.estimating?.title ?? "") }
     .onChange(of: store.estimating?.ref) { estimateText = store.estimating?.est.map { Age.label(minutes: $0) } ?? "" }
-    .animation(.spring(duration: 0.32, bounce: 0.08), value: store.selected != nil)
+    .animation(.spring(duration: 0.32, bounce: 0.08), value: win.selected != nil)
     .focusable().focused($boardFocus).focusEffectDisabled()
-    .onChange(of: store.selected) { boardFocus = true }
-    .onKeyPress(.upArrow) { board { store.moveSelection(dx: 0, dy: -1) } }
-    .onKeyPress(.downArrow) { board { store.moveSelection(dx: 0, dy: 1) } }
-    .onKeyPress(.leftArrow) { board { store.moveSelection(dx: -1, dy: 0) } }
-    .onKeyPress(.rightArrow) { board { store.moveSelection(dx: 1, dy: 0) } }
-    .onKeyPress(characters: ["j"]) { _ in board { store.moveSelection(dx: 0, dy: 1) } }
-    .onKeyPress(characters: ["k"]) { _ in board { store.moveSelection(dx: 0, dy: -1) } }
-    .onKeyPress(characters: ["/"]) { _ in board { store.focusFilter += 1 } }
-    .onKeyPress(.return) { board { store.openSelected() } }
-    .onKeyPress(.escape) { board { store.select(nil) } }
+    .onChange(of: win.selected) { boardFocus = true }
+    .onKeyPress(.upArrow) { board { win.moveSelection(dx: 0, dy: -1) } }
+    .onKeyPress(.downArrow) { board { win.moveSelection(dx: 0, dy: 1) } }
+    .onKeyPress(.leftArrow) { board { win.moveSelection(dx: -1, dy: 0) } }
+    .onKeyPress(.rightArrow) { board { win.moveSelection(dx: 1, dy: 0) } }
+    .onKeyPress(characters: ["j"]) { _ in board { win.moveSelection(dx: 0, dy: 1) } }
+    .onKeyPress(characters: ["k"]) { _ in board { win.moveSelection(dx: 0, dy: -1) } }
+    .onKeyPress(characters: ["/"]) { _ in board { win.focusFilter += 1 } }
+    .onKeyPress(.return) { board { win.openSelected() } }
+    .onKeyPress(.escape) { board { win.select(nil) } }
   }
 
   /// Board shortcuts; keys go to the text instead while a text view (the Inspector note) has focus.
@@ -103,6 +104,7 @@ struct TodayMeetings: View {
 
 struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   @AppStorage(BreakHotKey.labelKey) private var breakKey = "F6"
   /// The tracker widget's shown state; its own eye button writes the same key, so this follows it.
   @AppStorage(WidgetKey.visible) private var widgetVisible = true
@@ -111,10 +113,10 @@ struct BoardHeader: View {
   @State private var tabMonitor: Any?
   private let keys = ["col:", "tag:", "project:", "org:", "stale:", "age:", "no:", "has:"]
 
-  private var terms: [QueryTerm] { Query.parse(store.query).filter { !$0.value.isEmpty } }
+  private var terms: [QueryTerm] { Query.parse(win.query).filter { !$0.value.isEmpty } }
   private var viewName: String {
-    let q = store.query.trimmingCharacters(in: .whitespaces)
-    return store.activeView?.name ?? (q.isEmpty ? "All issues" : "Filtered")
+    let q = win.query.trimmingCharacters(in: .whitespaces)
+    return win.activeView?.name ?? (q.isEmpty ? "All issues" : "Filtered")
   }
 
   var body: some View {
@@ -125,37 +127,37 @@ struct BoardHeader: View {
         filterField
         Rectangle().fill(Palette.hairline).frame(width: 1, height: 16).padding(.horizontal, 2)
         HStack(spacing: 2) {
-          IconButton(icon: "rectangle.split.3x1", help: "Board", active: store.mode == .board) { store.mode = .board }
-          IconButton(icon: "list.bullet", help: "List", active: store.mode == .list) { store.mode = .list }
-          IconButton(icon: "book.closed", help: "Logbook", active: store.mode == .logbook) { store.mode = .logbook }
+          IconButton(icon: "rectangle.split.3x1", help: "Board", active: win.mode == .board) { win.mode = .board }
+          IconButton(icon: "list.bullet", help: "List", active: win.mode == .list) { win.mode = .list }
+          IconButton(icon: "book.closed", help: "Logbook", active: win.mode == .logbook) { win.mode = .logbook }
         }
         IconButton(icon: "cup.and.saucer", help: "Take a break: park every Doing card; again to resume them" + (breakKey.isEmpty ? "" : " (\(breakKey))")) { store.takeBreak() }
         IconButton(icon: widgetVisible ? "eye" : "eye.slash", help: widgetVisible ? "Hide widget" : "Show widget",
                    active: widgetVisible) { widgetVisible.toggle() }
         IconButton(icon: "calendar.day.timeline.left", help: "Timeline (⇧⌘T)") { store.openTimeline() }
-        IconButton(icon: "command", help: "Commands (⌘K)") { store.paletteOpen = true }
+        IconButton(icon: "command", help: "Commands (⌘K)") { win.paletteOpen = true }
       }
       .padding(.horizontal, 14).frame(height: 46)
       if focused || !terms.isEmpty { chips }
       Divider().overlay(Palette.hairline)
     }
-    .onChange(of: store.focusFilter) { focused = true }
+    .onChange(of: win.focusFilter) { focused = true }
     .onAppear { installTabMonitor() }
-    .onChange(of: focused) { store.filterFocused = focused }
+    .onChange(of: focused) { win.filterFocused = focused }
     .onDisappear { tabMonitor.map(NSEvent.removeMonitor); tabMonitor = nil }
     .background(Button("") { focused = true }.keyboardShortcut("f", modifiers: .command).opacity(0))
   }
 
   private var breadcrumb: some View {
     HStack(spacing: 7) {
-      if !store.activeOrgs.isEmpty {
+      if !win.activeOrgs.isEmpty {
         Button { pickingOrgs.toggle() } label: {
           HStack(spacing: 6) {
-            ForEach(store.activeOrgs.prefix(3), id: \.self) { org in
+            ForEach(win.activeOrgs.prefix(3), id: \.self) { org in
               if org == Filter.noOrg { Image(systemName: "tray").font(.system(size: 11)) }
               else { OrgIcon(name: org, size: 16).clipShape(.circle) }
             }
-            Text(store.activeOrgs.count == 1 ? OrgPicker.label(store.activeOrgs[0]) : "\(store.activeOrgs.count) workspaces")
+            Text(win.activeOrgs.count == 1 ? OrgPicker.label(win.activeOrgs[0]) : "\(win.activeOrgs.count) workspaces")
               .foregroundStyle(Palette.secondary)
           }
         }
@@ -163,7 +165,7 @@ struct BoardHeader: View {
         Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.muted)
       }
       Text(viewName).foregroundStyle(Palette.text)
-      Text("\(store.shown)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
+      Text("\(win.shown)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
       Button { pickingOrgs.toggle() } label: {
         Image(systemName: "building.2").font(.system(size: 11)).foregroundStyle(Palette.muted)
       }
@@ -173,7 +175,7 @@ struct BoardHeader: View {
     .popover(isPresented: $pickingOrgs, arrowEdge: .bottom) {
       VStack(alignment: .leading, spacing: 8) {
         Text("Workspaces").font(.system(size: 12)).foregroundStyle(Palette.muted)
-        OrgPicker(selected: $store.orgScope)
+        OrgPicker(selected: $win.orgScope)
       }
       .padding(14).frame(width: 340)
     }
@@ -185,17 +187,17 @@ struct BoardHeader: View {
     let store = store
     tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
       guard event.keyCode == 48, event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty,
-            store.paletteOpen, NSApp.keyWindow?.firstResponder is NSTextView else { return event }
-      return store.paletteTab() ? nil : event
+            win.paletteOpen, NSApp.keyWindow?.firstResponder is NSTextView else { return event }
+      return win.paletteTab() ? nil : event
     }
   }
 
   private var filterField: some View {
     let store = store
-    return QueryField(text: $store.query, focused: $focused, suggest: { store.catalog.suggest($0) },
+    return QueryField(text: $win.query, focused: $focused, suggest: { win.catalog.suggest($0) },
                       masked: !terms.isEmpty) { s in
-      if !s.isKey, s.term.lowercased().hasPrefix("view:") { store.accept(s.term) }
-      else { store.query = Catalog.replacing(store.query, with: s) }
+      if !s.isKey, s.term.lowercased().hasPrefix("view:") { win.accept(s.term) }
+      else { win.query = Catalog.replacing(win.query, with: s) }
     }
   }
 
@@ -203,12 +205,12 @@ struct BoardHeader: View {
     FlowLayout(spacing: 6) {
       ForEach(Array(terms.enumerated()), id: \.offset) { index, term in chip(term, index) }
       if !terms.isEmpty {
-        Button("Save view") { store.newView(query: store.query) }.buttonStyle(.pointing).foregroundStyle(Palette.muted).frame(height: 24)
-        Button("Clear") { store.query = "" }.buttonStyle(.pointing).foregroundStyle(Palette.muted).frame(height: 24)
+        Button("Save view") { win.newView(query: win.query) }.buttonStyle(.pointing).foregroundStyle(Palette.muted).frame(height: 24)
+        Button("Clear") { win.query = "" }.buttonStyle(.pointing).foregroundStyle(Palette.muted).frame(height: 24)
       }
       if focused {
         ForEach(keys, id: \.self) { key in
-          Button(key) { store.append(key); focused = true }
+          Button(key) { win.append(key); focused = true }
             .buttonStyle(.pointing).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.muted.opacity(0.8)).frame(height: 24)
         }
       }
@@ -228,7 +230,7 @@ struct BoardHeader: View {
       Text(term.value).foregroundStyle(Palette.text).padding(.horizontal, 8)
       Rectangle().fill(Palette.hairline).frame(width: 1)
       Button {
-        store.query = Query.format(Query.parse(store.query).enumerated().filter { $0.element != term }.map(\.element))
+        win.query = Query.format(Query.parse(win.query).enumerated().filter { $0.element != term }.map(\.element))
       } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).padding(.horizontal, 7) }
         .buttonStyle(.pointing).foregroundStyle(Palette.muted)
     }
@@ -340,6 +342,7 @@ final class QueryTab: ObservableObject {
 
 struct ColumnsScroller: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   @EnvironmentObject var drag: DragController
   @State private var position = ScrollPosition()
   @State private var offsetX: CGFloat = 0
@@ -351,10 +354,10 @@ struct ColumnsScroller: View {
     GeometryReader { geo in
       ScrollView(.horizontal) {
         HStack(alignment: .top, spacing: 10) {
-          ForEach(store.visible.filter { !store.isHidden($0) }) { ColumnView(column: $0) }
-          HiddenColumns(columns: store.visible.filter { store.isHidden($0) })
+          ForEach(win.visible.filter { !store.isHidden($0) }) { ColumnView(column: $0) }
+          HiddenColumns(columns: win.visible.filter { store.isHidden($0) })
         }
-        .animation(.spring(duration: 0.32, bounce: 0.08), value: store.visible.map { "\($0.name)\($0.cards.isEmpty)\(store.isHidden($0))" })
+        .animation(.spring(duration: 0.32, bounce: 0.08), value: win.visible.map { "\($0.name)\($0.cards.isEmpty)\(store.isHidden($0))" })
         .scrollTargetLayout()
         .frame(height: geo.size.height)
         .padding(.horizontal, 14)
@@ -365,8 +368,8 @@ struct ColumnsScroller: View {
         CGPoint(x: $0.contentOffset.x, y: max(0, $0.contentSize.width - $0.containerSize.width))
       } action: { _, new in (offsetX, maxX) = (new.x, new.y) }
       .onReceive(timer) { _ in autoscroll(in: geo.frame(in: .global)) }
-      .onChange(of: store.selected) {
-        if let card = store.selectedCard { withAnimation { position.scrollTo(id: card.col) } }
+      .onChange(of: win.selected) {
+        if let card = win.selectedCard { withAnimation { position.scrollTo(id: card.col) } }
       }
     }
   }
@@ -391,6 +394,7 @@ struct ColumnsScroller: View {
 
 struct ColumnView: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   @EnvironmentObject var drag: DragController
   @AppStorage(Density.key) private var density: Density = .compact
   let column: Column
@@ -470,9 +474,9 @@ struct ColumnView: View {
           .padding(.horizontal, 4).padding(.bottom, 16)
         }
         .scrollIndicators(.never)
-        .onChange(of: store.selected) {
-          if let ref = store.selected, column.cards.contains(where: { $0.ref == ref }) {
-            withAnimation { proxy.scrollTo(store.selectedCard?.id ?? ref) }
+        .onChange(of: win.selected) {
+          if let ref = win.selected, column.cards.contains(where: { $0.ref == ref }) {
+            withAnimation { proxy.scrollTo(win.selectedCard?.id ?? ref) }
           }
         }
       }
@@ -481,7 +485,7 @@ struct ColumnView: View {
 
   /// Shown while the pointer is over the column; opens the new-card modal for this column.
   private var addButton: some View {
-    Button { store.newCardColumn = column.name } label: {
+    Button { win.newCardColumn = column.name } label: {
       Image(systemName: "plus").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
         .frame(width: 22, height: 22).contentShape(Rectangle())
     }
@@ -497,6 +501,7 @@ struct ColumnView: View {
 /// Total time in Doing (every stint) and active time; ticks each second while the card is in Doing.
 struct TimePills: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   let card: Card
   let live: Bool
   var tint = accent(for: "Doing")
@@ -532,10 +537,11 @@ struct TimePills: View {
 /// Column header options: hide, move left or right, and the plugin's sweep routes.
 struct ColumnMenu: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   let column: Column
 
   var body: some View {
-    MenuTrigger(trailing: true, items: { store.columnItems(column) }) {
+    MenuTrigger(trailing: true, items: { store.columnItems(column, in: win) }) {
       Image(systemName: "ellipsis").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
         .frame(width: 22, height: 22).contentShape(Rectangle())
     }
@@ -544,15 +550,15 @@ struct ColumnMenu: View {
 }
 
 extension BoardStore {
-  func columnItems(_ column: Column) -> [MenuItem] {
-    let names = visible.map(\.name)
+  func columnItems(_ column: Column, in win: BoardWindow) -> [MenuItem] {
+    let names = win.visible.map(\.name)
     var items: [MenuItem] = [
       .action(isHidden(column) ? "Show column" : "Hide column", symbol: isHidden(column) ? "eye" : "eye.slash") { self.setHidden(column, !self.isHidden(column)) },
       .action(isSink(column) ? "Expand column" : "Collapse column", symbol: isSink(column) ? "arrow.left.and.right" : "arrow.right.and.line.vertical.and.arrow.left") { self.setSink(column, !self.isSink(column)) },
-      .action("Select all in column", symbol: "checkmark.circle", disabled: column.cards.isEmpty) { self.pickAll(in: column) },
+      .action("Select all in column", symbol: "checkmark.circle", disabled: column.cards.isEmpty) { win.pickAll(in: column) },
       .separator,
-      .action("Move left", symbol: "arrow.left", disabled: names.first == column.name) { self.shiftColumn(column, by: -1) },
-      .action("Move right", symbol: "arrow.right", disabled: names.last == column.name) { self.shiftColumn(column, by: 1) },
+      .action("Move left", symbol: "arrow.left", disabled: names.first == column.name) { win.shiftColumn(column, by: -1) },
+      .action("Move right", symbol: "arrow.right", disabled: names.last == column.name) { win.shiftColumn(column, by: 1) },
     ]
     if !column.sweeps.isEmpty {
       items.append(.separator)
@@ -617,6 +623,7 @@ extension BoardStore {
 /// The card's identifier; a click copies it (same as Copy ID).
 struct CopyIDButton: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   let card: Card
   let font: Font
 
@@ -669,6 +676,7 @@ struct HiddenColumns: View {
 
 struct HiddenColumnRow: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   @EnvironmentObject var drag: DragController
   let column: Column
   @State private var hovering = false
@@ -687,7 +695,7 @@ struct HiddenColumnRow: View {
     .background(targeted ? accent(for: column.name).opacity(0.10) : Palette.card, in: .rect(cornerRadius: 8))
     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : Palette.hairline))
     .onHover { hovering = $0 }
-    .rightClickMenu { store.columnItems(column) }
+    .rightClickMenu { store.columnItems(column, in: win) }
     .help(store.isHidden(column) ? "\(column.name): hidden" : "\(column.name): no issues")
     .dragFrame(column.name, in: \.columns, drag.frames)
   }
@@ -698,13 +706,14 @@ struct HiddenColumnRow: View {
 /// Board card: title with age and org on its first line; project and labels below only when present.
 struct IssueCard: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   let card: Card
   @State private var hovering = false
   @AppStorage(Density.key) private var density: Density = .compact
 
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
-  private var selected: Bool { store.selected == card.ref }
-  private var picked: Bool { store.picked.contains(card.ref) }
+  private var selected: Bool { win.selected == card.ref }
+  private var picked: Bool { win.picked.contains(card.ref) }
   /// The one card `trackActive` credits time to (`BoardStore.activeID`).
   private var live: Bool { store.activeID == card.id }
   @AppStorage(ProjectHues.key) private var hues = ""
@@ -717,7 +726,7 @@ struct IssueCard: View {
         CopyIDButton(card: card, font: .system(size: density.metaSize))
         Spacer()
         // The checkbox sits over the org icon on hover; the icon dims behind it and stays in place.
-        Button { store.togglePick(card.ref) } label: {
+        Button { win.togglePick(card.ref) } label: {
           ZStack {
             Group {
               if let org = card.orgs.first {
@@ -758,11 +767,11 @@ struct IssueCard: View {
           .buttonStyle(.pointing).pointerStyle(.link).help("Switch to \(store.desktops.name(d))")
       }
         if let project = card.projects.first {
-        Button { store.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
+        Button { win.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
           .buttonStyle(.pointing).pointerStyle(.link).help("Filter by \(project)")
       }
         ForEach(card.tags.prefix(3), id: \.self) { tag in
-          Button { store.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
+          Button { win.append("tag:" + tag.dropFirst()) } label: { Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
             .buttonStyle(.pointing).pointerStyle(.link)
         }
       }
@@ -778,7 +787,7 @@ struct IssueCard: View {
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
     .onTapGesture {
-      if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
+      if NSEvent.modifierFlags.contains(.command) { win.togglePick(card.ref) } else { win.select(card.ref) }
     }
     .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
     .help("Double-click to open in Obsidian")
@@ -812,6 +821,7 @@ struct GhostCard: View {
 /// board closes only while the title is blank, so typed text is not lost to a stray click.
 struct NewCardForm: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   let column: String
   @State private var title = ""
   @State private var org: String?
@@ -858,7 +868,7 @@ struct NewCardForm: View {
       .padding(.top, 110)
     }
     .onAppear {
-      let scope = store.newCardScope
+      let scope = win.newCardScope
       org = scope.org; project = scope.project
       focused = true
     }
@@ -878,7 +888,7 @@ struct NewCardForm: View {
       + store.projects(in: org ?? "").map { name in .action(name, checked: name == project) { project = name } }
   }
 
-  private func close() { store.newCardColumn = nil }
+  private func close() { win.newCardColumn = nil }
 
   private func submit() {
     let text = title.trimmingCharacters(in: .whitespaces)
@@ -892,13 +902,14 @@ struct NewCardForm: View {
 /// Dense list: status group bars, then one 36 pt line per issue.
 struct ListMode: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   @EnvironmentObject var drag: DragController
 
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
         VStack(spacing: 0) {
-          ForEach(store.visible.filter { !$0.cards.isEmpty && !store.isHidden($0) }) { column in
+          ForEach(win.visible.filter { !$0.cards.isEmpty && !store.isHidden($0) }) { column in
             VStack(spacing: 0) {
             HStack(spacing: 8) {
               StatusGlyph(column: column.name, size: 14)
@@ -917,7 +928,7 @@ struct ListMode: View {
         }
       }
       .scrollIndicators(.never)
-      .onChange(of: store.selected) { if let id = store.selectedCard?.id { withAnimation { proxy.scrollTo(id) } } }
+      .onChange(of: win.selected) { if let id = win.selectedCard?.id { withAnimation { proxy.scrollTo(id) } } }
     }
   }
 }
@@ -925,9 +936,10 @@ struct ListMode: View {
 /// Done cards by day, newest first: what got finished, not what is pending.
 struct LogbookMode: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
 
   var body: some View {
-    let days = Logbook.days(store.visible.flatMap(\.cards))
+    let days = Logbook.days(win.visible.flatMap(\.cards))
     ScrollView {
       LazyVStack(spacing: 0) {
         if days.isEmpty {
@@ -981,12 +993,13 @@ struct LogbookMode: View {
 
 struct IssueRow: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   let card: Card
   @State private var hovering = false
   @AppStorage(Density.key) private var density: Density = .compact
 
   private var stale: Bool { (card.ageHours ?? 0) >= 24 * 7 }
-  private var selected: Bool { store.selected == card.ref }
+  private var selected: Bool { win.selected == card.ref }
 
   var body: some View {
     HStack(spacing: 10) {
@@ -1003,10 +1016,10 @@ struct IssueRow: View {
       }
       ForEach(card.tags.prefix(2), id: \.self) { tag in Pill(text: String(tag.dropFirst())) { labelDot(tag) } }
       if let project = card.projects.first {
-        Button { store.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
+        Button { win.append("project:" + store.quote(project)) } label: { Pill(text: project) { Monogram(name: project, size: 13) } }
           .buttonStyle(.pointing).pointerStyle(.link).help("Filter by \(project)")
       }
-      if store.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
+      if win.activeOrgs.count != 1, let org = card.orgs.first { OrgIcon(name: org, size: 18).clipShape(.circle) }
       Text(card.age).font(.system(size: 12).monospacedDigit())
         .foregroundStyle(stale ? Palette.amber : Palette.muted).frame(width: 36, alignment: .trailing)
     }
@@ -1017,7 +1030,7 @@ struct IssueRow: View {
     .onHover { hovering = $0 }
 
     .onTapGesture {
-      if NSEvent.modifierFlags.contains(.command) { store.togglePick(card.ref) } else { store.select(card.ref) }
+      if NSEvent.modifierFlags.contains(.command) { win.togglePick(card.ref) } else { win.select(card.ref) }
     }
     .simultaneousGesture(TapGesture(count: 2).onEnded { store.open(card) })
     .help("Double-click to open in Obsidian")
@@ -1028,6 +1041,7 @@ struct IssueRow: View {
 
 struct StatusLine: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
 
   var body: some View {
     Group {
@@ -1036,7 +1050,7 @@ struct StatusLine: View {
       } else if !store.loaded {
         ProgressView().controlSize(.small)
       } else {
-        Text("\(store.shown) of \(store.total) issues").monospacedDigit().foregroundStyle(Palette.muted.opacity(0.75))
+        Text("\(win.shown) of \(win.total) issues").monospacedDigit().foregroundStyle(Palette.muted.opacity(0.75))
       }
     }
     .font(.system(size: 11)).frame(height: 28)

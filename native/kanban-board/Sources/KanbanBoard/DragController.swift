@@ -57,6 +57,7 @@ final class DragController: ObservableObject {
   let pointer = DragPointer()
   let frames = FrameRegistry()
   weak var store: BoardStore?
+  weak var win: BoardWindow?
   private var location: CGPoint = .zero
   private var start: CGPoint?
   private var ignoring = false
@@ -112,7 +113,8 @@ final class DragController: ObservableObject {
   private func begin(at p: CGPoint) -> Bool {
     guard let store, let (id, rect) = frames.cards.first(where: { $0.value.contains(p) }).map({ ($0.key, $0.value) }),
           let card = store.columns.lazy.flatMap(\.cards).first(where: { $0.id == id }) else { return false }
-    let refs = store.picked.contains(card.ref) ? store.shownRefs.filter(store.picked.contains) : [card.ref]
+    guard let win else { return false }
+    let refs = win.picked.contains(card.ref) ? win.shownRefs.filter(win.picked.contains) : [card.ref]
     session = Session(refs: refs, card: card, home: card.col, grab: CGSize(width: p.x - rect.minX, height: p.y - rect.minY),
                       size: rect.size, origin: rect.origin)
     pointer.origin = rect.origin
@@ -129,7 +131,7 @@ final class DragController: ObservableObject {
   /// or with Cmd. Nil outside every column, which keeps the last slot (gaps between columns).
   private func hit(_ p: CGPoint, _ s: Session, _ store: BoardStore) -> DragSlot? {
     guard let name = frames.columns.first(where: { $0.value.contains(p) })?.key,
-          let column = store.visible.first(where: { $0.name == name }) else { return nil }
+          let column = win?.visible.first(where: { $0.name == name }) else { return nil }
     guard name == s.home || NSEvent.modifierFlags.contains(.command) else { return DragSlot(column: name, before: nil) }
     let cards = store.ordered(column)
     var mid: [String: Double] = [:]
@@ -140,7 +142,7 @@ final class DragController: ObservableObject {
 
   /// Writes the move and swaps the ghost for the real card in one frame with no animation.
   private func finish() {
-    if let s = session, let slot, let store, let column = store.visible.first(where: { $0.name == slot.column }) {
+    if let s = session, let slot, let store, let column = win?.visible.first(where: { $0.name == slot.column }) {
       // A carried ref as `before` is the grabbed card's home: land before the next card that stays.
       let order = store.ordered(column).map(\.ref)
       var before = slot.before
@@ -211,13 +213,14 @@ private struct DragFrame: ViewModifier {
 /// The card under the cursor while dragging, drawn by the app at mouse rate.
 struct FloatingCard: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
   @EnvironmentObject var drag: DragController
   @ObservedObject var pointer: DragPointer
 
   var body: some View {
     if let s = drag.session {
       Group {
-        if store.mode == .board { IssueCard(card: s.card) } else { IssueRow(card: s.card) }
+        if win.mode == .board { IssueCard(card: s.card) } else { IssueRow(card: s.card) }
       }
       .frame(width: s.size.width, height: s.size.height)
       .overlay(alignment: .topTrailing) {

@@ -36,7 +36,9 @@ Sources/KanbanBoard/   SwiftUI app
   WidgetParts.swift    WidgetPart (per-element show/justification/size keys), WidgetAlign, WidgetPrefs
   TimelineWindow.swift Timeline window (Shift-Cmd-T, toolbar icon, menu bar): Day / Week calendar, per-second list, Reports
   ReportsView.swift    Reports tab: ReportsModel (range, group by projects/desktop/state, drill), tiles, stacked Swift Charts bars, org > project > card rows
-  BoardStore.swift     single ObservableObject: data, selection, views, persistence
+  BoardStore.swift     single shared ObservableObject: data, moves, tracking, saved views, persistence
+  BoardWindow.swift    per-window state: workspace scope, filter, mode, selection, picks, palette, editors
+  KanbanApp.swift      WindowGroup(for: String.self) keyed by org; BoardScene (one window), BoardCommands, WindowHook
   BoardView.swift      header, filter chips, board, list, cards, rows; QueryField (filter + completion, also in Timeline)
   SidebarView / OrgRail / Inspector / CommandPalette / ViewEditor
   Menu.swift           custom Linear-style menus: MenuItem, MenuController, MenuHost, MenuTrigger, rightClickMenu
@@ -111,6 +113,13 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 
 ## Invariants
 
+- Workspace windows: a workspace is an org. Right-click an org tile > Open in New Window opens a window keyed
+  by that org name (`openWindow(value:)`); the window without a value is the main window. Each window owns a
+  `BoardWindow`; `BoardStore` stays one object for board data, moves and tracking, so new window state goes on
+  `BoardWindow`, never on the store. Only the main window saves scope, filter, mode and sidebar to defaults; an org
+  window starts on its org and that scope's filter in the shared `orgQueries`. Store moves announce moved refs on
+  `store.moved` and each window drops them from its picks. Menu commands reach the key window by `@FocusedObject`.
+  The main window's title is exactly "Kanban Board" (`boardTitle`); `summon` finds it by that title.
 - Column order (`kanban.columnOrder`) and user-hidden columns (`kanban.hiddenColumns`) are by name.
   `store.visible` is already ordered. Only user-hidden columns render in `HiddenColumns` (right panel),
   each row a drop target; empty columns shrink in place to a 44 pt strip (`ColumnView.collapsed`, animated width); a drag over one only highlights the strip, and it widens after the drop; "Collapse column" (`kanban.sinkColumns`, `BoardStore.isSink`) keeps a column a strip with its count that only takes drops, and a click on the strip expands it; list mode skips hidden columns. Column options live in `ColumnMenu`.
@@ -320,7 +329,7 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Timers tied to a window stop with it: `TimelineModel.stop` on `willCloseNotification`; before it, one look at
   the Timeline kept the day log parsing every 5 s for the rest of the day.
 
-- The board window has `.moveToActiveSpace` (set in `KanbanApp`'s `.task`): summoning it brings it to the current desktop.
+- Every board window has `.moveToActiveSpace` (set through `WindowHook` in `BoardScene`): summoning it brings it to the current desktop.
   Default behaviour switched desktops to wherever the window lived; `.canJoinAllSpaces` was rejected (board on every desktop).
   With "switch to a Space with open windows" on, activation still switched first, so `BoardStore.summon` (widget reveal, and the
   `com.yeshwanth.kanban-board.summon` distributed notification from dotfiles `btt/summon kanban`) sets `.canJoinAllSpaces`, orders the

@@ -4,22 +4,27 @@ import SwiftUI
 /// Slack-style workspace rail: one tile per org, "All" on top, Doing count top right and Todo count bottom right, ⌘1 for all, ⌘2-9 for the orgs in order.
 struct OrgRail: View {
   @EnvironmentObject var store: BoardStore
+  @EnvironmentObject var win: BoardWindow
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     let orgs = store.orgs
     VStack(spacing: 10) {
-      tile(selected: store.activeOrgs.isEmpty, badge: 0, todo: 0, help: "All workspaces (⌘1)") {
+      tile(selected: win.activeOrgs.isEmpty, badge: 0, todo: 0, help: "All workspaces (⌘1)") {
         RoundedRectangle(cornerRadius: 11).fill(Color.white.opacity(0.1))
           .overlay(Image(systemName: "square.grid.2x2.fill").font(.system(size: 15)).foregroundStyle(Palette.text))
-      } action: { _ in store.orgScope = [] }
+      } action: { _ in win.orgScope = [] }
       Divider().overlay(Palette.hairline).frame(width: 28)
       ScrollView {
         VStack(spacing: 10) {
           ForEach(Array(orgs.enumerated()), id: \.element.name) { index, org in
-            tile(selected: store.activeOrgs.contains(org.name), badge: store.doingCount(org: org.name), todo: store.todoCount(org: org.name),
-                 help: "\(org.name)\(index < 8 ? " (⌘\(index + 2))" : "") · ⌘-click to add · drag to reorder") {
+            tile(selected: win.activeOrgs.contains(org.name), badge: store.doingCount(org: org.name), todo: store.todoCount(org: org.name),
+                 help: "\(org.name)\(index < 8 ? " (⌘\(index + 2))" : "") · ⌘-click to add · right-click for a new window · drag to reorder") {
               OrgIcon(name: org.name, size: 38)
-            } action: { store.selectOrg(org.name, additive: $0) }
+            } action: { win.selectOrg(org.name, additive: $0) }
+            .rightClickMenu {
+              [.action("Open in New Window", symbol: "macwindow.badge.plus") { openWindow(value: org.name) }]
+            }
             .draggable("org:" + org.name)
             .dropDestination(for: String.self) { items, _ in
               guard let item = items.first, item.hasPrefix("org:") else { return false }
@@ -28,11 +33,11 @@ struct OrgRail: View {
             }
           }
           if store.hasUnassigned {
-            tile(selected: store.activeOrgs.contains(Filter.noOrg), badge: store.doingCount(org: Filter.noOrg), todo: store.todoCount(org: Filter.noOrg),
+            tile(selected: win.activeOrgs.contains(Filter.noOrg), badge: store.doingCount(org: Filter.noOrg), todo: store.todoCount(org: Filter.noOrg),
                  help: "No organization", dashed: true) {
               Color.white.opacity(0.06)
                 .overlay(Image(systemName: "tray").font(.system(size: 15)).foregroundStyle(Palette.muted))
-            } action: { store.selectOrg(Filter.noOrg, additive: $0) }
+            } action: { win.selectOrg(Filter.noOrg, additive: $0) }
           }
         }
         .padding(.vertical, 4).padding(.horizontal, 10)
@@ -45,9 +50,9 @@ struct OrgRail: View {
     .frame(width: 72)
     .background {
       Group {
-        Button("") { store.orgScope = [] }.keyboardShortcut("1", modifiers: .command)
+        Button("") { win.orgScope = [] }.keyboardShortcut("1", modifiers: .command)
         ForEach(Array(orgs.prefix(8).enumerated()), id: \.element.name) { index, org in
-          Button("") { store.orgScope = [org.name] }
+          Button("") { win.orgScope = [org.name] }
             .keyboardShortcut(KeyEquivalent(Character("\(index + 2)")), modifiers: .command)
         }
       }

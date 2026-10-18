@@ -22,20 +22,8 @@ final class BoardStore: ObservableObject {
   @Published private(set) var loaded = false
   @Published private(set) var error: String?
   @Published var saved: [SavedFilter]
-  /// Selected workspaces; empty = all. "" (Filter.noOrg) selects cards with no org.
-  @Published var orgScope: [String] = UserDefaults.standard.stringArray(forKey: "kanban.orgs")
-    ?? UserDefaults.standard.string(forKey: "kanban.org").map { [$0] } ?? [] {
-    didSet {
-      UserDefaults.standard.set(orgScope, forKey: "kanban.orgs")
-      // Each workspace selection keeps its own filter: switching brings that selection's filter back.
-      if Self.scopeKey(oldValue) != Self.scopeKey(orgScope) {
-        orgQueries[Self.scopeKey(oldValue)] = query
-        query = orgQueries[Self.scopeKey(orgScope)] ?? ""
-      }
-    }
-  }
-  /// Last filter per workspace selection (`scopeKey`), kept as the filter changes; survives restarts.
-  private var orgQueries: [String: String] = UserDefaults.standard.dictionary(forKey: "kanban.orgQueries") as? [String: String] ?? [:] {
+  /// Last filter per workspace selection (`scopeKey`), shared by every window; survives restarts.
+  var orgQueries: [String: String] = UserDefaults.standard.dictionary(forKey: "kanban.orgQueries") as? [String: String] ?? [:] {
     didSet { UserDefaults.standard.set(orgQueries, forKey: "kanban.orgQueries") }
   }
   /// Order-free key of a workspace selection; "" = all workspaces.
@@ -54,13 +42,6 @@ final class BoardStore: ObservableObject {
   @Published var sinkColumns: [String] = UserDefaults.standard.stringArray(forKey: "kanban.sinkColumns") ?? [] {
     didSet { UserDefaults.standard.set(sinkColumns, forKey: "kanban.sinkColumns") }
   }
-  @Published var mode: ViewMode = ViewMode(rawValue: UserDefaults.standard.string(forKey: "kanban.mode") ?? "") ?? .board {
-    didSet { UserDefaults.standard.set(mode.rawValue, forKey: "kanban.mode") }
-  }
-  @Published var showSidebar = UserDefaults.standard.object(forKey: "kanban.sidebar") as? Bool ?? true {
-    didSet { UserDefaults.standard.set(showSidebar, forKey: "kanban.sidebar") }
-  }
-  @Published private(set) var selected: String?
   /// Card just moved into Doing without a guess; the board asks for one.
   @Published var estimating: Card?
   @Published private(set) var toast: String?
@@ -70,25 +51,13 @@ final class BoardStore: ObservableObject {
   /// because optimistic moves already changed `columns` before the refresh lands.
   private var lastLive: [Card]?
   private var toastGen = 0
-  /// Multi-selection (checkboxes); a drag of a picked card carries all of them.
-  @Published var picked: Set<String> = []
+  /// Refs of cards a move or drop just moved; each window drops them from its picks.
+  let moved = PassthroughSubject<Set<String>, Never>()
+  /// The window without an org (`BoardWindow.org`); the widget's card click selects in it.
+  weak var mainWindow: BoardWindow?
   /// True while `DragController` carries cards; refresh results wait until it ends.
   var dragActive = false
   @Published private(set) var notes: [String: String] = [:]
-  @Published var paletteOpen = false
-  /// Column the new-card modal adds to; nil while it is closed.
-  @Published var newCardColumn: String?
-  @Published var focusFilter = 0
-  @Published var filterFocused = false
-  @Published var paletteText = ""
-  @Published var paletteIndex = 0
-  @Published var editing: ViewDraft?
-  @Published var query: String {
-    didSet {
-      UserDefaults.standard.set(query, forKey: "kanban.query")
-      if orgQueries[Self.scopeKey(orgScope)] != query { orgQueries[Self.scopeKey(orgScope)] = query }
-    }
-  }
 
   private let client = ObsidianClient()
   private var loop: Task<Void, Never>?
@@ -174,7 +143,6 @@ final class BoardStore: ObservableObject {
   private var sleptAt: Date?
 
   init() {
-    query = UserDefaults.standard.string(forKey: "kanban.query") ?? ""
     saved = UserDefaults.standard.data(forKey: "kanban.saved")
       .flatMap { try? JSONDecoder().decode([SavedFilter].self, from: $0) } ?? SavedFilter.defaults
     if var s = UserDefaults.standard.data(forKey: Self.stretchKey).flatMap({ try? JSONDecoder().decode(ActiveStretch.self, from: $0) }),
@@ -276,16 +244,6 @@ final class BoardStore: ObservableObject {
     }
   }
 
-  /// Selected org, ignored once it no longer exists on the board.
-  var activeOrgs: [String] {
-    let known = Set(orgs.map(\.name))
-    return orgScope.filter { $0 == Filter.noOrg || known.contains($0) || !loaded }
-  }
-  var scoped: [Column] { Filter.scope(columns, orgs: activeOrgs) }
-  var visible: [Column] {
-    let cols = Filter.apply(scoped, Query.parse(query))
-    return Ordering.arranged(cols.map(\.name), saved: columnOrder).compactMap { n in cols.first { $0.name == n } }
-  }
   func isHidden(_ column: Column) -> Bool { hiddenColumns.contains(column.name) }
   func setHidden(_ column: Column, _ hide: Bool) {
     withAnimation(.spring(duration: 0.3)) {
@@ -316,7 +274,7 @@ final class BoardStore: ObservableObject {
         }
       }
     }
-    picked.subtract(moving)
+    moved.send(moving)
     askEstimate(cards, entering: column.name)
     writeGen += 1
     Task {
@@ -324,16 +282,9 @@ final class BoardStore: ObservableObject {
       await refresh()
     }
   }
-  /// Swaps a column with its neighbour; `by` is -1 (left) or +1 (right).
-  func shiftColumn(_ column: Column, by step: Int) {
-    let names = visible.map(\.name)
-    guard let i = names.firstIndex(of: column.name), names.indices.contains(i + step) else { return }
-    withAnimation(.spring(duration: 0.3)) { columnOrder = Ordering.moving(names, column.name, onto: names[i + step]) }
-  }
-  var total: Int { scoped.reduce(0) { $0 + $1.cards.count } }
   /// Rail order: the user's arrangement first, then new orgs by frequency.
   var orgs: [(name: String, count: Int)] {
-    let found = counts(in: columns, \.orgs)
+    let found = Self.counts(in: columns, \.orgs)
     let order = Ordering.arranged(found.map(\.name), saved: orgOrder)
     return order.compactMap { name in found.first { $0.name == name } }
   }
@@ -341,14 +292,7 @@ final class BoardStore: ObservableObject {
   func moveOrg(_ name: String, onto target: String) {
     withAnimation(.spring(duration: 0.3)) { orgOrder = Ordering.moving(orgs.map(\.name), name, onto: target) }
   }
-  var shown: Int { visible.reduce(0) { $0 + $1.cards.count } }
 
-  /// Counts of a card field over non-done columns, most frequent first.
-  /// Names come from the org scope; counts come from what the board currently shows.
-  func facets(_ pick: (Card) -> [String]) -> [(name: String, count: Int)] {
-    let shown = Dictionary(uniqueKeysWithValues: counts(in: visible, pick).map { ($0.name, $0.count) })
-    return counts(in: scoped, pick).map { (name: $0.name, count: shown[$0.name] ?? 0) }
-  }
 
   func count(org: String, in column: String) -> Int {
     Filter.scope(columns, orgs: [org]).first { $0.name.caseInsensitiveCompare(column) == .orderedSame }?.cards.count ?? 0
@@ -359,43 +303,22 @@ final class BoardStore: ObservableObject {
 
   var hasUnassigned: Bool { columns.contains { $0.done == false && $0.cards.contains { $0.orgs.isEmpty } } }
 
-  private func counts(in columns: [Column], _ pick: (Card) -> [String]) -> [(name: String, count: Int)] {
+  static func counts(in columns: [Column], _ pick: (Card) -> [String]) -> [(name: String, count: Int)] {
     var counts: [String: Int] = [:]
     for column in columns where !column.done { for card in column.cards { for v in pick(card) { counts[v, default: 0] += 1 } } }
     return counts.map { (name: $0.key, count: $0.value) }.sorted { ($1.count, $0.name) < ($0.count, $1.name) }
   }
 
-  var selectedCard: Card? { selected.flatMap { ref in columns.lazy.flatMap(\.cards).first { $0.ref == ref } } }
-
-  /// Every shown card ref, column by column, in screen order.
-  var shownRefs: [String] { visible.filter { !isHidden($0) }.flatMap { ordered($0).map(\.ref) } }
 
   /// Cards in the order the screen shows them, so arrow keys follow the eye.
   func ordered(_ column: Column) -> [Card] {
     Ranking.ordered(column.cards)
   }
 
-  func select(_ ref: String?) {
-    selected = ref
-    guard let card = selectedCard else { return }
+  /// Loads `card`'s note text into `notes` for the inspector.
+  func loadNote(_ card: Card) {
     Task { notes[card.ref] = (try? await client.note(card)) ?? "" }
   }
-
-  /// dx walks to the neighbouring non-empty column; dy walks within a column.
-  func moveSelection(dx: Int, dy: Int) {
-    let cols = visible.map(ordered)
-    guard let ref = selected, let ci = cols.firstIndex(where: { $0.contains { $0.ref == ref } }),
-          let ri = cols[ci].firstIndex(where: { $0.ref == ref }) else {
-      if let first = cols.first(where: { !$0.isEmpty })?.first { select(first.ref) }
-      return
-    }
-    if dy != 0 { select(cols[ci][min(cols[ci].count - 1, max(0, ri + dy))].ref); return }
-    var next = ci + dx
-    while cols.indices.contains(next), cols[next].isEmpty { next += dx }
-    if cols.indices.contains(next) { select(cols[next][min(ri, cols[next].count - 1)].ref) }
-  }
-
-  func openSelected() { selectedCard.map(open) }
 
   func copyID(_ card: Card) {
     NSPasteboard.general.clearContents()
@@ -488,8 +411,6 @@ final class BoardStore: ObservableObject {
       // An unchanged board would still redraw every card each refresh.
       if fresh != columns { withAnimation(DragController.spring) { columns = fresh } }
       // A @Published assignment redraws every card even when the value is unchanged; assign only on change.
-      let refs = Set(columns.flatMap(\.cards).map(\.ref))
-      if !picked.isSubset(of: refs) { picked.formIntersection(refs) }
       if breakStart != nil, live.contains(where: { $0.col.caseInsensitiveCompare("Doing") == .orderedSame }) { endBreak() }
       if error != nil { error = nil }
       switchTasks()
@@ -651,7 +572,7 @@ final class BoardStore: ObservableObject {
         if columns[i].name == column { columns[i].cards.insert(contentsOf: cards.map { $0.moved(to: column) }, at: 0) }
       }
     }
-    picked.subtract(moving)
+    moved.send(moving)
     askEstimate(cards, entering: column)
     writeGen += 1
     Task {
@@ -662,20 +583,6 @@ final class BoardStore: ObservableObject {
     }
   }
 
-  func togglePick(_ ref: String) {
-    if picked.contains(ref) { picked.remove(ref) } else { picked.insert(ref) }
-  }
-  /// Picks every card shown on the board, or only `column`'s.
-  func pickAll(in column: Column? = nil) {
-    let cols = column.map { [$0] } ?? visible.filter { !isHidden($0) }
-    picked.formUnion(cols.flatMap(\.cards).map(\.ref))
-  }
-
-
-  /// Org and project a new card takes from the workspace scope and the filter (`NewCard.scope`).
-  var newCardScope: (org: String?, project: String?) {
-    NewCard.scope(orgScope: activeOrgs, terms: Query.parse(query), cards: columns.flatMap(\.cards))
-  }
 
   /// Projects seen on the board under `org`, for the new-card project menu.
   func projects(in org: String) -> [String] {
@@ -817,7 +724,7 @@ final class BoardStore: ObservableObject {
   /// `ObsidianClient.bringForward`: a widget click never makes this app active. With no board
   /// window open, the reopen event makes SwiftUI create one.
   func reveal(_ card: Card) {
-    select(card.ref)
+    mainWindow?.select(card.ref)
     summon()
   }
 
@@ -848,74 +755,20 @@ final class BoardStore: ObservableObject {
     Task { do { try await client.open(card) } catch { self.error = error.localizedDescription } }
   }
 
-  func append(_ term: String) {
-    if let t = Query.parse(term).first, let key = t.key, !t.value.isEmpty,
-       Query.singleValued.contains(Query.canonical(key)) {
-      let next = Query.toggling(query, term: term)
-      query = next.isEmpty ? "" : next + " "
-      return
-    }
-    let spaced = query.isEmpty || query.hasSuffix(" ") ? query : query + " "
-    if !Query.parse(query).contains(where: { "\($0.key ?? ""):\($0.value)" == term.replacingOccurrences(of: "\"", with: "") }) {
-      query = spaced + term + (term.hasSuffix(":") ? "" : " ")
-    }
-  }
-
-  var catalog: Catalog {
-    Catalog.make(columns: columns.map(\.name), projects: facets(\.projects).map(\.name), orgs: orgs.map(\.name),
-                 tags: facets(\.tags).map(\.name), views: visibleViews.map(\.name))
-  }
-
-  /// A finished `view:Name` term applies that view; any other term joins the filter.
-  func accept(_ term: String) {
-    guard let t = Query.parse(term).first, t.key == "view", !t.negated else { return append(term) }
-    saved.first { $0.name.caseInsensitiveCompare(t.value) == .orderedSame }.map(apply)
-  }
-
   func quote(_ value: String) -> String { value.contains(" ") ? "\"\(value)\"" : value }
 
-  /// Views listed in the sidebar: all-workspace views, plus the current workspace's own
-  /// (every view while no workspace is selected).
-  var visibleViews: [SavedFilter] {
-    saved.filter { $0.orgs.isEmpty || activeOrgs.isEmpty || !Set($0.orgs).isDisjoint(with: activeOrgs) }
+  /// Adds `view` or replaces the one with its id; true when it is new.
+  func save(_ view: SavedFilter) -> Bool {
+    defer { persistSaved() }
+    if let i = saved.firstIndex(where: { $0.id == view.id }) { saved[i] = view; return false }
+    saved.append(view)
+    return true
   }
 
-  var activeView: SavedFilter? {
-    let q = query.trimmingCharacters(in: .whitespaces)
-    return saved.first { $0.query == q && ($0.orgs.isEmpty || Set($0.orgs) == Set(activeOrgs)) }
-  }
-
-  /// A view without orgs is a filter for any workspace: it keeps the current selection.
-  func apply(_ view: SavedFilter) {
-    if !view.orgs.isEmpty { orgScope = view.orgs }
-    query = view.query
-  }
-
-  /// Plain click selects one workspace; command-click adds or removes it.
-  func selectOrg(_ name: String, additive: Bool) {
-    guard additive else { orgScope = [name]; return }
-    if orgScope.contains(name) { orgScope.removeAll { $0 == name } } else { orgScope.append(name) }
-  }
-
-  func newView(query: String = "") { editing = ViewDraft(query: query, orgs: activeOrgs) }
-
-  func edit(_ view: SavedFilter) {
-    editing = ViewDraft(id: view.id, existing: true, name: view.name, query: view.query, orgs: view.orgs)
-  }
-
-  func saveDraft(_ draft: ViewDraft) {
-    let view = SavedFilter(id: draft.id, name: draft.name.trimmingCharacters(in: .whitespaces),
-                           query: draft.query.trimmingCharacters(in: .whitespaces), orgs: draft.orgs)
-    guard !view.name.isEmpty else { return }
-    if let i = saved.firstIndex(where: { $0.id == view.id }) { saved[i] = view } else { saved.append(view); apply(view) }
-    persistSaved()
-    editing = nil
-  }
-
-  func updateToCurrent(_ view: SavedFilter) {
+  func update(_ view: SavedFilter, query: String, orgs: [String]) {
     guard let i = saved.firstIndex(where: { $0.id == view.id }) else { return }
-    saved[i].query = query.trimmingCharacters(in: .whitespaces)
-    saved[i].orgs = activeOrgs
+    saved[i].query = query
+    saved[i].orgs = orgs
     persistSaved()
   }
 
