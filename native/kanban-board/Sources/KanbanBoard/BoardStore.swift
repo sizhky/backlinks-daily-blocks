@@ -419,6 +419,10 @@ final class BoardStore: ObservableObject {
     guard loop == nil else { return }
     BreakHotKey.shared.action = { [weak self] in self?.takeBreak() }
     BreakHotKey.shared.install()
+    // `summon kanban` (dotfiles btt/summon) posts this; a distributed notification does not activate the app first.
+    DistributedNotificationCenter.default().addObserver(forName: .init("com.yeshwanth.kanban-board.summon"), object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { self?.summon() }
+    }
     desktopMenu = DesktopMenu(store: self)
     widget = TrackerWidget(store: self)
     desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
@@ -814,6 +818,21 @@ final class BoardStore: ObservableObject {
   /// window open, the reopen event makes SwiftUI create one.
   func reveal(_ card: Card) {
     select(card.ref)
+    summon()
+  }
+
+  /// Brings the board window to the current desktop, then activates the app. The window joins all desktops for a
+  /// moment and leaves them on this one (Obsidian's summon does the same through Electron), so activation finds it
+  /// here and does not switch desktops. `canJoinAllSpaces` and `moveToActiveSpace` cannot be set together.
+  func summon() {
+    if let board = NSApp.windows.first(where: { $0.title == "Kanban Board" }) {
+      if board.isMiniaturized { board.deminiaturize(nil) }
+      board.collectionBehavior.remove(.moveToActiveSpace)
+      board.collectionBehavior.insert(.canJoinAllSpaces)
+      board.orderFrontRegardless()
+      board.collectionBehavior.remove(.canJoinAllSpaces)
+      board.collectionBehavior.insert(.moveToActiveSpace)
+    }
     let config = NSWorkspace.OpenConfiguration()
     config.activates = true
     NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in

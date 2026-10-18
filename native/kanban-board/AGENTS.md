@@ -322,6 +322,9 @@ Before building or wording any UI, ask what Apple would do and do that.
 
 - The board window has `.moveToActiveSpace` (set in `KanbanApp`'s `.task`): summoning it brings it to the current desktop.
   Default behaviour switched desktops to wherever the window lived; `.canJoinAllSpaces` was rejected (board on every desktop).
+  With "switch to a Space with open windows" on, activation still switched first, so `BoardStore.summon` (widget reveal, and the
+  `com.yeshwanth.kanban-board.summon` distributed notification from dotfiles `btt/summon kanban`) sets `.canJoinAllSpaces`, orders the
+  window front, removes it again, then activates. The two flags cannot be set together.
 
 - `NSRunningApplication.activate` is ignored while this app is not active (macOS cooperative activation), and a
   widget click never makes it active. `ObsidianClient.bringForward` uses `NSWorkspace.openApplication` with
