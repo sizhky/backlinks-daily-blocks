@@ -257,12 +257,7 @@ extension DayLine {
 
   public var fileName: String { Self.fileName(start) }
 
-  public static func fileName(_ day: Date) -> String {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.dateFormat = "yyyyMMdd"
-    return f.string(from: day) + suffix + ".jsonl"
-  }
+  public static func fileName(_ day: Date) -> String { DayName.of(day) + suffix + ".jsonl" }
 }
 
 /// A stretch when one card was the active task (`Focus.active`), in `YYYYMMDD-active.jsonl`.

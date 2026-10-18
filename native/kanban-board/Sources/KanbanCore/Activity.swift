@@ -38,12 +38,7 @@ public struct Span: Codable, Equatable, Sendable {
   /// Log file name of the day the span starts, local time.
   public var fileName: String { Self.fileName(start) }
 
-  public static func fileName(_ day: Date) -> String {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.dateFormat = "yyyyMMdd"
-    return f.string(from: day) + ".jsonl"
-  }
+  public static func fileName(_ day: Date) -> String { DayName.of(day) + ".jsonl" }
 }
 
 /// 2.1 Merges equal consecutive samples into spans; spans shorter than `minimum` are dropped.
@@ -260,4 +255,17 @@ public struct SwitchEngine: Codable, Sendable {
     flips = flips.filter { seen.contains($0.key) }
     return moves
   }
+}
+
+/// `yyyyMMdd` of a local day, shared by the day-log file names. One formatter: building a `DateFormatter`
+/// costs far more than using it, and the widget asked for a file name several times a second.
+public enum DayName {
+  public static let formatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "yyyyMMdd"
+    return f
+  }()
+
+  public static func of(_ day: Date) -> String { formatter.string(from: day) }
 }
