@@ -12,6 +12,7 @@ final class TimelineWindow {
   private let model: TimelineModel
   private let reports: ReportsModel
   private var zoomMonitor: Any?
+  private var closeObserver: Any?
   private let menu = MenuController()
 
   init(activity: ActivityMonitor, live: @escaping @MainActor () -> (ActiveStretch?, BreakSpan?),
@@ -42,6 +43,10 @@ final class TimelineWindow {
       }
       w.setFrameAutosaveName("Timeline")
       window = w
+      // The 5 s reload stops with the window; it once kept reading and parsing the day log all day after one look.
+      closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+        MainActor.assumeIsolated { self?.model.stop() }
+      }
       // Cmd + scroll zooms the calendar (hour height); plain scroll still scrolls.
       // The pointer (top-left window coordinates, as SwiftUI's .global) is the zoom pivot.
       zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
@@ -211,6 +216,12 @@ final class TimelineModel: ObservableObject {
         self.load(chronicle: self.ticks % 6 == 0)
       }
     }
+  }
+
+  /// Ends the 5 s reload (window closed); `start` resumes it.
+  func stop() {
+    timer?.invalidate()
+    timer = nil
   }
 
   func shift(_ steps: Int) {
