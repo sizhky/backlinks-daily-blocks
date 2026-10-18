@@ -325,6 +325,8 @@ Before building or wording any UI, ask what Apple would do and do that.
   With "switch to a Space with open windows" on, activation still switched first, so `BoardStore.summon` (widget reveal, and the
   `com.yeshwanth.kanban-board.summon` distributed notification from dotfiles `btt/summon kanban`) sets `.canJoinAllSpaces`, orders the
   window front, removes it again, then activates. The two flags cannot be set together.
+  The poster must use `deliverImmediately: true`: an inactive app holds distributed notifications until it activates,
+  so a plain post did nothing (2026-10-18).
 
 - `NSRunningApplication.activate` is ignored while this app is not active (macOS cooperative activation), and a
   widget click never makes it active. `ObsidianClient.bringForward` uses `NSWorkspace.openApplication` with
