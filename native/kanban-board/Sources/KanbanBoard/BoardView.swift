@@ -773,7 +773,8 @@ struct IssueCard: View {
     .background(picked ? Palette.indigo.opacity(0.14) : (hovering || selected ? Palette.cardHover : Palette.card), in: .rect(cornerRadius: 9))
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected || picked ? Palette.indigo
       : live ? tint.opacity(0.85) : (hovering ? Palette.hairlineStrong : Palette.hairline), lineWidth: live ? 1.5 : 1))
-    .shadow(color: live ? tint.opacity(0.3) : .clear, radius: 8)
+    // Only the live card glows. A shadow on every card, clear or not, rasterized each card offscreen on every redraw.
+    .background { if live { RoundedRectangle(cornerRadius: 9).fill(tint.opacity(0.3)).blur(radius: 8) } }
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
     .onTapGesture {
