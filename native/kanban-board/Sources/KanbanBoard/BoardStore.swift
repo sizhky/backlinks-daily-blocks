@@ -459,6 +459,17 @@ final class BoardStore: ObservableObject {
   /// carries stale data and is dropped, so an optimistic move never snaps back.
   private var writeGen = 0
 
+  /// Engine state reaches defaults only when its JSON changed: every defaults write rewrites the whole
+  /// preferences file and redraws the widget (`UserDefaults.didChangeNotification`).
+  private var persisted: [String: Data] = [:]
+  private func persist<T: Encodable>(_ value: T, key: String) {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    guard let data = try? encoder.encode(value), data != persisted[key] else { return }
+    persisted[key] = data
+    UserDefaults.standard.set(data, forKey: key)
+  }
+
   func refresh() async {
     let gen = writeGen
     do {
@@ -472,16 +483,19 @@ final class BoardStore: ObservableObject {
       lastLive = live
       // An unchanged board would still redraw every card each refresh.
       if fresh != columns { withAnimation(DragController.spring) { columns = fresh } }
-      picked.formIntersection(columns.flatMap(\.cards).map(\.ref))
+      // A @Published assignment redraws every card even when the value is unchanged; assign only on change.
+      let refs = Set(columns.flatMap(\.cards).map(\.ref))
+      if !picked.isSubset(of: refs) { picked.formIntersection(refs) }
       if breakStart != nil, live.contains(where: { $0.col.caseInsensitiveCompare("Doing") == .orderedSame }) { endBreak() }
-      error = nil
+      if error != nil { error = nil }
       switchTasks()
       trackMeetings()
       trackActive()
     } catch {
-      self.error = error.localizedDescription
+      let message = error.localizedDescription
+      if self.error != message { self.error = message }
     }
-    loaded = true
+    if !loaded { loaded = true }
   }
 
   /// 4.2 Parks cards whose context the user left and resumes the ones the engine parked,
@@ -490,7 +504,7 @@ final class BoardStore: ObservableObject {
     let live = columns.filter { !$0.done }.flatMap(\.cards)
     let moves = switches.step(now: Date(), context: activity.context, contextSince: activity.contextSince,
                               cards: live, rules: activity.rules)
-    UserDefaults.standard.set(try? JSONEncoder().encode(switches), forKey: "kanban.switches")
+    persist(switches, key: "kanban.switches")
     guard !moves.isEmpty else { return }
     writeGen += 1
     Task {
@@ -548,7 +562,7 @@ final class BoardStore: ObservableObject {
   }
 
   private func saveMeetings() {
-    UserDefaults.standard.set(try? JSONEncoder().encode(meetings), forKey: "kanban.meetings")
+    persist(meetings, key: "kanban.meetings")
   }
 
   /// Makes a Doing card active by hand until the desktop changes (`FocusPin`); a card whose desktop
@@ -586,7 +600,7 @@ final class BoardStore: ObservableObject {
     if !cards.isEmpty { clock.keep(Set(cards.map(\.id))) }
     if activeID != active?.id { activeID = active?.id }
     if before != active?.id || Date().timeIntervalSince(lastFlush) >= Self.flushEvery { flushActive() }
-    UserDefaults.standard.set(try? JSONEncoder().encode(clock), forKey: "kanban.activeClock")
+    persist(clock, key: "kanban.activeClock")
   }
 
   /// Writes whole unwritten seconds with one `kb.addActive`; the board shows them at once, and a
