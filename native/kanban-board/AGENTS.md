@@ -320,6 +320,9 @@ Before building or wording any UI, ask what Apple would do and do that.
 - Timers tied to a window stop with it: `TimelineModel.stop` on `willCloseNotification`; before it, one look at
   the Timeline kept the day log parsing every 5 s for the rest of the day.
 
+- The board window has `.moveToActiveSpace` (set in `KanbanApp`'s `.task`): summoning it brings it to the current desktop.
+  Default behaviour switched desktops to wherever the window lived; `.canJoinAllSpaces` was rejected (board on every desktop).
+
 - `NSRunningApplication.activate` is ignored while this app is not active (macOS cooperative activation), and a
   widget click never makes it active. `ObsidianClient.bringForward` uses `NSWorkspace.openApplication` with
   `activates`, which worked from a background process on 2026-10-11; an `obsidian://` URL did not.

@@ -58,7 +58,11 @@ struct KanbanBoardApp: App {
       .frame(minWidth: 1000, minHeight: 620)
       .preferredColorScheme(.dark)
       .ignoresSafeArea()
-      .task { drag.store = store; store.start() }
+      .task {
+        drag.store = store; store.start()
+        // Summoning the board brings it to the current desktop instead of switching to its desktop.
+        NSApp.windows.filter { $0.title == "Kanban Board" }.forEach { $0.collectionBehavior.insert(.moveToActiveSpace) }
+      }
     }
     .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1500, height: 900)
