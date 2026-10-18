@@ -306,7 +306,19 @@ Before building or wording any UI, ask what Apple would do and do that.
   `DateFormatter` on every read; the newest-first sort and the `created:` filter made that thousands of
   parses per render, and scrolling stalled (2026-10-11, measured with `sample` under injected scroll events).
 - `BoardStore.refresh` (every 6 s) assigns `columns` only when the board changed; assigning an equal board
-  still redrew every card.
+  still redrew every card. The same holds for every `@Published` value: `loaded`, `error` and `picked` were
+  assigned on every poll and redrew the board three times per 6 s while idle (2026-10-17, 21-33% CPU, measured
+  with `sample`). Assign only on change. Defaults writes of engine state go through `BoardStore.persist`, which
+  writes only when the JSON changed: each write rewrites the preferences file and redraws the widget.
+- A `.shadow` on every card, clear or not, rasterized each card offscreen on every redraw (main thread in
+  `CABackingStoreUpdate_`). Only the live card glows, with a blurred background shape.
+- Never keep a standing global `mouseMoved` monitor: the app then handles every mouse move on the Mac, with a
+  WindowServer round trip for `NSEvent.mouseLocation` each. The widget installs mouse monitors only while Fn or
+  Control is held (`TrackerWidget.trackMouse`).
+- Build `DateFormatter`s once (`static let`, e.g. `DayName.formatter`, `Card.stamp`): the widget's per-second
+  ticks built one per `Span.fileName` call and ICU showed in the profile.
+- Timers tied to a window stop with it: `TimelineModel.stop` on `willCloseNotification`; before it, one look at
+  the Timeline kept the day log parsing every 5 s for the rest of the day.
 
 - `NSRunningApplication.activate` is ignored while this app is not active (macOS cooperative activation), and a
   widget click never makes it active. `ObsidianClient.bringForward` uses `NSWorkspace.openApplication` with
