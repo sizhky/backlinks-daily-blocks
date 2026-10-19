@@ -206,7 +206,7 @@ final class BoardStore: ObservableObject {
     didSet { UserDefaults.standard.set(Array(breakParked), forKey: "kanban.breakParked") }
   }
 
-  /// The break key (`BreakHotKey`) toggles: while a card the break parked is still in Parked, it ends the
+  /// The break key (`GlobalHotKey.breakKey`) toggles: while a card the break parked is still in Parked, it ends the
   /// break and moves those cards back to Doing; otherwise it parks every Doing card now.
   /// The widget gets one "Break" or "Started" toast instead of one per card: the next refresh skips its diff.
   func takeBreak() {
@@ -417,14 +417,16 @@ final class BoardStore: ObservableObject {
 
   func start() {
     guard loop == nil else { return }
-    BreakHotKey.shared.action = { [weak self] in self?.takeBreak() }
-    BreakHotKey.shared.install()
+    GlobalHotKey.breakKey.action = { [weak self] in self?.takeBreak() }
+    GlobalHotKey.breakKey.install()
     // `summon kanban` (dotfiles btt/summon) posts this; a distributed notification does not activate the app first.
     DistributedNotificationCenter.default().addObserver(forName: .init("com.yeshwanth.kanban-board.summon"), object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.summon() }
     }
     desktopMenu = DesktopMenu(store: self)
     widget = TrackerWidget(store: self)
+    GlobalHotKey.widget.action = { [weak self] in self?.widget?.toggle() }
+    GlobalHotKey.widget.install()
     desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
     rulesSink = activity.$rules.sink { [weak self] _ in MainActor.assumeIsolated { self?.objectWillChange.send() } }
     // @Published fires before the value changes; the hop to the main queue reads the new context.
@@ -933,23 +935,34 @@ final class BoardStore: ObservableObject {
   }
 }
 
-/// Global "take a break" key (Settings > Tracking), default F6 (fn+F6 on a Mac keyboard).
+/// Global keys recorded in Settings: the break key (default F6, fn+F6 on a Mac keyboard) and the widget key (none).
 /// Carbon hot keys work while the app is in the background and need no Accessibility permission.
 @MainActor
-final class BreakHotKey {
-  static let shared = BreakHotKey()
-  static let codeKey = "kanban.breakKey", modsKey = "kanban.breakMods", labelKey = "kanban.breakLabel"
+final class GlobalHotKey {
+  static let breakKey = GlobalHotKey(id: 1, prefix: "kanban.break", defaultCode: kVK_F6)
+  static let widget = GlobalHotKey(id: 2, prefix: "kanban.widget", defaultCode: -1)
+  private static let all = [breakKey, widget]
+  private static var handler: EventHandlerRef?
+
+  let id: UInt32, codeKey: String, modsKey: String, labelKey: String, defaultCode: Int
   var action: () -> Void = {}
   private var ref: EventHotKeyRef?
-  private var handler: EventHandlerRef?
 
+  private init(id: UInt32, prefix: String, defaultCode: Int) {
+    (self.id, codeKey, modsKey, labelKey, self.defaultCode) = (id, prefix + "Key", prefix + "Mods", prefix + "Label", defaultCode)
+  }
+
+  /// Installs the one Carbon handler, which runs the key whose id the event carries.
   func install() {
-    if handler == nil {
+    if Self.handler == nil {
       var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-      InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-        DispatchQueue.main.async { MainActor.assumeIsolated { BreakHotKey.shared.action() } }
+      InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+        var hk = EventHotKeyID()
+        GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                          MemoryLayout<EventHotKeyID>.size, nil, &hk)
+        DispatchQueue.main.async { MainActor.assumeIsolated { GlobalHotKey.all.first { $0.id == hk.id }?.action() } }
         return noErr
-      }, 1, &spec, nil, &handler)
+      }, 1, &spec, nil, &Self.handler)
     }
     register()
   }
@@ -958,9 +971,9 @@ final class BreakHotKey {
   func register() {
     pause()
     let d = UserDefaults.standard
-    let code = d.object(forKey: Self.codeKey) as? Int ?? kVK_F6
+    let code = d.object(forKey: codeKey) as? Int ?? defaultCode
     guard code >= 0 else { return }
-    RegisterEventHotKey(UInt32(code), UInt32(d.integer(forKey: Self.modsKey)), EventHotKeyID(signature: 0x4B42524B, id: 1),
+    RegisterEventHotKey(UInt32(code), UInt32(d.integer(forKey: modsKey)), EventHotKeyID(signature: 0x4B42524B, id: id),
                         GetApplicationEventTarget(), 0, &ref)
   }
 

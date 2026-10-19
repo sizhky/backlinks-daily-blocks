@@ -73,6 +73,7 @@ struct WidgetSettings: View {
       }
       Section("Widget") {
         Toggle("Show widget", isOn: $visible)
+        ShortcutRow(.widget, title: "Show or hide", detail: "Global shortcut that toggles the widget.")
         AppListRow(WidgetKey.hideApps, title: "Hide while using",
                    detail: "The widget hides while one of these apps is in front.")
           .disabled(!visible)
@@ -182,7 +183,7 @@ struct TrackingSettings: View {
         }
         if let none = regions.last { region(none).frame(minHeight: 120) }
         Divider().padding(.vertical, 4)
-        BreakShortcutRow()
+        ShortcutRow(.breakKey, title: "Take a break", detail: "Global shortcut that parks every Doing card.", placeholder: "F6")
         AppListRow(ActivityMonitor.keepActiveKey, title: "Never idle while running",
                    detail: "No input does not pause cards while one of these apps is open.")
         MeetingCalendarsRow()
@@ -564,16 +565,22 @@ struct MeetingCalendarsRow: View {
   }
 }
 
-/// Records the global break key (`BreakHotKey`): click, press a key with any modifiers; esc cancels.
-struct BreakShortcutRow: View {
-  @AppStorage(BreakHotKey.labelKey) private var label = "F6"
+/// Records a `GlobalHotKey`: click, press a key with any modifiers; esc cancels.
+struct ShortcutRow: View {
+  let key: GlobalHotKey, title: String, detail: String
+  @AppStorage private var label: String
   @State private var monitor: Any?
+
+  init(_ key: GlobalHotKey, title: String, detail: String, placeholder: String = "") {
+    (self.key, self.title, self.detail) = (key, title, detail)
+    _label = AppStorage(wrappedValue: placeholder, key.labelKey)
+  }
 
   var body: some View {
     HStack {
       VStack(alignment: .leading, spacing: 2) {
-        Text("Take a break")
-        Text("Global shortcut that parks every Doing card.").font(.callout).foregroundStyle(.secondary)
+        Text(title)
+        Text(detail).font(.callout).foregroundStyle(.secondary)
       }
       Spacer()
       Button(monitor != nil ? "Press a key…" : label.isEmpty ? "None" : label) { monitor == nil ? record() : stop() }
@@ -584,9 +591,9 @@ struct BreakShortcutRow: View {
   }
 
   private func record() {
-    BreakHotKey.shared.pause()
+    key.pause()
     monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-      if e.keyCode != 53 { save(Int(e.keyCode), BreakHotKey.carbon(e.modifierFlags), BreakHotKey.label(e)) }
+      if e.keyCode != 53 { save(Int(e.keyCode), GlobalHotKey.carbon(e.modifierFlags), GlobalHotKey.label(e)) }
       stop()
       return nil
     }
@@ -595,13 +602,13 @@ struct BreakShortcutRow: View {
   private func stop() {
     if let monitor { NSEvent.removeMonitor(monitor) }
     monitor = nil
-    BreakHotKey.shared.register()
+    key.register()
   }
 
   private func save(_ code: Int, _ mods: Int, _ text: String) {
-    UserDefaults.standard.set(code, forKey: BreakHotKey.codeKey)
-    UserDefaults.standard.set(mods, forKey: BreakHotKey.modsKey)
+    UserDefaults.standard.set(code, forKey: key.codeKey)
+    UserDefaults.standard.set(mods, forKey: key.modsKey)
     label = text
-    BreakHotKey.shared.register()
+    key.register()
   }
 }

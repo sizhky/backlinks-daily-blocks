@@ -103,7 +103,7 @@ struct TodayMeetings: View {
 
 struct BoardHeader: View {
   @EnvironmentObject var store: BoardStore
-  @AppStorage(BreakHotKey.labelKey) private var breakKey = "F6"
+  @AppStorage(GlobalHotKey.breakKey.labelKey) private var breakKey = "F6"
   /// The tracker widget's shown state; its own eye button writes the same key, so this follows it.
   @AppStorage(WidgetKey.visible) private var widgetVisible = true
   @FocusState private var focused: Bool
