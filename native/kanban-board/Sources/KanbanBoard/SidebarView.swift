@@ -39,8 +39,11 @@ struct SidebarView: View {
             item(f.name, leading: AnyView(Monogram(name: f.name, size: 18)), active: false, count: f.count) {
               store.append("project:" + store.quote(f.name))
             }
+            .simultaneousGesture(TapGesture(count: 2).onEnded { store.openProject(f.name) })
             .rightClickMenu {
-              [.submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name)),
+              [.action("Open in Obsidian", symbol: "arrow.up.forward.app") { store.openProject(f.name) },
+               .separator,
+               .submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name)),
                .submenu("Color", symbol: "paintpalette", store.colorItems(project: f.name))]
             }
           }

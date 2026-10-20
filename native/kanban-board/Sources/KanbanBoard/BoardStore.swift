@@ -860,6 +860,10 @@ final class BoardStore: ObservableObject {
     Task { do { try await client.open(card) } catch { self.error = error.localizedDescription } }
   }
 
+  func openProject(_ name: String) {
+    Task { do { try await client.openProject(name) } catch { self.error = error.localizedDescription } }
+  }
+
   func append(_ term: String) {
     if let t = Query.parse(term).first, let key = t.key, !t.value.isEmpty,
        Query.singleValued.contains(Query.canonical(key)) {

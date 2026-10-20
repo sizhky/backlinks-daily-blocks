@@ -169,6 +169,17 @@ struct ObsidianClient {
     Self.bringForward()
   }
 
+  /// Opens a project's note and brings Obsidian forward. Same match as core/scope.js projectName:
+  /// `43 Orgs/<org>/<project>/<project>.md` or `43 Orgs/<org>/<project>.md`, name case-insensitive.
+  func openProject(_ name: String) async throws {
+    _ = try await eval("(()=>{const n=\(try js(name)).toLowerCase(),R='40-49 Areas/43 Orgs/';"
+      + "const f=app.vault.getMarkdownFiles().find(f=>{if(!f.path.startsWith(R))return false;"
+      + "const p=f.path.slice(R.length,-3).split('/');return p[p.length-1].toLowerCase()===n"
+      + "&&((p.length===2&&p[0]!==p[1])||(p.length===3&&p[1]===p[2]))});"
+      + "if(!f)throw new Error('no project note for '+n);return app.workspace.getLeaf(false).openFile(f)})()")
+    Self.bringForward()
+  }
+
   /// Launch Services activation: `NSRunningApplication.activate` is ignored while this app is not
   /// active, which is always the case for a click on the non-activating widget.
   static func bringForward() {
