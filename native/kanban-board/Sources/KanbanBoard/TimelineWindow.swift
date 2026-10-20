@@ -487,7 +487,7 @@ struct TimelineRowView: View {
           if let url = s.url { Text(url).font(.system(size: 11)).foregroundStyle(Palette.link).lineLimit(1).truncationMode(.middle) }
         }
         Spacer(minLength: 8)
-        if let d = s.desktop ?? s.space.map({ "Desktop \($0)" }) { Pill(text: d) { Image(systemName: "rectangle.3.group").imageScale(.small) } }
+        if let d = (s.desktop ?? s.space.map({ "Desktop \($0)" })).map({ Desktops.title($0, number: s.space) }) { Pill(text: d) { Image(systemName: "rectangle.3.group").imageScale(.small) } }
       }
     }
     .padding(.horizontal, 20).padding(.vertical, 7)

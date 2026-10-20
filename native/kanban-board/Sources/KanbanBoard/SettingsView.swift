@@ -259,7 +259,7 @@ struct TrackingSettings: View {
       if let d = desktops.resolve(ref) { byDesk[d.uuid, default: []].append(p) } else { stale[ref, default: []].append(p) }
     }
     let current = desktops.current?.uuid
-    var out = desktops.spaces.map { Region(id: $0.uuid, title: $0.name, ref: $0.ref, current: $0.uuid == current, projects: byDesk[$0.uuid] ?? []) }
+    var out = desktops.spaces.map { Region(id: $0.uuid, title: $0.title, ref: $0.ref, current: $0.uuid == current, projects: byDesk[$0.uuid] ?? []) }
       + stale.keys.sorted().map { Region(id: "stale|" + $0, title: $0, ref: $0, current: false, projects: stale[$0] ?? []) }
       + [Region(id: "none", title: "No desktop", ref: nil, current: false, projects: none)]
     // While dragging, the project already sits in the hovered square as a ghost.
@@ -328,8 +328,8 @@ struct TrackingSettings: View {
         .onTapGesture(count: 2) { if let space { startRename(space) } }
       if let space {
         Button { startRename(space) } label: { Image(systemName: "pencil").font(.system(size: 10)) }
-          .buttonStyle(.plain).foregroundStyle(.secondary).help("Rename \(space.name)")
-          .accessibilityLabel("Rename \(space.name)")
+          .buttonStyle(.plain).foregroundStyle(.secondary).help("Rename \(space.title)")
+          .accessibilityLabel("Rename \(space.title)")
       }
     }
   }

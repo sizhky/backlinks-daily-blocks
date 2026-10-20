@@ -13,12 +13,20 @@ public struct DesktopSpace: Equatable, Sendable, Identifiable {
   public let display: Int, local: Int
   public var label: String?
   public var name: String { label ?? "Desktop \(number)" }
+  /// What the UI shows: the name with the desktop number in front, `(1) Mail`.
+  public var title: String { Desktops.title(name, number: number) }
   /// What a card stores in `%% kbdesktop %%`: the name when set, else the number.
   public var ref: String { label ?? String(number) }
 }
 
 public enum Desktops {
   /// Identity of a desktop in samples and spans: the Space UUID, which survives renumbering; the number without it.
+  /// A desktop name with its number in front; no number leaves the name as is.
+  /// ```
+  /// ("Mail", 2) -> "(2) Mail";  ("Mail", nil) -> "Mail"
+  /// ```
+  public static func title(_ name: String, number: Int?) -> String { number.map { "(\($0)) \(name)" } ?? name }
+
   public static func key(uuid: String?, space: Int?) -> String? { uuid ?? space.map(String.init) }
 
   /// User desktops from `CGSCopyManagedDisplaySpaces` output; full-screen apps (type 4) are skipped.

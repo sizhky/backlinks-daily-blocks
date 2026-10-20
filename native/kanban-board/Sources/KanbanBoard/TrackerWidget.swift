@@ -305,7 +305,7 @@ struct WidgetView: View {
     if let c = activity.context {
       // One stack: as loose views each line took the widget's section spacing.
       VStack(spacing: prefs.size(.desktop) * 0.15) {
-        if let name = c.desktop ?? c.space.map({ "Desktop \($0)" }) {
+        if let name = (c.desktop ?? c.space.map({ "Desktop \($0)" })).map({ Desktops.title($0, number: c.space) }) {
           part(.desktop) { Text(Image(systemName: "rectangle.3.group")) + Text(" " + name) }.opacity(0.75)
           if desktopNumber, c.desktop != nil, let n = c.space {
             part(.desktop, scale: 0.8) { Text("Desktop \(n)") }.opacity(0.5)

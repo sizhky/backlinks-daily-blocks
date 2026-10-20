@@ -41,7 +41,7 @@ final class DesktopStore: ObservableObject {
   func resolve(_ ref: String?) -> DesktopSpace? { Desktops.resolve(ref, in: spaces) }
 
   /// Display name for a card's desktop reference; a stale name shows as written.
-  func name(_ ref: String) -> String { resolve(ref)?.name ?? (Int(ref).map { "Desktop \($0)" } ?? ref) }
+  func name(_ ref: String) -> String { resolve(ref)?.title ?? (Int(ref).map { "(\($0)) Desktop \($0)" } ?? ref) }
 
   /// Sets or clears (nil) a desktop's name. Returns false for an unsafe name.
   @discardableResult

@@ -608,8 +608,8 @@ extension BoardStore {
   private func desktopChoices(_ current: String?, set: @escaping (String?) -> Void) -> [MenuItem] {
     let mine = desktops.resolve(current)
     let spaces = desktops.spaces.isEmpty
-      ? Spaces.range.map { n in MenuItem.action("Desktop \(n)", checked: current == String(n)) { set(String(n)) } }
-      : desktops.spaces.map { d in MenuItem.action(d.name, checked: mine?.uuid == d.uuid) { set(d.ref) } }
+      ? Spaces.range.map { n in MenuItem.action("(\(n)) Desktop \(n)", checked: current == String(n)) { set(String(n)) } }
+      : desktops.spaces.map { d in MenuItem.action(d.title, checked: mine?.uuid == d.uuid) { set(d.ref) } }
     return [.action("None", checked: current == nil) { set(nil) }, .separator] + spaces
   }
 }

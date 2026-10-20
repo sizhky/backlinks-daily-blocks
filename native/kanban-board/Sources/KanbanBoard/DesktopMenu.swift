@@ -17,14 +17,14 @@ final class DesktopMenu: NSObject, NSMenuDelegate {
     item.menu = menu
     item.button?.toolTip = "Desktop"
     observer = desktops.$current.sink { [weak self] space in
-      MainActor.assumeIsolated { self?.item.button?.title = space?.name ?? "Desktop" }
+      MainActor.assumeIsolated { self?.item.button?.title = space?.title ?? "Desktop" }
     }
   }
 
   func menuNeedsUpdate(_ menu: NSMenu) {
     menu.removeAllItems()
     for space in desktops.spaces {
-      let row = NSMenuItem(title: space.name, action: #selector(switchTo(_:)), keyEquivalent: "")
+      let row = NSMenuItem(title: space.title, action: #selector(switchTo(_:)), keyEquivalent: "")
       row.target = self
       row.representedObject = space.number
       row.state = space.id == desktops.current?.id ? .on : .off
@@ -39,7 +39,7 @@ final class DesktopMenu: NSObject, NSMenuDelegate {
     widget.state = store?.widget?.isVisible == true ? .on : .off
     menu.addItem(widget)
     if let current = desktops.current {
-      let rename = NSMenuItem(title: "Rename \u{201C}\(current.name)\u{201D}...", action: #selector(rename), keyEquivalent: "")
+      let rename = NSMenuItem(title: "Rename \u{201C}\(current.title)\u{201D}...", action: #selector(rename), keyEquivalent: "")
       rename.target = self
       menu.addItem(rename)
       if current.label != nil {
@@ -61,7 +61,7 @@ final class DesktopMenu: NSObject, NSMenuDelegate {
   @objc private func rename() {
     guard let current = desktops.current else { return }
     let alert = NSAlert()
-    alert.messageText = "Rename \(current.name)"
+    alert.messageText = "Rename \(current.title)"
     alert.addButton(withTitle: "Rename")
     alert.addButton(withTitle: "Cancel")
     let field = NSTextField(string: current.label ?? "")

@@ -88,6 +88,8 @@ final class ActivityTests: XCTestCase {
     XCTAssertEqual(spaces.map(\.local), [1, 2, 1])
     XCTAssertEqual(spaces.map(\.name), ["Desktop 1", "PenguinAI", "Desktop 3"])
     XCTAssertEqual(spaces.map(\.ref), ["1", "PenguinAI", "3"])
+    XCTAssertEqual(spaces.map(\.title), ["(1) Desktop 1", "(2) PenguinAI", "(3) Desktop 3"])
+    XCTAssertEqual(Desktops.title("Mail", number: nil), "Mail")
   }
 
   func testEmptyUUIDFallsBackToSpaceID() {
