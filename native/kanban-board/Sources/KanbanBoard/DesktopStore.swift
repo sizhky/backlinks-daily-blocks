@@ -52,10 +52,20 @@ final class DesktopStore: ObservableObject {
     } else {
       labels.removeValue(forKey: space.uuid)
     }
+    save()
+    return true
+  }
+
+  /// Sets or clears (nil) several desktops' names at once, by Space UUID (`Desktops.reorder`).
+  func relabel(_ names: [String: String?]) {
+    for (uuid, name) in names { labels[uuid] = name }
+    save()
+  }
+
+  private func save() {
     if let file { try? Desktops.encode(labels).write(to: file, options: .atomic) }
     fileStamp = nil
     refresh()
-    return true
   }
 }
 

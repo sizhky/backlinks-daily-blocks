@@ -73,6 +73,39 @@ public enum Desktops {
     return t
   }
 
+  /// `items` with the one at `from` moved to `to` (0-based); those between shift by one.
+  /// ```
+  /// [A, B, C, D, E] 4 -> 2 = [A, B, E, C, D]
+  /// ```
+  public static func moved<T>(_ items: [T], from: Int, to: Int) -> [T] {
+    guard items.indices.contains(from), items.indices.contains(to) else { return items }
+    var out = items
+    out.insert(out.remove(at: from), at: to)
+    return out
+  }
+
+  /// Names and pins after desktop slot `from` moves to slot `to`: each follows its desktop to the new number.
+  /// `labels` holds every desktop's new name by Space UUID (nil clears); `pins` holds only changed pins.
+  /// ```
+  /// [1, 2 Mail, 3], pins [P -> 1, Q -> Mail] move 0 -> 2
+  ///   -> labels [uuid1: Mail, uuid2: nil, uuid3: nil], pins [P -> 3]
+  /// ```
+  public static func reorder(_ spaces: [DesktopSpace], from: Int, to: Int, pins: [DesktopPin])
+    -> (labels: [String: String?], pins: [DesktopPin]) {
+    let order = moved(spaces, from: from, to: to)
+    var labels: [String: String?] = [:]
+    for (slot, space) in spaces.enumerated() { labels[space.uuid] = .some(order[slot].label) }
+    let changed = pins.compactMap { pin -> DesktopPin? in
+      guard let old = resolve(pin.desktop, in: spaces), let slot = order.firstIndex(where: { $0.uuid == old.uuid }) else { return nil }
+      let ref = old.label ?? String(slot + 1)
+      guard ref != pin.desktop else { return nil }
+      var out = pin
+      out.desktop = ref
+      return out
+    }
+    return (labels, changed)
+  }
+
   public static func labels(from data: Data?) -> [String: String] {
     data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
   }

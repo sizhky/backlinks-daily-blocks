@@ -151,6 +151,8 @@ struct TrackingSettings: View {
   @AppStorage(ReportKey.mull) private var mull = 60
   /// Pill drag, the `DragController` shape: a floating copy at mouse rate, a ghost where it lands.
   @State private var drag: PillDrag?
+  /// Desktop square drag: the dragged desktop's slot and the slot it would take (0-based).
+  @State private var move: (from: Int, to: Int)?
   @State private var ignoring = false
   /// The desktop (`Region.id` = space uuid) whose name is being edited, and the draft name.
   @State private var renaming: String?
@@ -178,6 +180,8 @@ struct TrackingSettings: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 14) {
         Text("Desktops").font(.headline)
+        Text("Drag a desktop to another position to move its name and pinned projects and orgs to that number.")
+          .font(.callout).foregroundStyle(.secondary)
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
           ForEach(regions.dropLast()) { region($0).aspectRatio(1, contentMode: .fit) }
         }
@@ -208,7 +212,13 @@ struct TrackingSettings: View {
   }
 
   private func dragChanged(_ v: DragGesture.Value) {
+    if move != nil { return moveChanged(v) }
     if drag == nil {
+      if !ignoring, frames.cards.allSatisfy({ !$0.value.contains(v.startLocation) }),
+         let from = desktops.spaces.firstIndex(where: { frames.columns[$0.uuid]?.contains(v.startLocation) == true }) {
+        move = (from, from)
+        return
+      }
       guard !ignoring, let (name, f) = frames.cards.first(where: { $0.value.contains(v.startLocation) }).map({ ($0.key, $0.value) }),
             let home = regions.first(where: { $0.projects.contains(name) }) else { ignoring = true; return }
       pointer.origin = f.origin
@@ -224,9 +234,26 @@ struct TrackingSettings: View {
     }
   }
 
+  /// The dragged square takes the slot of the square under the pointer; the others shift live.
+  private func moveChanged(_ v: DragGesture.Value) {
+    guard let m = move else { return }
+    let shown = Desktops.moved(desktops.spaces, from: m.from, to: m.to)
+    guard let to = shown.firstIndex(where: { frames.columns[$0.uuid]?.contains(v.location) == true }), to != m.to else { return }
+    withAnimation(DragController.spring) { move = (m.from, to) }
+  }
+
   /// Animates the floating pill onto the ghost, then writes the pin and swaps in the real pill unanimated.
   private func dragEnded() {
     ignoring = false
+    if let m = move {
+      var t = Transaction()
+      t.disablesAnimations = true
+      withTransaction(t) {
+        if m.from != m.to { store.moveDesktop(from: m.from, to: m.to) }
+        move = nil
+      }
+      return
+    }
     guard var d = drag, !d.settling else { return }
     d.settling = true
     drag = d
@@ -258,8 +285,13 @@ struct TrackingSettings: View {
       guard let ref = store.projectDesktop(p) else { none.append(p); continue }
       if let d = desktops.resolve(ref) { byDesk[d.uuid, default: []].append(p) } else { stale[ref, default: []].append(p) }
     }
-    let current = desktops.current?.uuid
-    var out = desktops.spaces.map { Region(id: $0.uuid, title: $0.title, ref: $0.ref, current: $0.uuid == current, projects: byDesk[$0.uuid] ?? []) }
+    // While a square is dragged, desktops show in their new order with their new numbers; the current dot stays on its slot.
+    let slot = desktops.spaces.firstIndex { $0.uuid == desktops.current?.uuid }
+    let shown = move.map { Desktops.moved(desktops.spaces, from: $0.from, to: $0.to) } ?? desktops.spaces
+    var out = shown.enumerated().map { i, d in
+      Region(id: d.uuid, title: Desktops.title(d.label ?? "Desktop \(i + 1)", number: i + 1), ref: d.ref, current: i == slot,
+             projects: byDesk[d.uuid] ?? [])
+    }
       + stale.keys.sorted().map { Region(id: "stale|" + $0, title: $0, ref: $0, current: false, projects: stale[$0] ?? []) }
       + [Region(id: "none", title: "No desktop", ref: nil, current: false, projects: none)]
     // While dragging, the project already sits in the hovered square as a ghost.
@@ -347,7 +379,11 @@ struct TrackingSettings: View {
   }
 
   /// The square a pill is being dragged over, once it has left home.
-  private func hot(_ r: Region) -> Bool { drag.map { $0.target == r.id && $0.target != $0.home } ?? false }
+  /// Also the desktop square being moved.
+  private func hot(_ r: Region) -> Bool {
+    if let m = move { return desktops.spaces.indices.contains(m.from) && desktops.spaces[m.from].uuid == r.id }
+    return drag.map { $0.target == r.id && $0.target != $0.home } ?? false
+  }
 
   private func orgGroup(_ key: String, _ org: String, _ projects: [String]) -> some View {
     let open = !shut.split(separator: "\t").contains { $0 == key } || drag.map { projects.contains($0.name) } ?? false

@@ -781,6 +781,16 @@ final class BoardStore: ObservableObject {
     }
   }
 
+  /// Moves desktop slot `from` to slot `to` (0-based, Settings > Tracking); its name and its project and org pins
+  /// follow it, and the desktops between shift by one. Card desktop lines are not rewritten.
+  func moveDesktop(from: Int, to: Int) {
+    let r = Desktops.reorder(desktops.spaces, from: from, to: to, pins: DesktopPin.pins(activity.rules))
+    desktops.relabel(r.labels)
+    if !r.pins.isEmpty {
+      activity.saveRules(r.pins.reduce(activity.rules) { DesktopPin.setting($0, kind: $1.kind, name: $1.name, desktop: $1.desktop) })
+    }
+  }
+
   /// Switches to the desktop a card points at, by name or number.
   func switchDesktop(ref: String) {
     guard let space = desktops.resolve(ref) else {

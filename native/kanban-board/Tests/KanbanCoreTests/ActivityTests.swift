@@ -92,6 +92,21 @@ final class ActivityTests: XCTestCase {
     XCTAssertEqual(Desktops.title("Mail", number: nil), "Mail")
   }
 
+  func testMovedShiftsTheDesktopsBetween() {
+    XCTAssertEqual(Desktops.moved([1, 2, 3, 4, 5], from: 4, to: 2), [1, 2, 5, 3, 4])
+    XCTAssertEqual(Desktops.moved([1, 2, 3], from: 0, to: 2), [2, 3, 1])
+    XCTAssertEqual(Desktops.moved([1, 2], from: 0, to: 5), [1, 2])
+  }
+
+  func testReorderMovesNamesAndRenumbersPins() {
+    let spaces = Desktops.parse(displays: displays, labels: ["B": "PenguinAI"])
+    let pins = [DesktopPin(kind: .project, name: "P", desktop: "1"), DesktopPin(kind: .project, name: "Q", desktop: "PenguinAI"),
+                DesktopPin(kind: .org, name: "O", desktop: "3"), DesktopPin(kind: .project, name: "S", desktop: "Gone")]
+    let r = Desktops.reorder(spaces, from: 0, to: 2, pins: pins)
+    XCTAssertEqual(r.labels, ["A": "PenguinAI", "B": String?.none, "C": String?.none] as [String: String?])
+    XCTAssertEqual(r.pins, [DesktopPin(kind: .project, name: "P", desktop: "3"), DesktopPin(kind: .org, name: "O", desktop: "2")])
+  }
+
   func testEmptyUUIDFallsBackToSpaceID() {
     let spaces = Desktops.parse(displays: [["Spaces": [["id64": 1, "uuid": "", "type": 0]]]], labels: ["space-1": "Home"])
     XCTAssertEqual(spaces.first?.name, "Home")
