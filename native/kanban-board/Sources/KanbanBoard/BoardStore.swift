@@ -284,7 +284,7 @@ final class BoardStore: ObservableObject {
   var scoped: [Column] { Filter.scope(columns, orgs: activeOrgs) }
   var visible: [Column] {
     let cols = Filter.apply(scoped, Query.parse(query))
-    return Ordering.arranged(cols.map(\.name), saved: columnOrder).compactMap { n in cols.first { $0.name == n } }
+    return Ordering.slotted(cols.map(\.name), saved: columnOrder).compactMap { n in cols.first { $0.name == n } }
   }
   func isHidden(_ column: Column) -> Bool { hiddenColumns.contains(column.name) }
   func setHidden(_ column: Column, _ hide: Bool) {

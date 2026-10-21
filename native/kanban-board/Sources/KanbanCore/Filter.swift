@@ -180,6 +180,21 @@ public enum Ordering {
     saved.filter(names.contains) + names.filter { !saved.contains($0) }
   }
 
+  /// Like `arranged`, but a name not saved takes its own slot: right after the name before it in `names`, else first.
+  /// A column added to the board config (Inbox) then shows where the config puts it, not last.
+  /// ```
+  /// slotted(["i","b","t","d"], saved: ["b","t","d"]) -> ["i","b","t","d"]
+  /// slotted(["b","n","t"], saved: ["t","b"])         -> ["t","b","n"]
+  /// ```
+  public static func slotted(_ names: [String], saved: [String]) -> [String] {
+    var out = saved.filter(names.contains)
+    for (i, n) in names.enumerated() where !saved.contains(n) {
+      let at = names[..<i].last(where: out.contains).flatMap(out.firstIndex(of:)).map { $0 + 1 } ?? 0
+      out.insert(n, at: at)
+    }
+    return out
+  }
+
   /// Moves `name` to the slot of `target`: after it when moving down, before it when moving up.
   /// ```
   /// moving(["a","b","c"], "a", onto: "c") -> ["b","c","a"]

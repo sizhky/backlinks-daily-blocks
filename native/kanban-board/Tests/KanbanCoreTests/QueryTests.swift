@@ -70,6 +70,8 @@ final class CatalogTests: XCTestCase {
 final class OrderingTests: XCTestCase {
   func testArrangedKeepsSavedThenNew() {
     XCTAssertEqual(Ordering.arranged(["a", "b", "c"], saved: ["c", "x", "a"]), ["c", "a", "b"])
+    XCTAssertEqual(Ordering.slotted(["i", "b", "t", "d"], saved: ["b", "t", "d"]), ["i", "b", "t", "d"])
+    XCTAssertEqual(Ordering.slotted(["b", "n", "t"], saved: ["t", "b"]), ["t", "b", "n"])
   }
 
   func testMovingDownAndUp() {
