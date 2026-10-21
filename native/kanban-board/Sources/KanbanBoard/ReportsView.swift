@@ -36,7 +36,7 @@ final class ReportsModel: ObservableObject {
   @Published var org: String?
   @Published private(set) var allocations: [Allocation] = []
   @Published private(set) var cards: [ReportCard] = []
-  /// 7 Cards for the Cycles chart: from the start of the range's first cycle, so a cycle that began before the range is whole.
+  /// 8 Cards for the Cycles chart: from the start of the range's first cycle, so a cycle that began before the range is whole.
   @Published private(set) var cycleCards: [ReportCard] = []
   /// Range stretches by desktop and by Working/Idle/Break (`Report.desktops`, `Report.states`).
   @Published private(set) var desktops: [Stretch] = []
@@ -383,7 +383,7 @@ struct ReportsView: View {
   private static let kinds = ["Planned": Palette.link, "Ad hoc": Palette.amber]
   private static let scopeKinds = ["Added": Palette.link, "Carried in": Palette.muted.opacity(0.6), "Done": Palette.text]
 
-  /// 7 Day cycles (2am to 2am): hours planned versus ad hoc, scope versus done, and the cards carried longest.
+  /// 8 Day cycles (2am to 2am): hours planned versus ad hoc, scope versus done, and the cards carried longest.
   private var cycleReport: some View {
     let stats = Cycle.stats(cards: model.cycleCards, cycles: model.cycles)
     let hours = stats.reduce(0) { $0 + $1.planned + $1.adhoc }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 7 Cycle totals for one day cycle: 2am to 2am, so a night build stays in one cycle.
+/// 8 Cycle totals for one day cycle: 2am to 2am, so a night build stays in one cycle.
 public struct CycleStat: Equatable, Sendable, Identifiable {
   public let start: Date, end: Date
   /// Wall-clock Doing seconds in the cycle (parallel cards counted once), split by the card's planned/ad hoc flag.
