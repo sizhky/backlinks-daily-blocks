@@ -74,6 +74,7 @@ struct WidgetSettings: View {
       Section("Widget") {
         Toggle("Show widget", isOn: $visible)
         ShortcutRow(.widget, title: "Show or hide", detail: "Global shortcut that toggles the widget.")
+        ShortcutRow(.mini, title: "Mini mode", detail: "Global shortcut that shows only the active task and its time.")
         AppListRow(WidgetKey.hideApps, title: "Hide while using",
                    detail: "The widget hides while one of these apps is in front.")
           .disabled(!visible)

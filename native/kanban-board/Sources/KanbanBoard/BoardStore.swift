@@ -427,6 +427,8 @@ final class BoardStore: ObservableObject {
     widget = TrackerWidget(store: self)
     GlobalHotKey.widget.action = { [weak self] in self?.widget?.toggle() }
     GlobalHotKey.widget.install()
+    GlobalHotKey.mini.action = { TrackerWidget.toggleMini() }
+    GlobalHotKey.mini.install()
     desktopSink = desktops.objectWillChange.sink { [weak self] in MainActor.assumeIsolated { self?.objectWillChange.send() } }
     rulesSink = activity.$rules.sink { [weak self] _ in MainActor.assumeIsolated { self?.objectWillChange.send() } }
     // @Published fires before the value changes; the hop to the main queue reads the new context.
@@ -949,13 +951,15 @@ final class BoardStore: ObservableObject {
   }
 }
 
-/// Global keys recorded in Settings: the break key (default F6, fn+F6 on a Mac keyboard) and the widget key (none).
+/// Global keys recorded in Settings: the break key (default F6, fn+F6 on a Mac keyboard), the widget key and the
+/// widget mini mode key (none).
 /// Carbon hot keys work while the app is in the background and need no Accessibility permission.
 @MainActor
 final class GlobalHotKey {
   static let breakKey = GlobalHotKey(id: 1, prefix: "kanban.break", defaultCode: kVK_F6)
   static let widget = GlobalHotKey(id: 2, prefix: "kanban.widget", defaultCode: -1)
-  private static let all = [breakKey, widget]
+  static let mini = GlobalHotKey(id: 3, prefix: "kanban.widgetMini", defaultCode: -1)
+  private static let all = [breakKey, widget, mini]
   private static var handler: EventHandlerRef?
 
   let id: UInt32, codeKey: String, modsKey: String, labelKey: String, defaultCode: Int

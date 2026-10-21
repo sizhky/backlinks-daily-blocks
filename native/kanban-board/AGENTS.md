@@ -379,6 +379,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   Position: `widget.origin` (bottom-left, saved on every move, used only when still on a screen); no frame autosave. Settings > Widget renders the real
   `WidgetView` (live data, own `WidgetGrip`) on a sample wallpaper; the Settings scene gets the store's
   environment objects in `KanbanApp`.
+  Mini mode (`widget.mini`, `TrackerWidget.toggleMini`) shows one row: the active card's title and active time
+  (`WidgetView.miniRow`); the panel drops the square floor and is as tall as that row. Toggled by the armed widget's
+  button beside its eye, the board header button beside the eye, and `GlobalHotKey.mini` (`kanban.widgetMiniKey`, Settings > Widget).
+  Turning it on also shows a hidden widget.
 - The Dock's Mission Control AX group (`AXIdentifier == "mc"`) has no children on this macOS; the Keyboard
   Maestro path to "Desktop N" buttons is dead, and open Mission Control is one full-screen Dock window.
 

@@ -19,6 +19,8 @@ enum WidgetKey {
   static let desktopNumber = "widget.desktop.number"
   static let width = "widget.width"
   static let color = "widget.color", font = "widget.font"
+  /// Mini mode: one row with the active card and its active time.
+  static let mini = "widget.mini"
 }
 
 /// Widget font and colour from settings. An empty family means the system font.
@@ -87,6 +89,7 @@ final class TrackerWidget {
     // a plain click makes it active.
     grip.onPick = { [weak store] id, flags in
       if id == WidgetGrip.hide { return UserDefaults.standard.set(false, forKey: WidgetKey.visible) }
+      if id == WidgetGrip.mini { return TrackerWidget.toggleMini() }
       guard let store, let card = store.columns.lazy.flatMap(\.cards).first(where: { $0.id == id }) else { return }
       if flags.contains(.option) { store.open(card) }
       else if flags.contains(.command) { store.copyID(card) }
@@ -118,7 +121,7 @@ final class TrackerWidget {
         self.applySize()
       }
     }
-    UserDefaults.standard.register(defaults: [WidgetKey.visible: true, WidgetKey.width: 240.0, WidgetKey.color: "#FFFFFF", WidgetKey.font: ""])
+    UserDefaults.standard.register(defaults: [WidgetKey.visible: true, WidgetKey.mini: false, WidgetKey.width: 240.0, WidgetKey.color: "#FFFFFF", WidgetKey.font: ""])
     WidgetPart.registerDefaults()
     observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.applySize(); self?.applyVisibility() }
@@ -167,11 +170,12 @@ final class TrackerWidget {
   }
 
   /// A square of the Size setting, taller when the content needs it (parallel Doing cards), so every
-  /// task and timer stays visible. Grab area, highlight, toast, and window bounds stay one rectangle.
-  /// The bottom edge stays put; the widget grows upward.
+  /// task and timer stays visible; in mini mode only as tall as its one row. Grab area, highlight, toast,
+  /// and window bounds stay one rectangle. The bottom edge stays put; the widget grows upward.
   private func applySize() {
     let side = UserDefaults.standard.double(forKey: WidgetKey.width)
-    let target = NSSize(width: side, height: max(side, contentHeight.rounded(.up)))
+    let floor = UserDefaults.standard.bool(forKey: WidgetKey.mini) ? 1 : side
+    let target = NSSize(width: side, height: max(floor, contentHeight.rounded(.up)))
     guard panel.frame.size != target else { return }
     panel.setFrame(NSRect(x: panel.frame.minX, y: panel.frame.minY, width: target.width, height: target.height), display: true)
   }
@@ -179,6 +183,13 @@ final class TrackerWidget {
   var isVisible: Bool { UserDefaults.standard.bool(forKey: WidgetKey.visible) }
 
   func toggle() { UserDefaults.standard.set(!isVisible, forKey: WidgetKey.visible) }
+
+  /// Turning mini mode on also shows a hidden widget.
+  static func toggleMini() {
+    let d = UserDefaults.standard, mini = !d.bool(forKey: WidgetKey.mini)
+    d.set(mini, forKey: WidgetKey.mini)
+    if mini { d.set(true, forKey: WidgetKey.visible) }
+  }
 
   /// The frontmost app is one listed under Settings > Widget > Hide while using.
   private var hiddenByApp: Bool {
@@ -204,6 +215,7 @@ struct WidgetView: View {
   @AppStorage(WidgetKey.color) private var color = "#FFFFFF"
   @AppStorage(WidgetKey.font) private var family = ""
   @AppStorage(WidgetKey.desktopNumber) private var desktopNumber = true
+  @AppStorage(WidgetKey.mini) private var mini = false
   @State private var toast: [DoingChange] = []
   /// One identity per card across the hero and the paused rows, so a switch slides it between them.
   @Namespace private var slots
@@ -224,12 +236,16 @@ struct WidgetView: View {
     // Header and footer hug the hero; the group sits at the bottom of at least a square, and its natural
     // height (measured) sets how far the panel grows when it needs more than the square.
     VStack(spacing: width * 0.04) {
-      header
-      meeting
-      session
-      finish
-      hero
-      footer
+      if mini {
+        miniRow
+      } else {
+        header
+        meeting
+        session
+        finish
+        hero
+        footer
+      }
     }
     .foregroundStyle(WidgetStyle.color(color))
     .padding(margin)
@@ -237,19 +253,26 @@ struct WidgetView: View {
     .fixedSize(horizontal: false, vertical: true)
     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight?($0) }
     .frame(width: width)
-    .frame(minHeight: width, alignment: .bottom)
+    .frame(minHeight: mini ? 0 : width, alignment: .bottom)
     // Near-zero alpha keeps the square invisible but grabbable when armed;
     // fully clear pixels would pass the mouse through to the window below.
     .background(RoundedRectangle(cornerRadius: corner, style: .continuous)
       .fill(grip.armed ? Color.black : Color.white.opacity(0.001)))
     .overlay(alignment: .topTrailing) {
-      // Hide button, shown while armed (Fn over the widget); the board header's eye shows it again.
+      // Mini and hide buttons, shown while armed (Fn over the widget); the board header's eye shows it again.
       if grip.armed {
-        Image(systemName: "eye.slash").font(.system(size: 9, weight: .regular))
-          .padding(4)
-          .widgetTarget(WidgetGrip.hide, grip, slots, dim: 0.6)
-          .padding(corner * 0.35)
-          .accessibilityLabel("Hide widget")
+        HStack(spacing: 0) {
+          Image(systemName: mini ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+            .padding(4)
+            .widgetTarget(WidgetGrip.mini, grip, slots, dim: 0.6)
+            .accessibilityLabel(mini ? "Full widget" : "Mini widget")
+          Image(systemName: "eye.slash")
+            .padding(4)
+            .widgetTarget(WidgetGrip.hide, grip, slots, dim: 0.6)
+            .accessibilityLabel("Hide widget")
+        }
+        .font(.system(size: 9, weight: .regular))
+        .padding(mini ? 2 : corner * 0.35)
       }
     }
     .overlay {
@@ -283,6 +306,34 @@ struct WidgetView: View {
         .truncationMode(p == .window || p == .url ? .middle : .tail)
         .multilineTextAlignment(a.text)
         .frame(maxWidth: .infinity, alignment: a.frame)
+    }
+  }
+
+  /// Mini mode: the active card's title and its active time on one row; a break, a pause, or nothing tracked
+  /// otherwise. The hero's tint and Fn-click target apply.
+  @ViewBuilder private var miniRow: some View {
+    let unit = prefs.size(.title)
+    if store.breakStart != nil {
+      part(.title) { Text(Image(systemName: "cup.and.saucer.fill")) + Text(" Break") }.opacity(0.7)
+    } else if let card = active {
+      TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(WidgetStyle.title(card.title))
+            .font(WidgetStyle.font(family, unit, WidgetPart.title.weight))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          Text(Self.clock(store.activeTime(card, at: ctx.date)))
+            .font(WidgetStyle.font(family, unit * 1.15, WidgetPart.timer.weight, design: .rounded).monospacedDigit())
+            .lineLimit(1)
+            .fixedSize()
+            .contentTransition(.numericText())
+        }
+      }
+      .foregroundStyle(tint(card))
+      .widgetTarget(card.id, grip, slots, dim: 1)
+    } else {
+      part(.title) { Text(Image(systemName: doing.isEmpty ? "circle.dashed" : "pause.fill")) + Text(doing.isEmpty ? " Not tracking" : " Paused") }
+        .opacity(0.7)
     }
   }
 
@@ -574,6 +625,8 @@ final class DragHostingView<Content: View>: NSHostingView<Content> {
 final class WidgetGrip: ObservableObject {
   /// Target id of the hide (eye) button.
   static let hide = "widget.hide"
+  /// Target id of the mini mode button.
+  static let mini = "widget.mini"
   @Published var armed = false
   /// The task under the pointer while armed.
   @Published var hovered: String?
