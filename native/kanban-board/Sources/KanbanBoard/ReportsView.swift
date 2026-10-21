@@ -15,7 +15,7 @@ enum ReportRange: String, CaseIterable, Identifiable {
 
 /// What the Reports chart stacks: org/project time, desktop time, or Working/Idle/Break.
 enum ReportGroup: String, CaseIterable, Identifiable {
-  case projects, desktop, state
+  case projects, desktop, state, cycles
   var id: String { rawValue }
   var label: String { rawValue.capitalized }
 }
@@ -27,12 +27,17 @@ final class ReportsModel: ObservableObject {
   }
   @Published private(set) var anchor = Calendar.current.startOfDay(for: Date())
   @Published var group: ReportGroup = ReportGroup(rawValue: UserDefaults.standard.string(forKey: "reports.group") ?? "") ?? .projects {
-    didSet { UserDefaults.standard.set(group.rawValue, forKey: "reports.group") }
+    didSet {
+      UserDefaults.standard.set(group.rawValue, forKey: "reports.group")
+      if group == .cycles { load() }
+    }
   }
   /// Drilled org; nil = all orgs.
   @Published var org: String?
   @Published private(set) var allocations: [Allocation] = []
   @Published private(set) var cards: [ReportCard] = []
+  /// 7 Cards for the Cycles chart: from the start of the range's first cycle, so a cycle that began before the range is whole.
+  @Published private(set) var cycleCards: [ReportCard] = []
   /// Range stretches by desktop and by Working/Idle/Break (`Report.desktops`, `Report.states`).
   @Published private(set) var desktops: [Stretch] = []
   @Published private(set) var states: [Stretch] = []
@@ -48,6 +53,8 @@ final class ReportsModel: ObservableObject {
   var interval: DateInterval {
     Calendar.current.dateInterval(of: range.component, for: anchor) ?? DateInterval(start: anchor, duration: 86_400)
   }
+  /// Day cycles (2am to 2am) that overlap the range.
+  var cycles: [DateInterval] { Cycle.cycles(from: interval.start, to: interval.end.addingTimeInterval(-1)) }
   var isCurrent: Bool { interval.contains(Date()) }
 
   func shift(_ steps: Int) {
@@ -67,7 +74,7 @@ final class ReportsModel: ObservableObject {
   func load() {
     guard let dir = activity.dir else { error = "Activity capture has not started"; return }
     generation += 1
-    let gen = generation, span = interval, rules = activity.rules, open = activity.openSpan, idle = ActivityMonitor.idleAfter
+    let gen = generation, span = interval, cycleFrom = Cycle.start(of: interval.start), wantCycles = group == .cycles, rules = activity.rules, open = activity.openSpan, idle = ActivityMonitor.idleAfter
     let labels = Dictionary(DesktopStore.shared.spaces.compactMap { d in d.label.map { (d.number, $0) } }, uniquingKeysWith: { a, _ in a })
     let names = Dictionary(DesktopStore.shared.spaces.compactMap { d in d.label.map { (d.uuid, $0) } }, uniquingKeysWith: { a, _ in a })
     let mull = UserDefaults.standard.object(forKey: ReportKey.mull) as? Int ?? 60
@@ -76,6 +83,7 @@ final class ReportsModel: ObservableObject {
     Task {
       do {
         let text = try await client.reportCards(span.start, to: last, mull: mull)
+        let cycleText = wantCycles ? try await client.reportCards(cycleFrom, to: last, mull: mull) : nil
         let result = await Task.detached(priority: .userInitiated) {
           let cards = ReportCard.parse(text)
           let (spans, states) = Self.spans(dir: dir, from: span.start, to: last, open: open, idle: idle)
@@ -84,6 +92,7 @@ final class ReportsModel: ObservableObject {
         }.value
         guard gen == generation else { return }
         cards = result.0
+        cycleCards = cycleText.map(ReportCard.parse) ?? []
         allocations = result.1
         desktops = result.2
         states = result.3
@@ -134,10 +143,14 @@ struct ReportsView: View {
       Divider().overlay(Palette.hairline)
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
-          tiles.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tilesHeight = $0 }
-          chart.frame(height: chartHeight)
-          if model.group == .projects {
-            breakdown.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { breakdownHeight = $0 }
+          if model.group == .cycles {
+            cycleReport
+          } else {
+            tiles.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tilesHeight = $0 }
+            chart.frame(height: chartHeight)
+            if model.group == .projects {
+              breakdown.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { breakdownHeight = $0 }
+            }
           }
         }
         .padding(20)
@@ -205,6 +218,7 @@ struct ReportsView: View {
   @ViewBuilder private var tiles: some View {
     switch model.group {
     case .projects: projectTiles
+    case .cycles: EmptyView()
     case .desktop, .state:
       // Largest first; State keeps its fixed order.
       let totals = Report.series(model.group == .state ? model.states : model.desktops) { _ in .distantPast }
@@ -278,6 +292,7 @@ struct ReportsView: View {
       .map { (bucket: $0.bucket, name: Self.seriesName($0.name, unattributed: $0.unattributed, drilled: model.org != nil), hours: $0.seconds / 3600) }
     case .desktop, .state: Report.series(model.group == .state ? model.states : model.desktops, bucket: bucket)
       .map { (bucket: $0.bucket, name: $0.name, hours: $0.seconds / 3600) }
+    case .cycles: []
     }
     let present = Set(named.map(\.name))
     let names = model.group == .state ? Self.stateOrder.filter(present.contains) : present.sorted { a, b in
@@ -304,10 +319,7 @@ struct ReportsView: View {
           Text(model.group == .state ? "Working, idle and break" : "By desktop")
         }
         Spacer()
-        Picker("Group by", selection: $model.group) {
-          ForEach(ReportGroup.allCases) { Text($0.label).tag($0) }
-        }
-        .labelsHidden().pickerStyle(.segmented).fixedSize().help("Group by")
+        groupPicker
       }
       .font(.system(size: 13, weight: .medium))
       Chart(rows.indices, id: \.self) { i in
@@ -357,6 +369,93 @@ struct ReportsView: View {
     let share = Int((hit.hours / max(bar.reduce(0) { $0 + $1.hours }, 1e-9) * 100).rounded())
     let head = bucket.formatted(unit == .hour ? .dateTime.hour() : unit == .month ? .dateTime.month(.wide) : .dateTime.weekday().day().month())
     return "\(hit.name)  \(TimelineScreen.dur(hit.hours * 3600)) · \(share)%\n\(head) · \(TimelineScreen.dur(laptop[bucket] ?? 0)) on laptop"
+  }
+
+  private var groupPicker: some View {
+    Picker("Group by", selection: $model.group) {
+      ForEach(ReportGroup.allCases) { Text($0.label).tag($0) }
+    }
+    .labelsHidden().pickerStyle(.segmented).fixedSize().help("Group by")
+  }
+
+  // MARK: Cycles
+
+  private static let kinds = ["Planned": Palette.link, "Ad hoc": Palette.amber]
+  private static let scopeKinds = ["Added": Palette.link, "Carried in": Palette.muted.opacity(0.6), "Done": Palette.text]
+
+  /// 7 Day cycles (2am to 2am): hours planned versus ad hoc, scope versus done, and the cards carried longest.
+  private var cycleReport: some View {
+    let stats = Cycle.stats(cards: model.cycleCards, cycles: model.cycles)
+    let hours = stats.reduce(0) { $0 + $1.planned + $1.adhoc }
+    let scope = stats.reduce(0) { $0 + $1.scope }, done = stats.reduce(0) { $0 + $1.done }
+    let adhoc = stats.reduce(0) { $0 + $1.adhoc }
+    let stuck = Cycle.carried(cards: model.cycleCards, cycles: model.cycles).filter { $0.count >= 2 }.prefix(5)
+    return VStack(alignment: .leading, spacing: 20) {
+      HStack(spacing: 12) {
+        tile("Cycles", "\(stats.count)")
+        tile("Doing time", TimelineScreen.dur(hours))
+        tile("Done", scope > 0 ? "\(done) of \(scope)" : "–")
+        tile("Ad hoc", hours > 0 ? "\(Int((adhoc / hours * 100).rounded()))%" : "–")
+        tile("Carried out", "\(stats.last?.carriedOut ?? 0)")
+      }
+      cycleCard("Doing hours per cycle") {
+        Chart(stats) { s in
+          BarMark(x: .value("Cycle", s.start, unit: .day), y: .value("Hours", s.planned / 3600)).foregroundStyle(by: .value("Kind", "Planned"))
+          BarMark(x: .value("Cycle", s.start, unit: .day), y: .value("Hours", s.adhoc / 3600)).foregroundStyle(by: .value("Kind", "Ad hoc"))
+        }
+        .chartForegroundStyleScale(domain: ["Planned", "Ad hoc"], range: ["Planned", "Ad hoc"].map { Self.kinds[$0]! })
+        .chartYAxisLabel("Hours")
+      }
+      cycleCard("Scope and done per cycle") {
+        Chart {
+          ForEach(stats) { s in
+            BarMark(x: .value("Cycle", s.start, unit: .day), y: .value("Cards", s.carriedIn)).foregroundStyle(by: .value("Kind", "Carried in"))
+            BarMark(x: .value("Cycle", s.start, unit: .day), y: .value("Cards", s.added)).foregroundStyle(by: .value("Kind", "Added"))
+          }
+          ForEach(stats) { s in
+            LineMark(x: .value("Cycle", s.start, unit: .day), y: .value("Cards", s.done), series: .value("Series", "Done"))
+              .foregroundStyle(by: .value("Kind", "Done")).symbol(.circle)
+          }
+        }
+        .chartForegroundStyleScale(domain: ["Carried in", "Added", "Done"], range: ["Carried in", "Added", "Done"].map { Self.scopeKinds[$0]! })
+        .chartYAxisLabel("Cards")
+      }
+      if !stuck.isEmpty {
+        VStack(alignment: .leading, spacing: 0) {
+          Text("Carried over the most").font(.system(size: 13, weight: .medium)).padding(14)
+          ForEach(Array(stuck), id: \.card.ref) { row in
+            HStack {
+              Text(row.card.title).lineLimit(1)
+              Spacer()
+              Text("\(row.count) cycles").foregroundStyle(Palette.amber).monospacedDigit()
+            }
+            .font(.system(size: 13)).padding(.horizontal, 14).padding(.vertical, 7)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { model.open(ref: row.card.ref) }
+            .help("Double-click to open in Obsidian. Split it or drop it.")
+          }
+        }
+        .padding(.bottom, 6)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
+      }
+    }
+  }
+
+  private func cycleCard<Content: View>(_ title: String, @ViewBuilder _ chart: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Text(title)
+        Spacer()
+        groupPicker
+      }
+      .font(.system(size: 13, weight: .medium))
+      chart().frame(height: 220)
+        .overlay { if model.cycleCards.isEmpty, !model.loading { Text("No cycles in range").foregroundStyle(Palette.muted) } }
+    }
+    .padding(16)
+    .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.hairline))
   }
 
   // MARK: Breakdown
