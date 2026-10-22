@@ -39,7 +39,7 @@ struct SidebarView: View {
           ForEach(groups, id: \.org) { g in
             if groups.count > 1 { orgHeader(g.org, count: g.projects.reduce(0) { $0 + $1.count }) }
             if groups.count == 1 || !collapsed.contains("org:" + g.org) {
-              ForEach(g.projects, id: \.name) { f in projectRow(f) }
+              ForEach(g.projects, id: \.name) { f in projectRow(f).padding(.leading, groups.count > 1 ? 14 : 0) }
             }
           }
           ForEach(nonEmpty(store.facets { $0.projects.isEmpty ? ["Unassigned"] : [] }, "Projects"), id: \.name) { f in
@@ -83,17 +83,13 @@ struct SidebarView: View {
     return (store.orgs.map(\.name) + [Filter.noOrg]).compactMap { o in byOrg[o].map { (org: o, projects: $0) } }
   }
 
-  /// Org row inside Projects; click folds its projects.
+  /// Org row inside Projects; click folds its projects. The chevron follows the name, as on section headers.
   private func orgHeader(_ org: String, count: Int) -> some View {
     let key = "org:" + org, open = !collapsed.contains(key)
     let icon = org == Filter.noOrg
       ? AnyView(Image(systemName: "tray").font(.system(size: 12)).foregroundStyle(Palette.muted).frame(width: 16))
       : AnyView(OrgIcon(name: org, size: 16).clipShape(.circle))
-    return item(OrgPicker.label(org), leading: AnyView(HStack(spacing: 2) {
-      Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(Palette.muted)
-        .rotationEffect(.degrees(open ? 90 : 0))
-      icon
-    }), active: false, count: open ? nil : count) {
+    return SidebarRow(title: OrgPicker.label(org), leading: icon, active: false, count: open ? nil : count, open: open) {
       withAnimation(.easeOut(duration: 0.15)) { if open { collapsed.insert(key) } else { collapsed.remove(key) } }
     }
   }
@@ -168,6 +164,8 @@ struct SidebarRow: View {
   let leading: AnyView
   let active: Bool
   let count: Int?
+  /// Set on a foldable row: a chevron after the title, pointing down when open.
+  var open: Bool? = nil
   let action: () -> Void
   @State private var hovering = false
 
@@ -177,6 +175,10 @@ struct SidebarRow: View {
         leading.frame(width: SidebarRow.slot)
         Text(title).font(.system(size: 13, weight: active ? .medium : .regular)).lineLimit(1)
           .foregroundStyle(active ? Palette.text : Palette.secondary)
+        if let open {
+          Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(Palette.muted)
+            .rotationEffect(.degrees(open ? 90 : 0)).padding(.leading, -5)
+        }
         Spacer(minLength: 4)
         if let count { Text("\(count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted) }
       }
