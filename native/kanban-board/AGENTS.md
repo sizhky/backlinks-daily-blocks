@@ -176,7 +176,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Add a new filter key in two places: `Filter.test` and `Catalog.make`. The catalog drives autocomplete in
   the filter field (Tab or Return accepts) and in cmd-K; `view:Name` applies the view.
 - Sidebar Projects and Labels hide zero-count
-  rows behind a "Show N empty" row. Cards show no ID (the inspector does); age and org sit on the
+  rows behind a "Show N empty" row. Projects sit under collapsible org rows (rail order, no org last) when more
+  than one org shows; a project's org is `store.projectOrg`, shared with the Settings desktop squares. Cards show no ID (the inspector does); age and org sit on the
   title line, and the labels line renders only when the card has labels.
   When grouped, a single-org group shows its org on the `GroupHeader` (`CardGroup.orgs`) and its
   cards hide theirs; mixed-org groups keep the avatar per card. The board always groups by project; there is no toggle.

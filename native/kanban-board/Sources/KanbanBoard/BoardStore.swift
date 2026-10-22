@@ -338,6 +338,13 @@ final class BoardStore: ObservableObject {
     return order.compactMap { name in found.first { $0.name == name } }
   }
 
+  /// Org of each project: the first org of the first card that names it (same rule as `Report.projectOrgs`).
+  var projectOrg: [String: String] {
+    var out: [String: String] = [:]
+    for c in columns.flatMap(\.cards) { for p in c.projects where out[p.lowercased()] == nil { if let o = c.orgs.first { out[p.lowercased()] = o } } }
+    return out
+  }
+
   func moveOrg(_ name: String, onto target: String) {
     withAnimation(.spring(duration: 0.3)) { orgOrder = Ordering.moving(orgs.map(\.name), name, onto: target) }
   }

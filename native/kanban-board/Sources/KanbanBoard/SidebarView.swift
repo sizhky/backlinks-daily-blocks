@@ -35,16 +35,11 @@ struct SidebarView: View {
           }
         }
         section("Projects") {
-          ForEach(nonEmpty(store.facets(\.projects), "Projects"), id: \.name) { f in
-            item(f.name, leading: AnyView(Monogram(name: f.name, size: 18)), active: false, count: f.count) {
-              store.append("project:" + store.quote(f.name))
-            }
-            .simultaneousGesture(TapGesture(count: 2).onEnded { store.openProject(f.name) })
-            .rightClickMenu {
-              [.action("Open in Obsidian", symbol: "arrow.up.forward.app") { store.openProject(f.name) },
-               .separator,
-               .submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name)),
-               .submenu("Color", symbol: "paintpalette", store.colorItems(project: f.name))]
+          let groups = orgGroups(nonEmpty(store.facets(\.projects), "Projects"))
+          ForEach(groups, id: \.org) { g in
+            if groups.count > 1 { orgHeader(g.org, count: g.projects.reduce(0) { $0 + $1.count }) }
+            if groups.count == 1 || !collapsed.contains("org:" + g.org) {
+              ForEach(g.projects, id: \.name) { f in projectRow(f) }
             }
           }
           ForEach(nonEmpty(store.facets { $0.projects.isEmpty ? ["Unassigned"] : [] }, "Projects"), id: \.name) { f in
@@ -66,6 +61,41 @@ struct SidebarView: View {
       .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 16)
     }
     .scrollIndicators(.never)
+  }
+
+  private func projectRow(_ f: (name: String, count: Int)) -> some View {
+    item(f.name, leading: AnyView(Monogram(name: f.name, size: 18)), active: false, count: f.count) {
+      store.append("project:" + store.quote(f.name))
+    }
+    .simultaneousGesture(TapGesture(count: 2).onEnded { store.openProject(f.name) })
+    .rightClickMenu {
+      [.action("Open in Obsidian", symbol: "arrow.up.forward.app") { store.openProject(f.name) },
+       .separator,
+       .submenu("Desktop", symbol: "rectangle.3.group", store.desktopItems(project: f.name)),
+       .submenu("Color", symbol: "paintpalette", store.colorItems(project: f.name))]
+    }
+  }
+
+  /// Projects under their org (`store.projectOrg`), orgs in rail order, projects with no org last.
+  private func orgGroups(_ facets: [(name: String, count: Int)]) -> [(org: String, projects: [(name: String, count: Int)])] {
+    let owner = store.projectOrg
+    let byOrg = Dictionary(grouping: facets) { owner[$0.name.lowercased()] ?? Filter.noOrg }
+    return (store.orgs.map(\.name) + [Filter.noOrg]).compactMap { o in byOrg[o].map { (org: o, projects: $0) } }
+  }
+
+  /// Org row inside Projects; click folds its projects.
+  private func orgHeader(_ org: String, count: Int) -> some View {
+    let key = "org:" + org, open = !collapsed.contains(key)
+    let icon = org == Filter.noOrg
+      ? AnyView(Image(systemName: "tray").font(.system(size: 12)).foregroundStyle(Palette.muted).frame(width: 16))
+      : AnyView(OrgIcon(name: org, size: 16).clipShape(.circle))
+    return item(OrgPicker.label(org), leading: AnyView(HStack(spacing: 2) {
+      Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(Palette.muted)
+        .rotationEffect(.degrees(open ? 90 : 0))
+      icon
+    }), active: false, count: open ? nil : count) {
+      withAnimation(.easeOut(duration: 0.15)) { if open { collapsed.insert(key) } else { collapsed.remove(key) } }
+    }
   }
 
   /// Rows with a zero count stay hidden until the section is expanded.

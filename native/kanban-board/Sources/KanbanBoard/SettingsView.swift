@@ -330,16 +330,9 @@ struct TrackingSettings: View {
     .accessibilityLabel("\(r.title), \(r.projects.count) projects")
   }
 
-  /// Org of each project: the first org of the first card that names it (same rule as `Report.projectOrgs`).
-  private var projectOrg: [String: String] {
-    var out: [String: String] = [:]
-    for c in store.columns.flatMap(\.cards) { for p in c.projects where out[p.lowercased()] == nil { if let o = c.orgs.first { out[p.lowercased()] = o } } }
-    return out
-  }
-
   /// `projects` grouped by org, orgs sorted, "No organization" (empty org) last.
   private func groups(_ projects: [String]) -> [(org: String, projects: [String])] {
-    let orgs = projectOrg
+    let orgs = store.projectOrg
     let byOrg = Dictionary(grouping: projects) { orgs[$0.lowercased()] ?? "" }
     return byOrg.map { (org: $0.key, projects: $0.value) }.sorted { a, b in
       a.org.isEmpty != b.org.isEmpty ? !a.org.isEmpty : a.org.localizedCaseInsensitiveCompare(b.org) == .orderedAscending
