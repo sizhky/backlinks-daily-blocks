@@ -16,6 +16,14 @@ final class BoardTests: XCTestCase {
     XCTAssertEqual(cols[1].cards[0].projects, [])
   }
 
+  func testPickRangeSpansFromNearestPicked() {
+    let refs = ["a", "b", "c", "d", "e"]
+    XCTAssertEqual(Board.pickRange(refs, picked: ["a", "e"], to: "d"), ["d", "e"])
+    XCTAssertEqual(Board.pickRange(refs, picked: ["a"], to: "c"), ["a", "b", "c"])
+    XCTAssertEqual(Board.pickRange(refs, picked: [], to: "c"), ["c"])
+    XCTAssertEqual(Board.pickRange(refs, picked: ["a"], to: "z"), ["z"])
+  }
+
   func testDesktopFieldKeepsNumberOrName() {
     let cols = Board.parse("@column\tDoing\tlive\nDoing\ta.md:1\tX\t1h\t\t\t\t3\nDoing\ta.md:2\tY\t1h\t\t\t\tPenguinAI\nDoing\ta.md:3\tZ\t1h\t\t\t\t")
     XCTAssertEqual(cols[0].cards.map(\.desktop), ["3", "PenguinAI", nil])

@@ -720,7 +720,9 @@ struct IssueCard: View {
         CopyIDButton(card: card, font: .system(size: density.metaSize))
         Spacer()
         // The checkbox sits over the org icon on hover; the icon dims behind it and stays in place.
-        Button { store.togglePick(card.ref) } label: {
+        Button {
+          if NSEvent.modifierFlags.contains(.shift) { store.pickRange(to: card.ref) } else { store.togglePick(card.ref) }
+        } label: {
           ZStack {
             Group {
               if let org = card.orgs.first {

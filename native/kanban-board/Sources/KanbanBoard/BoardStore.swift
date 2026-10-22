@@ -669,6 +669,10 @@ final class BoardStore: ObservableObject {
   func togglePick(_ ref: String) {
     if picked.contains(ref) { picked.remove(ref) } else { picked.insert(ref) }
   }
+  /// Picks every shown card from the nearest picked card to `ref` (`Board.pickRange`).
+  func pickRange(to ref: String) {
+    picked.formUnion(Board.pickRange(shownRefs, picked: picked, to: ref))
+  }
   /// Picks every card shown on the board, or only `column`'s.
   func pickAll(in column: Column? = nil) {
     let cols = column.map { [$0] } ?? visible.filter { !isHidden($0) }

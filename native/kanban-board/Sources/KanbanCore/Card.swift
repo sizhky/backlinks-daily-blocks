@@ -236,6 +236,18 @@ public enum Board {
     }
     return columns
   }
+
+  /// Refs a shift-click on `target` picks: the span from the nearest picked ref in board order to `target`.
+  /// Nothing picked, or `target` not shown, gives just `target`.
+  /// ```
+  /// pickRange(["a","b","c","d","e"], picked: ["a","e"], to: "d") -> ["d","e"]
+  /// ```
+  public static func pickRange(_ refs: [String], picked: Set<String>, to target: String) -> [String] {
+    guard let t = refs.firstIndex(of: target),
+          let anchor = refs.indices.filter({ picked.contains(refs[$0]) && $0 != t }).min(by: { abs($0 - t) < abs($1 - t) })
+    else { return [target] }
+    return Array(refs[min(anchor, t)...max(anchor, t)])
+  }
 }
 
 /// Work still expected from the Doing cards: each guess (`Card.est`, minutes) less its time in Doing minus idle,
