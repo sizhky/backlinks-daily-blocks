@@ -389,6 +389,14 @@ final class BoardStore: ObservableObject {
   }
 
   /// dx walks to the neighbouring non-empty column; dy walks within a column.
+  /// Shift+up/down (`extend`) also picks the card left and the card reached, so repeated presses grow the picked run.
+  func moveSelection(dx: Int, dy: Int, extend: Bool = false) {
+    let from = selected
+    moveSelection(dx: dx, dy: dy)
+    guard extend, dy != 0, let to = selected, to != from else { return }
+    picked.formUnion([to] + (from.map { [$0] } ?? []))
+  }
+
   func moveSelection(dx: Int, dy: Int) {
     let cols = visible.map(ordered)
     guard let ref = selected, let ci = cols.firstIndex(where: { $0.contains { $0.ref == ref } }),

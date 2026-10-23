@@ -43,8 +43,8 @@ struct BoardView: View {
     .animation(.spring(duration: 0.32, bounce: 0.08), value: store.selected != nil)
     .focusable().focused($boardFocus).focusEffectDisabled()
     .onChange(of: store.selected) { boardFocus = true }
-    .onKeyPress(.upArrow) { board { store.moveSelection(dx: 0, dy: -1) } }
-    .onKeyPress(.downArrow) { board { store.moveSelection(dx: 0, dy: 1) } }
+    .onKeyPress(.upArrow) { board { store.moveSelection(dx: 0, dy: -1, extend: NSEvent.modifierFlags.contains(.shift)) } }
+    .onKeyPress(.downArrow) { board { store.moveSelection(dx: 0, dy: 1, extend: NSEvent.modifierFlags.contains(.shift)) } }
     .onKeyPress(.leftArrow) { board { store.moveSelection(dx: -1, dy: 0) } }
     .onKeyPress(.rightArrow) { board { store.moveSelection(dx: 1, dy: 0) } }
     .onKeyPress(characters: ["j"]) { _ in board { store.moveSelection(dx: 0, dy: 1) } }
