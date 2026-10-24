@@ -22,7 +22,7 @@ struct ObsidianClient {
     const P=app.plugins.plugins["backlinks-daily-blocks"];
     const defs=String(P.settings.kanban.columns).split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean).map(s=>{const n=s.split(/\s+@/)[0];return{name:n.replace(/=.$/,"").replace(/[~!]$/,""),term:/=.$/.test(n),x:/=x$/.test(n)}});
     const rows=s=>s.split("\n").map(l=>l.split("\t")).filter(c=>c.length>=4&&c[0]!=="@column");
-    const habit=ref=>app.metadataCache.getFileCache(ref.replace(/:\d+$/,""))?.frontmatter?.metric!=null;
+    const habit=ref=>app.metadataCache.getCache(ref.replace(/:\d+$/,""))?.frontmatter?.metric!=null;
     const act=rows(await kb.active({includePaused:true,timestamps:true,rank:true,desktop:true,scope:true})).filter(c=>!habit(c[1])).map(c=>[c[0],c[1],c[2],c[3],c[5],c[6],c[4],c[7],c[8]]);
     const est=new Map(String(await kb.estimates()).split("\n").filter(Boolean).map(l=>{const p=l.split("\t");return[p[0],p.slice(1)]}));
     const actv=new Map(String(await kb.activeTimes()).split("\n").filter(Boolean).map(l=>l.split("\t")));
