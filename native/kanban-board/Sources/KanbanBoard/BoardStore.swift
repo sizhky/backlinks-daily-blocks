@@ -470,10 +470,13 @@ final class BoardStore: ObservableObject {
         try? await Task.sleep(for: .seconds(6))
       }
     }
+    // The plugin pushes "changed" after note edits; the slow loop catches what no edit signals
+    // (the done window sliding, settings, a reconnect after Obsidian restarts).
+    Bridge.shared.onChange = { [weak self] in Task { await self?.refresh() } }
     loop = Task { [weak self] in
       while !Task.isCancelled {
         await self?.refresh()
-        try? await Task.sleep(for: .seconds(6))
+        try? await Task.sleep(for: .seconds(60))
       }
     }
   }

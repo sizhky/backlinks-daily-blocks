@@ -7,6 +7,7 @@ const { renderHabitsBlock, renderHabitPad } = require('./habits');
 const { renderScopesBlock } = require('./scopes');
 const { buildApi, makeConfig } = require('./api');
 const { startSleepWatch } = require('./sleep');
+const { startBridge } = require('./bridge');
 const { renderActivityBlock } = require('./activity');
 const { saveTemplateCommand } = require('./templates');
 const { BdbSettingTab, mergeSettings } = require('./settings');
@@ -70,6 +71,7 @@ class BacklinksDailyBlocksPlugin extends Plugin {
     this.api = buildApi(this);
     globalThis.kb = this.api; // CLI shortcut: obsidian eval code='kb.active({limit:3})'
     startSleepWatch(this, () => makeConfig({}, this));
+    startBridge(this);
     this.addSettingTab(new BdbSettingTab(this));
     this.registerView(DOING_VIEW_TYPE, leaf => new DoingView(leaf, this));
     this.addCommand({

@@ -9,6 +9,7 @@ Obsidian plugin. Renders `backlinks`/`daily` code blocks + 4 custom Bases views.
 ```
 src/main.js            plugin class; registers blocks + Bases views (names/options live here)
 src/blocks.js          ```backlinks``` and ```daily``` code block renderers
+src/bridge.js          Unix socket ~/.kanban-board.sock: native clients call kb without obsidian eval; pushes "changed"
 src/core/notes.js      prepareNote: read → strip frontmatter → truncate (%% more %%)
 src/core/tasks.js      setTaskOnLine — THE one place that flips a checkbox in a file
 src/core/scope.js      card scope: inline `@[[Project]]` > `## [[Project]]` heading > note frontmatter; project notes own org + active

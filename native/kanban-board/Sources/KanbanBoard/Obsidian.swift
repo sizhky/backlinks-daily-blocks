@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Network
 import KanbanCore
 
 struct ObsidianError: LocalizedError {
@@ -7,9 +8,8 @@ struct ObsidianError: LocalizedError {
   init(_ message: String) { errorDescription = message }
 }
 
-/// Talks to the backlinks-daily-blocks plugin through `obsidian eval` (global `kb`).
+/// Talks to the backlinks-daily-blocks plugin (global `kb`) through its socket bridge.
 struct ObsidianClient {
-  static let executable = "/Applications/Obsidian.app/Contents/MacOS/obsidian"
 
   /// Live columns come from kb.active (all ages, paused included); done columns from kb.board (recent).
   /// Appends the card scope (kb `scope` rows: inline `@[[Project]]`, `## [[Project]]` heading, then org/projects frontmatter; titles come without the inline mark) to each row, then the task's 1-based ordinal among the
@@ -194,97 +194,96 @@ struct ObsidianClient {
     String(decoding: try JSONEncoder().encode(s), as: UTF8.self)
   }
 
-  /// Runs `code` in Obsidian and returns its value as the CLI prints it (`=> value`).
-  /// The CLI does not reliably wait for promises: async results often came back as empty output
-  /// with exit 0 (even a 50 ms timer), while synchronous evals always worked. So every call is two
-  /// synchronous evals: start the code and park its result in `window.__kbr[id]`, then poll for it.
+  /// Runs `code` in Obsidian through the plugin bridge (`src/bridge.js`) and returns `=> value`,
+  /// the shape the `obsidian eval` CLI printed, so callers and `Board.parse` keep their parsing.
+  /// Each CLI call launched a 116 MB Electron process (0.25 CPU-s) and could not await promises,
+  /// so the app polled with more launches; ~106 launches/min on 2026-10-29. The bridge awaits in place.
   private func eval(_ code: String) async throws -> String {
-    let id = UUID().uuidString
-    let start = "(()=>{const S=(window.__kbr=window.__kbr||{});S['\(id)']=null;"
-      + "Promise.resolve().then(()=>(\(code))).then(v=>{S['\(id)']={ok:v==null?'':String(v)}},"
-      + "e=>{S['\(id)']={err:String(e&&e.stack||e)}});return 'started'})()"
-    _ = try await run(["eval", "code=\(start)"])
-    let fetch = "(()=>{const S=window.__kbr||{},r=S['\(id)'];if(r==null)return '\(Self.pending)';delete S['\(id)'];"
-      + "return r.err!=null?'\(Self.failed)'+r.err:'\(Self.done)'+r.ok})()"
-    let deadline = Date().addingTimeInterval(30)
-    while Date() < deadline {
-      let raw = try await run(["eval", "code=\(fetch)"])
-      let out = raw.hasPrefix("=> ") ? String(raw.dropFirst(3)) : raw
-      if out.hasPrefix(Self.done) {
-        var value = String(out.dropFirst(Self.done.count))
-        if value.hasSuffix("\n") { value.removeLast() }
-        return "=> " + value
-      }
-      if out.hasPrefix(Self.failed) { throw ObsidianError(String(out.dropFirst(Self.failed.count)).trimmingCharacters(in: .whitespacesAndNewlines)) }
-      try await Task.sleep(for: .milliseconds(40))
-    }
-    throw ObsidianError("Obsidian did not answer within 30 s")
-  }
-
-  private static let pending = "KBR:pending", done = "KBR:ok:", failed = "KBR:err:"
-
-  /// Every `obsidian eval` process registers as `md.obsidian`, so the bundle id alone cannot tell the app
-  /// from a CLI call. Only the app has a renderer helper; a CLI call that forwards to it starts just the
-  /// GPU and network helpers (checked 2026-10-15).
-  static func isApp(_ pid: pid_t) -> Bool {
-    var kids = [pid_t](repeating: 0, count: 64)
-    let n = Int(proc_listchildpids(pid, &kids, Int32(kids.count * MemoryLayout<pid_t>.size)))
-    var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-    return kids.prefix(max(0, min(n, kids.count))).contains {
-      $0 > 0 && proc_pidpath($0, &path, UInt32(path.count)) > 0 && String(cString: path).contains("(Renderer)")
-    }
-  }
-
-  static var appIsRunning: Bool {
-    NSRunningApplication.runningApplications(withBundleIdentifier: "md.obsidian").contains { isApp($0.processIdentifier) }
-  }
-
-  private func run(_ arguments: [String]) async throws -> String {
-    guard Self.appIsRunning else { throw ObsidianError("Obsidian is not running.") }
-    return try await withCheckedThrowingContinuation { continuation in
-      DispatchQueue.global().async {
-        let process = Process(), out = Pipe(), err = Pipe(), once = Once(continuation)
-        process.executableURL = URL(fileURLWithPath: Self.executable)
-        process.arguments = arguments
-        process.standardOutput = out
-        process.standardError = err
-        do { try process.run() } catch { once.resume(throwing: error); return }
-        // A call made while Obsidian quits starts the app itself; ending it would quit Obsidian again.
-        let timeout = DispatchWorkItem {
-          guard process.isRunning else { return }
-          if Self.isApp(process.processIdentifier) {
-            once.resume(throwing: ObsidianError("obsidian eval started Obsidian instead of answering."))
-          } else {
-            process.terminate()
-          }
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: timeout)
-        let stdout = out.fileHandleForReading.readDataToEndOfFile()
-        let stderr = err.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        timeout.cancel()
-        if process.terminationStatus == 0 {
-          once.resume(returning: String(decoding: stdout, as: UTF8.self))
-        } else {
-          let message = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-          once.resume(throwing: ObsidianError(message.isEmpty ? "obsidian eval failed." : message))
-        }
-      }
-    }
+    "=> " + (try await Bridge.shared.call(code))
   }
 }
 
-/// Resumes a continuation at most once: the timeout and the process exit can both answer.
-private final class Once: @unchecked Sendable {
-  private let lock = NSLock()
-  private var continuation: CheckedContinuation<String, Error>?
-  init(_ continuation: CheckedContinuation<String, Error>) { self.continuation = continuation }
-  func resume(returning value: String) { take()?.resume(returning: value) }
-  func resume(throwing error: Error) { take()?.resume(throwing: error) }
-  private func take() -> CheckedContinuation<String, Error>? {
-    lock.lock(); defer { lock.unlock() }
-    let c = continuation
-    continuation = nil
+/// One Unix-socket connection to the plugin's bridge. Requests and replies are JSON lines matched by id;
+/// `{"event":"changed"}` lines call `onChange`. A dropped connection fails pending calls; the next call reconnects.
+final class Bridge: @unchecked Sendable {
+  static let shared = Bridge()
+  static let path = NSHomeDirectory() + "/.kanban-board.sock"
+  /// Called on the main actor after the plugin reports a note change (debounced there).
+  var onChange: (@MainActor @Sendable () -> Void)?
+  private let queue = DispatchQueue(label: "kanban.bridge")
+  private var conn: NWConnection?
+  private var buffer = Data()
+  private var nextID = 0
+  private var waiting: [Int: CheckedContinuation<String, Error>] = [:]
+
+  func call(_ code: String) async throws -> String {
+    try await withCheckedThrowingContinuation { c in
+      queue.async { [self] in
+        nextID += 1
+        let id = nextID
+        waiting[id] = c
+        guard let line = try? JSONSerialization.data(withJSONObject: ["id": id, "code": code]) else {
+          return finish(id, .failure(ObsidianError("Could not encode the call.")))
+        }
+        connection().send(content: line + Data([10]), completion: .contentProcessed { [self] err in
+          if let err { queue.async { self.finish(id, .failure(err)) } }
+        })
+        queue.asyncAfter(deadline: .now() + 30) { [self] in finish(id, .failure(ObsidianError("Obsidian did not answer within 30 s"))) }
+      }
+    }
+  }
+
+  private func connection() -> NWConnection {
+    if let conn { return conn }
+    let c = NWConnection(to: .unix(path: Self.path), using: .tcp)
+    c.stateUpdateHandler = { [self] state in
+      switch state {
+      case .waiting, .failed: drop(c, "Obsidian is not running, or the backlinks-daily-blocks plugin is off.")
+      case .cancelled: drop(c, "Obsidian closed the connection.")
+      default: break
+      }
+    }
+    conn = c
+    c.start(queue: queue)
+    receive(c)
     return c
+  }
+
+  private func receive(_ c: NWConnection) {
+    c.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [self] data, _, done, error in
+      if let data { buffer += data; drain() }
+      if done || error != nil { drop(c, "Obsidian closed the connection.") } else { receive(c) }
+    }
+  }
+
+  private func drain() {
+    while let nl = buffer.firstIndex(of: 10) {
+      let line = Data(buffer[buffer.startIndex..<nl])
+      buffer = Data(buffer[(nl + 1)...])
+      guard let msg = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { continue }
+      if msg["event"] as? String == "changed", let onChange {
+        DispatchQueue.main.async { MainActor.assumeIsolated { onChange() } }
+      } else if let id = msg["id"] as? Int {
+        if let err = msg["err"] as? String {
+          finish(id, .failure(ObsidianError(err.trimmingCharacters(in: .whitespacesAndNewlines))))
+        } else {
+          finish(id, .success(msg["ok"] as? String ?? ""))
+        }
+      }
+    }
+  }
+
+  /// Ends a connection once and fails its pending calls, so the next call opens a fresh one.
+  private func drop(_ c: NWConnection, _ reason: String) {
+    guard conn === c else { return }
+    conn = nil
+    buffer = Data()
+    c.stateUpdateHandler = nil
+    c.cancel()
+    for id in Array(waiting.keys) { finish(id, .failure(ObsidianError(reason))) }
+  }
+
+  private func finish(_ id: Int, _ result: Result<String, Error>) {
+    waiting.removeValue(forKey: id)?.resume(with: result)
   }
 }

@@ -2,7 +2,8 @@
 
 SwiftUI app (macOS 26, Swift 6.2 tools, Swift 5 language mode) that shows the Obsidian kanban
 board from the `backlinks-daily-blocks` plugin. It is a client: it never reads or writes vault
-files for tasks. All task data and moves go through `obsidian eval` and the plugin's global `kb`.
+files for tasks. All task data and moves go through the plugin's socket bridge (`src/bridge.js`,
+`~/.kanban-board.sock`) and the plugin's global `kb`.
 It does not depend on `native/doing-tasks`.
 
 ## Map
@@ -76,14 +77,14 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 
 ## Data contract
 
-- `ObsidianClient.boardScript` runs one `obsidian eval` that returns tab rows:
+- `ObsidianClient.boardScript` runs one bridge call that returns tab rows:
   `@column<TAB>Name<TAB>live|done`, then `col<TAB>file:line<TAB>body<TAB>age<TAB>orgs<TAB>projects`.
   Live columns come from `kb.active({includePaused:true})`; done columns from `kb.board`.
-- `ObsidianClient.eval` never relies on the CLI awaiting a promise: on 2026-10-07 async evals (even a
-  50 ms timer) returned empty output with exit 0 most of the time while sync evals always worked, which
-  emptied the board. Each call is a sync eval that parks the result in `window.__kbr[id]`, then sync polls
-  (40 ms) until `KBR:ok:`/`KBR:err:`. Errors from `kb` now surface instead of vanishing.
-- The CLI prefixes output with `=> `. `Board.parse` must strip it and the space after it, or the
+- `ObsidianClient.eval` sends JSON lines over one Unix-socket connection (`Bridge`); the plugin awaits the
+  code and replies `{id, ok|err}`. Do not go back to `obsidian eval`: each call launches a 116 MB Electron
+  process (0.25 CPU-s), and the CLI does not await promises, so the old start-then-poll (40 ms) pair made
+  ~106 launches/min and put the app on macOS's "significant energy" list (2026-10-29).
+- `eval` still returns `=> value`, the CLI's shape. `Board.parse` must strip it and the space after it, or the
   first column is silently dropped (this happened; a test covers it).
 - `Card.identifier` is `KEY-yyMMdd-HHmm[.NN]` from a daily-note file name (HHmm alone repeated across days);
   other notes get `KEY-XXXX[.NN]`, a 4-character base-36 FNV hash of the name. The list column is sized by a hidden widest id.
@@ -128,7 +129,7 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Card `id` is `file|title` (deduped `#n`), set in `Board.parse`; `ref` (file:line) shifts whenever a
   line is inserted above, so it must not be the view identity. Selection and moves still use `ref`.
 - Writes bump `store.writeGen`; `refresh` drops results from before the latest write or during a drag.
-  Without this the 6 s poll can land mid-write and snap an optimistic move back.
+  Without this a refresh can land mid-write and snap an optimistic move back.
 - Card drag is in-app, in `DragController` (no system drag-and-drop: AppKit owns its drag image and
   hover timing, so the card could not settle onto its slot and the ghost lagged 2-3 frames).
   One `DragGesture` on the board content starts a session when it begins on a registered card
@@ -189,7 +190,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
   Cmd-1 selects all, Cmd-2 to Cmd-9 select the first eight orgs in rail order.
 - Sidebar and chip counts come from `store.visible`, so they match the board.
 - Optimistic moves update `columns` inside `withAnimation`, then call `kb`, then refresh.
-- Refresh runs every 6 s. Do not add a second polling loop.
+- Refresh runs on the plugin's `changed` push (note edits, debounced 1 s) and every 60 s as a fallback.
+  Do not add a second polling loop.
 
 ## Think Apple
 

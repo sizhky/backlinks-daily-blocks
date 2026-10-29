@@ -56,6 +56,18 @@ obsidian eval code='kb.METHOD(args)'
   ```
   This also re-registers `globalThis.kb`.
 
+### Socket bridge (long-running clients)
+
+Each `obsidian eval` launches a 116 MB Electron process (~0.25 CPU-s). A client that calls often
+(the Kanban Board app) uses the plugin's Unix socket `~/.kanban-board.sock` (`src/bridge.js`,
+owner-only) instead: one JSON line per message, promises awaited.
+
+```
+-> {"id":1,"code":"kb.active({limit:2})"}
+<- {"id":1,"ok":"<String(value)>"}   or   {"id":1,"err":"<stack>"}
+<- {"event":"changed"}                # pushed 1 s after note edits; refresh on it, do not poll
+```
+
 ## Methods
 
 ### `kb.active(opts?)` — live tasks ("on my plate")
