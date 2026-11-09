@@ -2,11 +2,15 @@ import Foundation
 
 /// An app that holds calls; a calendar names the ones its meetings use (Settings > Tracking).
 public enum CallApp: String, Codable, CaseIterable, Sendable {
-  case teams, zoom, meet
+  case teams, zoom, meet, slack
 
-  public var label: String { switch self { case .teams: "Teams"; case .zoom: "Zoom"; case .meet: "Google Meet" } }
-  /// The host of the app's join links.
-  public var link: String { switch self { case .teams: "teams.microsoft.com"; case .zoom: "zoom.us"; case .meet: "meet.google.com" } }
+  public var label: String {
+    switch self { case .teams: "Teams"; case .zoom: "Zoom"; case .meet: "Google Meet"; case .slack: "Slack" }
+  }
+  /// The host of the app's join links (a Slack huddle link is app.slack.com/huddle/...).
+  public var link: String {
+    switch self { case .teams: "teams.microsoft.com"; case .zoom: "zoom.us"; case .meet: "meet.google.com"; case .slack: "slack.com/huddle" }
+  }
 
   /// The apps whose join link is in the URL, location or notes.
   /// ```
@@ -87,6 +91,11 @@ public struct MeetingTracker: Codable, Equatable, Sendable {
   private var quietSince: Date?
   /// The apps of the running call's event.
   private var currentApps: Set<CallApp> = []
+  /// Start of the running impromptu call; fixes its occurrence key across ticks.
+  private var impromptuStart: Date?
+
+  /// Event id of impromptu calls: a call with no calendar event (a Slack huddle).
+  public static let impromptuID = "impromptu"
 
   public init() {}
 
@@ -104,7 +113,26 @@ public struct MeetingTracker: Codable, Equatable, Sendable {
   /// call again in A                     -> [resume A]
   /// call moves into back-to-back B      -> [finish A, create B]
   /// ```
-  public mutating func tick(now: Date, calls: Set<CallApp>, events: [MeetingEvent]) -> [Action] {
+  ///
+  /// `impromptu`: app -> org for calls with no calendar event; such a call is its own meeting from its start.
+  /// ```
+  /// Slack call, no Slack event, impromptu [slack: Org] -> [create "Slack huddle"]
+  /// Slack call during an event with a Slack link        -> [create that event]
+  /// ```
+  public mutating func tick(now: Date, calls: Set<CallApp>, events: [MeetingEvent], impromptu: [CallApp: String] = [:]) -> [Action] {
+    var events = events
+    let scheduled = Self.pick(events.filter { !$0.apps.isDisjoint(with: calls) }, now: now) != nil
+    if !scheduled, let (app, org) = impromptu.sorted(by: { $0.key.rawValue < $1.key.rawValue }).first(where: { calls.contains($0.key) }) {
+      let start = impromptuStart ?? now
+      impromptuStart = start
+      events.append(MeetingEvent(id: Self.impromptuID, title: "\(app.label) huddle", org: org, start: start, end: now, apps: [app]))
+    }
+    let actions = step(now: now, calls: calls, events: events)
+    if current?.hasPrefix(Self.impromptuID + "@") != true { impromptuStart = nil }
+    return actions
+  }
+
+  private mutating func step(now: Date, calls: Set<CallApp>, events: [MeetingEvent]) -> [Action] {
     let live = events.filter { !$0.apps.isDisjoint(with: calls) }
     let holding = current != nil && !currentApps.isDisjoint(with: calls)
     guard holding || Self.pick(live, now: now) != nil else {

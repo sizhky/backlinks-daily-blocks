@@ -562,7 +562,7 @@ final class BoardStore: ObservableObject {
   private func trackMeetings() {
     let now = Date()
     calendar.loadToday(now: now)
-    let actions = meetings.tick(now: now, calls: CallDetector.calls, events: calendar.events(around: now))
+    let actions = meetings.tick(now: now, calls: CallDetector.calls, events: calendar.events(around: now), impromptu: CalendarSource.impromptu)
     saveMeetings()
     guard !actions.isEmpty else { return }
     writeGen += 1

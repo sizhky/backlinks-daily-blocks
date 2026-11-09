@@ -495,6 +495,7 @@ struct MeetingCalendarsRow: View {
   @ObservedObject private var source = CalendarSource.shared
   @State private var orgs = CalendarSource.orgs
   @State private var apps = CalendarSource.apps
+  @AppStorage(CalendarSource.slackOrgKey) private var slackOrg = ""
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -528,6 +529,18 @@ struct MeetingCalendarsRow: View {
           .background(Color.white.opacity(0.02), in: .rect(cornerRadius: 6))
           .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.hairline))
         }
+      }
+      HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Slack huddles").font(.system(size: 13))
+          Text("A huddle with no calendar event is its own Doing card in this org.").font(.callout).foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 12)
+        Picker("Slack org", selection: $slackOrg) {
+          Text("Off").tag("")
+          ForEach(store.orgs.map(\.name), id: \.self) { Text($0).tag($0) }
+        }
+        .labelsHidden().controlSize(.small).frame(width: 130)
       }
     }
     .onAppear { if source.access == .fullAccess { source.load() } }

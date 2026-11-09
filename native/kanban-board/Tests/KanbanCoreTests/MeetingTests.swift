@@ -67,4 +67,25 @@ final class MeetingTests: XCTestCase {
     m.record(b.key, file: "b.md", now: at(2 * 24 * 60))
     XCTAssertEqual(m.files, [b.key: "b.md"], "a started two days ago")
   }
+
+  func testImpromptuSlackHuddleIsItsOwnCard() {
+    var m = MeetingTracker()
+    let org: [CallApp: String] = [.slack: "Divami"]
+    XCTAssertEqual(m.tick(now: at(100), calls: [.slack], events: [a]), [], "no Slack org set: off")
+    guard case .create(let h)? = m.tick(now: at(101), calls: [.slack], events: [a], impromptu: org).first else { return XCTFail() }
+    XCTAssertEqual([h.title, h.org], ["Slack huddle", "Divami"]); XCTAssertEqual(h.apps, [.slack])
+    m.record(h.key, file: "h.md", now: at(101))
+    XCTAssertEqual(m.tick(now: at(110), calls: [.slack], events: [a], impromptu: org), [], "same huddle keeps its card")
+    XCTAssertEqual(m.tick(now: at(111), calls: [], events: [a], impromptu: org), [])
+    XCTAssertEqual(m.tick(now: at(112.5), calls: [], events: [a], impromptu: org), [.finish(file: "h.md")])
+    guard case .create(let h2)? = m.tick(now: at(120), calls: [.slack], events: [a], impromptu: org).first else { return XCTFail() }
+    XCTAssertNotEqual(h2.key, h.key, "a later huddle is a new card")
+  }
+
+  func testSlackLinkedEventBeatsImpromptu() {
+    var m = MeetingTracker()
+    let s = MeetingEvent(id: "S", title: "Sync", org: "Divami", start: at(0), end: at(30), apps: [.slack])
+    XCTAssertEqual(CallApp.linked(["https://app.slack.com/huddle/T1/C2"]), [.slack])
+    XCTAssertEqual(m.tick(now: at(1), calls: [.slack], events: [s], impromptu: [.slack: "Divami"]), [.create(s)])
+  }
 }

@@ -440,6 +440,10 @@ Before building or wording any UI, ask what Apple would do and do that.
   reloaded each refresh (`loadToday`). The Timeline draws them as dashed org-tinted outlines in today's Doing lane,
   behind the stints; the board shows them as a TODAY chip row under the header (`TodayMeetings`); the widget's
   "Next meeting" part (`WidgetPart.meeting`) shows the running or next one (`MeetingEvent.next`, `when`).
+- Slack huddles are mostly impromptu: Settings > Tracking > Slack huddles names one org (`tracking.slackOrg`, empty
+  is off). A Slack call (`com.tinyspeck.slackmacgap`) with no live calendar event is its own meeting "Slack huddle"
+  (`MeetingTracker.tick` `impromptu`, event id `impromptu`, keyed by the call's start); an event with a
+  `slack.com/huddle` link wins. Teams calls with no event make no card.
 - Each refresh, `MeetingTracker.tick` creates the card in Doing (`kb.createTask`, source `calendar`, no project),
   resumes it on a rejoin, and moves it to Done after 60 s with no call in the event's apps. The call card beats pins and rules in
   `Focus.active` and takes over at once; a call also counts as keep-active, so no input is not idle.

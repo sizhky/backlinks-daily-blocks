@@ -53,6 +53,15 @@ final class CalendarSource: ObservableObject {
 
   static func apps(_ calendar: String) -> Set<CallApp> { apps[calendar] ?? [.teams] }
 
+  /// Org of impromptu Slack huddles (no calendar event); empty is off.
+  static let slackOrgKey = "tracking.slackOrg"
+
+  /// `MeetingTracker.tick`'s impromptu map: Slack -> its org when set.
+  static var impromptu: [CallApp: String] {
+    let org = UserDefaults.standard.string(forKey: slackOrgKey) ?? ""
+    return org.isEmpty ? [:] : [.slack: org]
+  }
+
   /// Today's timed events on calendars mapped to an org, past and upcoming (`loadToday`); the Timeline,
   /// the board strip and the widget show them. An event with no call apps still shows.
   @Published private(set) var today: [MeetingEvent] = []
@@ -96,6 +105,7 @@ enum CallDetector {
     .teams: ["com.microsoft.teams"],
     .zoom: ["us.zoom."],
     .meet: Probe.browsers.keys.sorted() + ["com.apple.WebKit.GPU"],
+    .slack: ["com.tinyspeck.slackmacgap"],
   ]
 
   static func app(_ bundle: String) -> CallApp? {
