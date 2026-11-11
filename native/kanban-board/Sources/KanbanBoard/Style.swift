@@ -2,6 +2,9 @@ import KanbanCore
 import SwiftUI
 
 /// Linear-style status colours.
+/// Inbox reads as quiet: no card count, recessed column, cards at low contrast until hovered or selected.
+func quiet(_ column: String) -> Bool { column.caseInsensitiveCompare("Inbox") == .orderedSame }
+
 func accent(for column: String) -> Color {
   switch column.lowercased() {
   case "backlog": Color(red: 0.54, green: 0.56, blue: 0.60)

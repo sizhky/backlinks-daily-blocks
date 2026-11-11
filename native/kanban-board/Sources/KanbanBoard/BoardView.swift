@@ -423,7 +423,7 @@ struct ColumnView: View {
     // After the width frame: the ZStack inside stays a full column wide while the column is a strip,
     // so hover tracked there showed this column's + while the pointer was over the next column.
     .onHover { hovering = $0 }
-    .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(0.02), in: .rect(cornerRadius: 12))
+    .background(targeted ? accent(for: column.name).opacity(0.08) : Color.white.opacity(quiet(column.name) ? 0 : 0.02), in: .rect(cornerRadius: 12))
     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent(for: column.name).opacity(0.55) : .clear))
     .dragFrame(column.name, in: \.columns, drag.frames)
   }
@@ -435,7 +435,7 @@ struct ColumnView: View {
       StatusGlyph(column: column.name, size: 14).padding(.top, 6)
       Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
         .fixedSize().rotationEffect(.degrees(90)).frame(width: 16, height: 8 + CGFloat(column.name.count) * 7.5)
-      if !column.cards.isEmpty {
+      if !column.cards.isEmpty && !quiet(column.name) {
         Text("\(column.cards.count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(Palette.muted)
       }
       addButton
@@ -452,8 +452,10 @@ struct ColumnView: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 8) {
         StatusGlyph(column: column.name, size: 14)
-        Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
-        Text("\(column.cards.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.muted)
+        Text(column.name).font(.system(size: 13, weight: .medium)).foregroundStyle(quiet(column.name) ? Palette.muted : Palette.text)
+        if !quiet(column.name) {
+          Text("\(column.cards.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(Palette.muted)
+        }
         Spacer()
         addButton
         ColumnMenu(column: column)
@@ -780,6 +782,7 @@ struct IssueCard: View {
       : live ? tint.opacity(0.85) : (hovering ? Palette.hairlineStrong : Palette.hairline), lineWidth: live ? 1.5 : 1))
     // Only the live card glows. A shadow on every card, clear or not, rasterized each card offscreen on every redraw.
     .background { if live { RoundedRectangle(cornerRadius: 9).fill(tint.opacity(0.3)).blur(radius: 8) } }
+    .opacity(quiet(card.col) && !(hovering || selected || picked) ? 0.4 : 1)
     .animation(.easeOut(duration: 0.12), value: hovering)
     .onHover { hovering = $0 }
     .onTapGesture {

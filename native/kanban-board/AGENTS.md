@@ -115,6 +115,8 @@ Tests/KanbanCoreTests/ XCTest, millisecond-scale
 - Column order (`kanban.columnOrder`) and user-hidden columns (`kanban.hiddenColumns`) are by name.
   `store.visible` is already ordered. Only user-hidden columns render in `HiddenColumns` (right panel),
   each row a drop target; empty columns shrink in place to a 44 pt strip (`ColumnView.collapsed`, animated width); a drag over one only highlights the strip, and it widens after the drop; "Collapse column" (`kanban.sinkColumns`, `BoardStore.isSink`) keeps a column a strip with its count that only takes drops, and a click on the strip expands it; list mode skips hidden columns. Column options live in `ColumnMenu`.
+- Inbox is quiet (`quiet(_:)` in `Style.swift`, by request 2026-11-11: a full Inbox caused anxiety): no count in the
+  header or strip, no column fill, muted name, cards at 0.4 opacity until hovered, selected or picked.
 - Never pair `onTapGesture(count: 2)` with a single tap: SwiftUI holds the single tap for the
   double-click interval and selection feels laggy. Use `.simultaneousGesture(TapGesture(count: 2))`.
 - Drag frames go through `dragFrame` (`DragFrame`): the newest view for a key owns it. Refresh animates `columns`, so a
